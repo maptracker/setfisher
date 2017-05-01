@@ -1,0 +1,23 @@
+*~
+*#
+.#*
+
+.Rhistory
+.Rproj.user
+
+foo*
+GA-*benchmark*
+
+## List tracker is internal, don't export files:
+HG-U219LL_to_LT.sh
+HG-U219LL-LT.mtx
+
+## MSigDB data must be downloaded by users on their own
+Ontology-Human_Entrez_MSigDB*
+## The GenAcc dumping script (which has no data) will stay in the repo, though.
+
+## GenAcc temporary fork files
+ForkedRows-*
+
+## These files are auto-generated when loading matrices:
+*.rds
