@@ -99,7 +99,6 @@ sets (the queries and the ontologies) _must_ be provided, while a
 third structure (the __Mapping Matrix__) may be requried in some
 cases. As matrices these appear as:
 
-
 1. One or more sets of interesting genes, the __Queries__, supplied as
    / stored in the __Query Matrix__:
     * Gene __Query IDs__ are in rows and __List Names__ are in columns
@@ -308,9 +307,6 @@ GeneOntology as that of the Query Terms:
       (B, F and J). This term will then only get a fractional count
       of 0.5 (3/6) from 208307_at
       
-
-
-
 ### Additional Features
 
 * Multiple testing adjustment, using `p.adjust()`, defaulting to
