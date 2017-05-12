@@ -19,6 +19,12 @@ my $args = &parseargs({
     verify_hostname => 0,
 });
 
+my $geneIdUrl  = 'https://www.ncbi.nlm.nih.gov/gene/%s'; # For integer IDs
+my $symUrl     = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D';
+my $locLinkUrl = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s'; # For LOC###
+my $bar        = "- " x 20;
+my $mtxSep     = " :: ";
+
 =head2 SSL Issues with NCBI
 
 At time of writing (9 May 2017) there was an issue with a mismatch
@@ -148,19 +154,23 @@ sub make_metadata_file {
         TaxID       => 'tax_id',
         GeneID      => 'GeneID',
         Symbol      => 'Symbol',
+        AuthSym     => 'Symbol_from_nomenclature_authority',
         Type        => 'type_of_gene',
         Status      => 'Nomenclature_status',
         Aliases     => 'Synonyms',
         Description => 'description',
     };
-    my @colOut = qw(GeneID Symbol Type Status Description Aliases);
-    print METAF join("\t", @colOut) ."\n";
+    my @colOut = qw(GeneID Symbol Type Description Aliases);
+    print METAF join("\t", @colOut, "SymScore") ."\n";
 
     my ($fh)  = &gzfh("gene/DATA/gene_info.gz", "gene_info.gz", $cols);
     my @getInds = map { $cols->{$_} } @colOut;
     my $tInd = $cols->{TaxID};   # Taxid, eg 9606
     my $lInd = $cols->{GeneID};  # GeneID, eg 859
+    my $sInd = $cols->{Symbol};  # The 'main' symbol, eg CAV3
     my $aInd = $cols->{Aliases}; # Alt symbols, eg LGMD1C|LQT9|VIP-21|VIP21
+    my $oInd = $cols->{Status};  # Nom.status, eg O, I or blank
+    my $nInd = $cols->{AuthSym}; # Nom.auth symbol
     my $ngene = 0;
 
     while (<$fh>) {
@@ -181,15 +191,67 @@ sub make_metadata_file {
             &err("Row without GeneID ???", $_);
             next;
         }
-        # I am not certain if it is needed, but I want to clean up the
-        # alias field in case there is odd whitespace or null entries.
-        my $aliases = $row[ $aInd ] || "";
-        $aliases =~ s/^\s+//; $aliases =~ s/\s+$//; # Edge whitespace
-        $aliases =~ s/\|[\s\|]+/\|/g; # Null entries
-        $aliases = "" if ($aliases eq '|');
-        $row[ $aInd ] = $aliases;
+        # I am somewhat unclear on the symbol situation. The 'Symbol'
+        # column is NOT unique (eg RNR1 and RNR2 in human). The
+        # Symbol_from_nomenclature_authority is not always reflected
+        # in Symbol or Synonyms (eg MT-RNR1 is listed as RNR1). So I
+        # am going to collect all symbols uniquely in Aliases, and set
+        # the Symbol to be:
+        #    Symbol_from_nomenclature_authority
+        #    Symbol
+        #    First Alias
+
+        my $aliText  = $row[ $aInd ] || "";
+        # Symbols (at least aliases) *can* contain whitespace. Example:
+        # https://www.ncbi.nlm.nih.gov/gene/137964
+        # "1-AGPAT 6"
+        # So just remove whitespace on edges of aliases:
+        $aliText     =~ s/^\s+//; $aliText =~ s/\s+$//; # Edge whitespace
+        # I don't think the following is a problem (eg 'ABC||XYZ') but
+        # will grep it out just in case:
+        $aliText     =~ s/\|[\s\|]+/\|/g; # Null entries
+        $aliText     = "" if ($aliText eq '|'); # Nothing at all
+        # Break into individual symbols:
+        my @aliases  = split(/\s*\|\s*/, $aliText);
+        my %uAli     = map { $aliases[$_] => $_ + 1 } (0..$#aliases);
+
+        # The 'main' "Symbol" column:
+        my $sym      = $row[ $sInd ] || "";
+        my $stat     = $row[ $oInd ] || "";
+        my $priScore = $stat eq "O" ? "1.0" : $stat eq "I" ? "0.5" : "0.4";
+
+        if (my $nas = $row[ $nInd ]) {
+            ## Nomenclature Authority (eg HGNC) symbol is present
+            if ($nas ne $sym) {
+                ## The authoritative symbol is different that the main one
+                ## https://www.ncbi.nlm.nih.gov/gene/4549
+                ## Official Sym = MT-RNR1, gene_info.gz Sym = RNR1
+                ## ... which collides with:
+                ## https://www.ncbi.nlm.nih.gov/gene/6052
+                ## Official Sym = gene_info.gz Sym = RNR1
+                ## Make sure the Symbol column is in the aliases:
+                $uAli{$sym} ||= 0;
+                ## And reset the displayed Symbol:
+                $sym = $row[ $sInd ] = $nas;
+            }
+        }
+        unless ($sym) {
+            ## No symbol set
+            if (my $usym = $aliases[0]) {
+                ## There are aliases - take the first one as "the" symbol:
+                $sym      = $usym;
+                $priScore = 0.4;
+                delete $uAli{$sym};
+            }
+        }
+        delete $uAli{""};
+        delete $uAli{$sym}; # Do not include the "main" symbol in the aliases
+        # Reassemble the aliases in original order:
+        $row[ $aInd ] = join
+            ('|', sort { $uAli{$a} <=> $uAli{$b} } keys %uAli) || "";
+        
         ## Add the entry to the TSV file:
-        print METAF join("\t", map { $row[$_] } @getInds)."\n";
+        print METAF join("\t", (map { $row[$_] } @getInds), $priScore)."\n";
         $ngene++;
     }
     close $fh;
@@ -205,10 +267,10 @@ sub capture_gene_meta {
     open(METAF, "<$mdFile") || &death("Failed to read metadata TSV",
                                       $mdFile, $!);
     my $head = <METAF>;
-    $head =~ s/\[\n\r]+$//;
+    $head =~ s/[\n\r]+$//;
     my @cols = split(/\t/, $head);
     while (<METAF>) {
-        s/\[\n\r]+$//;
+        s/[\n\r]+$//;
         my @row = split(/\t/);
         my %data = map { $cols[$_] => $row[$_] } (0..$#cols);
         my $gid  = $data{GeneID};
@@ -235,17 +297,153 @@ sub map_symbol {
         return $trg;
     }
     &capture_gene_meta();
-    my @gids = sort { $a <=> $b } keys %{$geneMeta};
     my (%symbols, %genes);
-    my $gnum = 0;
-    my %symSc = ( O => 1,   I => 0.5, "" => 0.3 );
+    my ($gnum, $nznum) = (0, 0);
+    my $scoreTags = {
+        Official => "1.0",
+        Interim  => "0.5",
+        Unofficial => "0.4 (preferred) or 0.3",
+    };
+
+    # Symbols should all be the same case - but I'm not certain of
+    # that. They will be collected under an upper-case key, but
+    # preserve the first observed case for recording in the matrix
+    my (@counts, %statuses);
     foreach my $gid (sort { $a <=> $b } keys %{$geneMeta}) {
         my $meta = $geneMeta->{$gid};
-        my $stat = $meta->{Status} || "";
-
+        my $pri  = $meta->{Symbol} || "";
+        my $ns = 0;
+        my $gn;
+        if ($pri) {
+            # "Main" / "primary" symbol
+            my $pSc  = ($meta->{SymScore}  || 0.4) + 0;
+            my $targ = $symbols{uc($pri)} ||= {
+                name => $pri,
+                hits => [],
+            };
+            $gn ||= $genes{$gid} ||= ++$gnum;
+            $statuses{ $pSc == 1 ? "Official" :
+                         $pSc == 0.5 ? "Interim" : "Unofficial" }++;
+            push @{$targ->{hits}}, ($gn, $pSc);
+            $nznum++;
+            $ns++;
+        }
+        my @alis = @{$meta->{Aliases}};
+        $ns += $#alis + 1;
+        $counts[$ns < 10 ? $ns : 10 ]++;
+        for my $i (0..$#alis) {
+            ## All aliases will have a score of 0.3
+            $statuses{"Unofficial"}++;
+            my $sym = $alis[$i];
+            my $targ = $symbols{uc($sym)} ||= {
+                name => $sym,
+                hits => [],
+            };
+            $gn ||= $genes{$gid} ||= ++$gnum;
+            push @{$targ->{hits}}, ($gn, 0.3);
+            $nznum++;
+        }
+        
     }
 
-    die "Working"
+    my @rowIds  = sort keys %symbols;
+    my @gids    = sort { $genes{$a} <=> $genes{$b} } keys %genes;
+    my ($rnum,$cnum) = ($#rowIds + 1, $#gids + 1);
+
+    open(MTX, ">$trg") || &death("Failed to write Symbol map", $trg, $!);
+    print MTX "%%MatrixMarket matrix coordinate real general
+% Mapping from $specID symbols to Entrez IDs
+% $rnum x $cnum sparse matrix with $nznum non-zero cells
+% -- The 'setfisher' package can parse these comments to decorate the matrix --
+% Separator '$mtxSep'
+%% DEFAULT Name $specID Symbol-to-Entrez Map
+%% DEFAULT Description 1.0=Official Symbol, 0.5=Interim, 0.4=Preferred unofficial, 0.3=Unofficial
+% 'Preferred unofficial' = Just the first listed unofficial symbol
+%
+% Rows are Gene Symbols
+%% DEFAULT RowDim Gene Symbol
+%% DEFAULT RowUrl $symUrl
+% Columns are Entrez IDs
+%% DEFAULT ColDim Entrez ID
+%% DEFAULT ColUrl $geneIdUrl
+%
+% CAUTION: Some symbols have case/capitalization subtleties. While
+% there are often historical reasons for these case decisions,
+% attempting to extract information from a gene symbol's case is about
+% as reliable as determining the contents of a wrapped present by
+% listening to the noises it makes when shaken. If you are pivotting
+% data from symbols (rather than accessions) you're already working at
+% a significant disadvantage:
+%             PLEASE MATCH SYMBOLS CASE-INSENSITIVELY
+% Case is preserved to aid in 'pretty' display of the symbols.
+%
+% $bar
+% Symbol statuses:
+";
+
+    # Basic statistics commentary
+    foreach my $stat (sort { $statuses{$b} <=> $statuses{$a} } keys %statuses) {
+        printf(MTX "%% %15s : %d : score %s\n", $stat, $statuses{$stat},
+               $scoreTags->{$stat} || "??");
+    }
+    print MTX "%
+% Number of genes refererenced by symbol := Number of symbols
+";
+    for my $i (1..10) {
+        printf(MTX "%%  %s := %d\n", $i == 10 ? ">9" : " $i", $counts[$i]);
+    }
+    print MTX "% $bar
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+% $bar
+";
+
+    ## Note row metadata
+    my @meta = qw(Official NotOfficial);
+    printf(MTX "%% Row %s\n", join($mtxSep, "Name", @meta));
+    for my $i (0..$#rowIds) {
+        my $dat  = $symbols{$rowIds[$i]};
+        my $hits = $dat->{hits};
+        my ($o, $u) = (0,0);
+        for (my $j = 1; $j <= $#{$hits}; $j += 2) {
+            if ($hits->[$j] < 1) { $u++ } else { $o++ }
+        }
+        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $dat->{name}, $o, $u));
+    }
+
+    ## Column metadata
+    print MTX "\% $bar\n";
+    &mtx_entrez(\@gids, 'Col');
+
+    ## Finally, note triples for non-zero cells
+    print MTX "% $bar
+% Matrix triples : Row Col Score
+% $bar
+";
+    printf(MTX "  %d %d %d\n", $rnum, $cnum, $nznum);
+    for my $i (0..$#rowIds) {
+        my $hits = $symbols{$rowIds[$i]}{hits};
+        for (my $j = 0; $j < $#{$hits}; $j += 2) {
+            printf(MTX "%d %d %0.1f\n", $i+1, $hits->[$j], $hits->[$j+1]);
+        }
+    }
+    close MTX;
+    &msg("Generated Symbol to Entrez mapping", $trg);
+    return $trg;
+}
+
+sub mtx_entrez {
+    my ($ids, $rc) = @_;
+    &capture_gene_meta();
+    my @meta = qw(Symbol Type Description);
+    printf(MTX "%% %s %s\n", $rc, join($mtxSep, "Name", @meta));
+    for my $i (0..$#{$ids}) {
+        my $id = $ids->[$i];
+        my $m = $geneMeta->{$id} || {};
+
+        my @line = ($id, map { defined $_ ? $_ : "" } map { $m->{$_} } @meta);
+        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, @line));
+    }
 }
 
 sub ontology_go {
@@ -282,7 +480,7 @@ sub ontology_go {
     my $eInd = $cols->{ec};    # Evidence code, eg TAS
     my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
     my (%genes, %goMeta);
-    my ($nrow, $ngo) = (0,0);
+    my ($nznum, $ngo) = (0,0);
 
     while (<$fh>) {
         s/[\n\r]+$//;
@@ -315,11 +513,125 @@ sub ontology_go {
         }
         # Capture orderID/score pairs
         push @{$genes{ $row[ $lInd ] }}, ( $gm->{order}, $sc );
-        $nrow++;
+        $nznum++;
     }
     close $fh;
     warn "     ... writing matrix market file ...\n";
 
+    my @goids = sort { $goMeta{$a}{order} <=> $goMeta{$b}{order} } keys %goMeta;
+    my @gids  = sort { $a <=> $b } keys %genes;
+    my ($rnum, $cnum) = ($#gids + 1, $#goids + 1);
+
+    open(MTX, ">$trg") || &death("Failed to write Symbol map", $trg, $!);
+    print MTX "%%MatrixMarket matrix coordinate real general
+% Mapping from $specID Entrez IDs to GeneOntology Terms
+% $rnum x $cnum sparse matrix with $nznum non-zero cells
+% -- The 'setfisher' package can parse these comments to decorate the matrix --
+% Separator '$mtxSep'
+%% DEFAULT Name $specID Entrez GeneOntology
+%% DEFAULT Description GeneOntology assignments for $specID Entrez genes
+%
+% Rows are Entrez IDs
+%% DEFAULT RowDim Entrez ID
+%% DEFAULT RowUrl $geneIdUrl
+% Columns are GO Terms
+%% DEFAULT ColDim GO Term
+%% DEFAULT ColUrl http://amigo.geneontology.org/amigo/term/%s
+%
+% Terms with few genes assigned to them struggle to reach statistical
+% significance. Excluding them removes some distractions, but also
+% helps minimize multiple-testing penalties on 'long shot' terms. The
+% threshold below represents the minimum number of genes to be
+% assigned to a term for the term to be kept.
+%
+%% DEFAULT minSetSize 7
+%
+% A major distortion in Fisher-based testing can come from
+% 'questionable' genes. These include real-but-untranscribed entities
+% (eg pseudogenes), speculative entries that will eventually be
+% removed from the transcriptome, or rare genes that are expressed
+% only in certain tissues or developmental stages. From a
+% marbles-in-an-urn perspective, all these categories represent
+% marbles that can NEVER be removed from the urn - the effect is to
+% inflate the significance of those that you do, since the world size
+% is larger than it really should be. A fairly simple way to
+% automatically recognize such objects is to look at the total number
+% of terms annotated to each gene, since speculative genes tend to be
+% unannotated. The filter below removes genes with fewer than the
+% indicated number of terms assigned to it.
+%
+%% DEFAULT minOntoSize 2
+%
+% High-level GO terms tend to be less useful in biological
+% interpretation. We have also observed that they tend to be
+% disproportionately significant as they are greatly impacted by the
+% effect mentioned above (un-selectable genes distorting the
+% significance of enriched sets). Terms that are assigned to a higher
+% percentage of the world below will be excluded from the analysis. In
+% addition to possibly bringing some clarity to reports (how often is
+% a significant hit to 'Catalytic process' going to help you?) it
+% brings a small multiple testing benefit.
+%
+%% DEFAULT maxSetPerc 5
+%
+% Used in SetFisher, the filters above would be applied recursively;
+% Terms are removed, then genes, and the process is repeated until no
+% further alterations occur.
+%
+%% $bar
+%% Values should be treated as factors representing evidence codes:
+";
+
+    my $top = "%% ------     ";
+    my $bot = "%% LEVELS [,][";
+    for my $li (0..$#ecl) {
+        my $l = $ecl[$li];
+        my $v = $ecSc{$l};
+        $l .= ',' unless ($li == $#ecl);
+        $bot .= $l;
+        $top .= sprintf('%-'.CORE::length($l).'s', $v);
+    }
+    print MTX "$top\n";
+    print MTX "$bot]\n";
+    print MTX "%% Lower factor values should represent lower confidence evidence.\n";
+    print MTX "%% http://geneontology.org/page/guide-go-evidence-codes\n";
+    print MTX "% $bar
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+% $bar
+";
+
+    ## Row metadata
+    &mtx_entrez(\@gids, 'Row');
+    print MTX "\% $bar\n";
+
+    ## Column metadata
+    my @meta = qw(Description Category);
+    printf(MTX "%% Col %s\n", join($mtxSep, "Name", @meta));
+    for my $i (0..$#goids) {
+        my $goid = $goids[$i];
+        my $dat  = $goMeta{$goid};
+        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $goid,
+                                            map { $dat->{$_} } @meta));
+    }
+
+    ## Finally, note triples for non-zero cells
+    print MTX "% $bar
+% Matrix triples : Row Col Score
+% $bar
+";
+    printf(MTX "  %d %d %d\n", $rnum, $cnum, $nznum);
+    for my $i (0..$#gids) {
+        my $hits = $genes{$gids[$i]};
+        for (my $j = 0; $j < $#{$hits}; $j += 2) {
+            printf(MTX "%d %d %d\n", $i+1, $hits->[$j], $hits->[$j+1]);
+        }
+    }
+    close MTX;
+    &msg("Generated Entrez GO ontology", $trg);
+
+    die "Working here";
+    return $trg;
 }
 
 sub parseargs {
