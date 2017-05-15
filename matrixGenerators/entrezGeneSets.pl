@@ -134,6 +134,7 @@ push @taxBits, "File token: $specID";
 
 &map_symbol();
 &ontology_go();
+&ontology_pubmed();
 
 sub make_metadata_file {
     # Simple TSV file of species-specific metadata
@@ -203,10 +204,18 @@ sub make_metadata_file {
 
         my $aliText  = $row[ $aInd ] || "";
         # Symbols (at least aliases) *can* contain whitespace. Example:
-        # https://www.ncbi.nlm.nih.gov/gene/137964
-        # "1-AGPAT 6"
+        #   https://www.ncbi.nlm.nih.gov/gene/137964 -> "1-AGPAT 6"
+        # ~168 human aliases have a space in them.
         # So just remove whitespace on edges of aliases:
         $aliText     =~ s/^\s+//; $aliText =~ s/\s+$//; # Edge whitespace
+        # Found at least one instance where a stray semicolon snuck in
+        #   https://www.ncbi.nlm.nih.gov/gene/7334 -> "UBCHBEN; UBC13"
+        # ... and one with a comma:
+        #   https://www.ncbi.nlm.nih.gov/gene/441282 -> ""
+        # Pretty sure the semicolon is not allowed in a symbol, but it
+        # looks like the comma can be:
+        #   https://www.ncbi.nlm.nih.gov/gene/10317 -> "beta-1,3-GalTase 5"
+        $aliText     =~ s/\s*[;]\s*/\|/g;
         # I don't think the following is a problem (eg 'ABC||XYZ') but
         # will grep it out just in case:
         $aliText     =~ s/\|[\s\|]+/\|/g; # Null entries
@@ -308,7 +317,7 @@ sub map_symbol {
     # Symbols should all be the same case - but I'm not certain of
     # that. They will be collected under an upper-case key, but
     # preserve the first observed case for recording in the matrix
-    my (@counts, %statuses);
+    my (%statuses, %oddChar);
     foreach my $gid (sort { $a <=> $b } keys %{$geneMeta}) {
         my $meta = $geneMeta->{$gid};
         my $pri  = $meta->{Symbol} || "";
@@ -329,11 +338,12 @@ sub map_symbol {
             $ns++;
         }
         my @alis = @{$meta->{Aliases}};
-        $ns += $#alis + 1;
-        $counts[$ns < 10 ? $ns : 10 ]++;
+        my $nUn  = $#alis + 1;
+        $ns     += $nUn;
+        $statuses{"Unofficial"} += $nUn;
+
         for my $i (0..$#alis) {
             ## All aliases will have a score of 0.3
-            $statuses{"Unofficial"}++;
             my $sym = $alis[$i];
             my $targ = $symbols{uc($sym)} ||= {
                 name => $sym,
@@ -342,8 +352,24 @@ sub map_symbol {
             $gn ||= $genes{$gid} ||= ++$gnum;
             push @{$targ->{hits}}, ($gn, 0.3);
             $nznum++;
+            ## Tally odd characters. Mostly curiosity, but these may
+            ## cause issues in some workflows.
+            ## Allowed atypical characters:
+            ##   '_' eg C4B_2 -> https://www.ncbi.nlm.nih.gov/gene/100293534
+            ##   '@' eg HOXA@ -> https://www.ncbi.nlm.nih.gov/gene/3197
+            $sym =~ s/[a-z0-9\.\-_@]//gi;
+            foreach my $char (split('', $sym)) {
+                if ($char) {
+                    $oddChar{$char}{n}++;
+                    $oddChar{$char}{ex} ||= $alis[$i];
+                }
+            }
         }
-        
+    }
+    my @counts;
+    foreach my $sdat (values %symbols) {
+        my $ngene = ($#{$sdat->{hits}} + 1) / 2;
+        $counts[$ngene < 10 ? $ngene : 10 ]++;
     }
 
     my @rowIds  = sort keys %symbols;
@@ -389,8 +415,18 @@ sub map_symbol {
     print MTX "%
 % Number of genes refererenced by symbol := Number of symbols
 ";
-    for my $i (1..10) {
-        printf(MTX "%%  %s := %d\n", $i == 10 ? ">9" : " $i", $counts[$i]);
+    for my $i (1..$#counts) {
+        printf(MTX "%%  %s := %d\n", $i == 10 ? ">9" : " $i", $counts[$i] || 0);
+    }
+    my @ocs = sort { $oddChar{$b}{n} <=> $oddChar{$a}{n} } keys %oddChar;
+    if ($#ocs != -1) {
+        print MTX "%
+% Potentially troublesome character := Number of symbols (Example)
+";
+        foreach my $oc (@ocs) {
+            my $ocd = $oddChar{$oc};
+            printf(MTX "%%  '%s' := %5d (%s)\n", $oc, $ocd->{n}, $ocd->{ex});
+        }
     }
     print MTX "% $bar
 % Comment blocks for [Row Name] and [Col Name] follow, followed finally by
@@ -444,6 +480,28 @@ sub mtx_entrez {
         my @line = ($id, map { defined $_ ? $_ : "" } map { $m->{$_} } @meta);
         printf(MTX "%% %d %s\n", $i+1, join($mtxSep, @line));
     }
+}
+
+sub ontology_pubmed {
+    my $trg = sprintf("%s/Ontology-%s_Entrez-to-PubMed.mtx", 
+                      $outDir, $specID);
+    unless (&output_needs_creation($trg)) {
+        &msg("Keeping existing GeneOntology file:", $trg);
+        return $trg;
+    }
+    &capture_gene_meta();
+    &msg("Parsing PubMed");
+    ## If you see 'expected column' errors, you will need to change
+    ## the right hand value (after the '=>') of the offending column,
+    ## after determining what the new column name is:
+    my $cols = { 
+        taxid  => 'tax_id',
+        gene   => 'GeneID',
+    };
+    my ($fh) = &gzfh("gene/DATA/gene2pubmed.gz", "gene2pubmed.gz", $cols);
+    close $fh;
+    warn "     ... writing matrix market file ...\n";
+    return $trg;
 }
 
 sub ontology_go {
