@@ -1,23 +1,28 @@
 #!/usr/bin/perl -w
 
 use strict;
-use LWP::UserAgent;
-use Archive::Tar;
-use File::Path 'mkpath';
-use IO::Uncompress::Gunzip;
-
+my $scriptDir;
 my $defTmp = "/tmp/entrezGeneSets";
-my $defFtp = "https://ftp.ncbi.nih.gov/";
+my $defFtp = "ftp.ncbi.nih.gov";
 my $defEC  = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
 
-my $args = &parseargs({
-    tmpdir   => $defTmp,
+our $defaultArgs = {
     ftp      => $defFtp,
     eclevels => $defEC,
     dir      => ".",
-    clobber  => 0,
-    verify_hostname => 0,
-});
+};
+
+BEGIN {
+    use File::Basename;
+    $scriptDir = dirname($0);
+}
+use lib "$scriptDir";
+require Utils;
+our ($args, $clobber, $ftp);
+
+use Archive::Tar;
+use File::Path 'mkpath';
+use IO::Uncompress::Gunzip;
 
 my $geneIdUrl  = 'https://www.ncbi.nlm.nih.gov/gene/%s'; # For integer IDs
 my $symUrl     = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D';
@@ -38,24 +43,7 @@ matching common name this option should be removed.
 
 =cut
 
-my $tmpDir   = $args->{tmpdir}; $tmpDir =~ s/\/+$//;
 my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
-my $ftpUrl   = $args->{ftp};    $ftpUrl =~ s/\/+$//;
-my $clobber  = $args->{clobber} || 0;
-my $ua       = LWP::UserAgent->new;
-$ua->env_proxy;
-if (my $prox = $args->{proxy}) {
-    $ua->proxy(['http', 'ftp'], $prox);
-    &msg("Set proxy:", $prox);
-}
-foreach my $sslopt (qw(verify_hostname SSL_ca_file SSL_ca_path)) {
-    ## Certificates are fun!
-    my $v = $args->{lc($sslopt)};
-    if (defined $v) {
-        $ua->ssl_opts( $sslopt, $v);
-        &msg("SSL Option:", "$sslopt => $v");
-    }
-}
 
 &mkpath([$tmpDir, $outDir]);
 
@@ -688,34 +676,8 @@ sub ontology_go {
     close MTX;
     &msg("Generated Entrez GO ontology", $trg);
 
-    die "Working here";
     return $trg;
 }
-
-sub parseargs {
-    ## Command line argument parsing
-    my $rv = $_[0] || {};
-    my $i = 0;
-    while ($i <= $#ARGV) {
-        my $key = lc($ARGV[$i]);
-        $key =~ s/^\-+//;
-        my $val = $i < $#ARGV && $ARGV[$i+1] !~ /^\-/ ? $ARGV[++$i] : 1;
-        $rv->{$key} = $val;
-        $i++;
-    }
-    return $rv;
-}
-
-sub msg {
-    warn "[*] ".join("\n    ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
-}
-
-sub err {
-    warn "[!!] ERROR: ".join
-        ("\n     ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
-}
-
-sub death { &err(@_); die " -- "; }
 
 sub gzfh {
     my ($urlDir, $locFile, $expectCols) = @_;
@@ -785,38 +747,3 @@ sub extract_taxa_info {
     return { error => "No match for '$req' found in $srcFile" };
 }
 
-sub fetch_url {
-    my ($uReq, $dReq) = @_;
-    my $dest = "$tmpDir/$dReq"; # Local file path
-    if (&source_needs_recovery($dest)) {
-        ## File not yet downloaded, or request to re-download
-        my $url = "$ftpUrl/$uReq"; # Remote URL
-        my $res = $ua->get( $url, ':content_file' => $dest );
-        if (-s $dest) {
-            &msg("Downloaded $dReq", $dest);
-        } else {
-            die join("\n  ", "Faliled to recover file",
-                     "Source: $url", "Destination: $dest",
-                     sprintf("HTTP Result: %s=%s",
-                             $res->code(), $res->message()),  "");
-        }
-    }
-    return $dest;
-}
-
-
-sub output_needs_creation {
-    my $path = shift;
-    ## Not if the file exists, is non-zero size, and clobber is false
-    return 0 if (!$clobber && (-s $path));
-    ## Otherwise yes:
-    return 1;
-}
-
-sub source_needs_recovery {
-    my $path = shift;
-    ## Not if the file exists, is non-zero size, and clobber is 0 or 1
-    return 0 if ($clobber < 2 && (-s $path));
-    ## Otherwise yes
-    return 1;
-}

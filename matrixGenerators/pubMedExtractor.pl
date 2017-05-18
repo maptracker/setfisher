@@ -1,11 +1,36 @@
 #!/usr/bin/perl -w
 
 use strict;
+my $scriptDir;
+my $defTmp   = "/tmp/pubmedFiles";
+my $defFtp   = "ftp.ncbi.nlm.nih.gov";
+
+our $defaultArgs = {
+    pubmeddb => "",
+    ftp      => $defFtp,
+};
+
+BEGIN {
+    use File::Basename;
+    $scriptDir = dirname($0);
+}
+use lib "$scriptDir";
+require Utils;
+our ($args, $clobber, $ftp);
+
+use Net::FTP;
 use LWP::UserAgent;
 use IO::Uncompress::Gunzip;
 use XML::Parser::PerlSAX;
+use DBI;
 
-use Data::Dumper;
+
+my ($sec, $min, $hr, $day, $mon, $year, $wday) = localtime;
+my $today = sprintf("%04d-%02d-%02d", $year+1900, $mon+1, $day);
+
+my ($dbh, $getXS, $setXS, $doneXS, $clearPM, $setPM, $xsid);
+my $defDbName = "simplePubMed.sqlite";
+
 
 my @mnThree    = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
 my @mnFull     = qw(January February March April May June 
@@ -44,13 +69,98 @@ for my $i (1..12) {
 }
 my $grabDate = { map { $_ => 1 } qw(Year Month Day MedlineDate) };
 
+my $fileReq = $args->{file};
+my $dirReq  = $args->{dir};
+my $pmdb    = $args->{pubmeddb};
+my $email   = $args->{email};
+
+if ($args->{h} || $args->{help} || !($pmdb && $email) ) {
+    warn "
+Usage:
+
+This program will generate a SQLite database of PubMed IDs, article
+titles and publication dates. It was written to support metadata
+assignment for PubMed-based gene sets in the SetFisher package. It may
+have utility in other applications as well.
+
+Required Arguments:
+
+ -pubmeddb A path to the file that will hold the SQLite
+           database. Alternatively, a directory to hold the file, in
+           which case the database will be named '$defDbName' at that
+           location.
+
+    -email NCBI requests that you provide your email address as a
+           password when using their FTP servers.
+
+Optional Arguments:
+
+      -ftp Default '$defFtp'. URL to Entrez's FTP site.
+
+   -tmpdir Default '$defTmp'. A location to hold downloaded files
+
+      -dir A remote directory in -ftp to parse.
+
+  -clobber Default 0, which will preserve any already-generated
+           files. Set to 1 to regenerate matrix files, and any value
+           greater than 1 to also re-download base files from Entrez.
+
+";
+    &err("Please provide an email address for FTP access") unless ($email);
+    &err("Please provide the path where you'd like the DB") unless ($pmdb);
+    exit;
+}
 
 
-&parse_file($ARGV[0]);
+if ($fileReq) {
+    &parse_file( $fileReq );
+} else {
+    &parse_all();
+}
+
+sub parse_all {
+    &msg("Finding XML files at NCBI");
+    &get_dbh();
+    &_ftp();
+    my @xmls;
+    foreach my $type (qw(baseline updatefiles)) {
+        my $sd = "/pubmed/$type";
+        $ftp->cwd($sd);
+        push @xmls, map { "$sd/$_" } $ftp->ls('*.xml.gz');
+    }
+    my $tot = $#xmls+1;
+    my (@need, $lastParsed);
+    foreach my $path (@xmls) {
+        ($xsid, $lastParsed) = &xsid_for_file($path);
+        push @need, $path unless ($lastParsed && !$clobber);
+    }
+    my $todo = $#need + 1;
+    &msg("Found $tot XML files, $todo need parsing");
+    foreach my $file (@need) {
+        &parse_file($file);
+    }
+    &msg("All updates finished");
+}
 
 sub parse_file {
     my $file = shift;
     return unless ($file);
+    &get_dbh();
+
+    ## Get the XML Source ID for this file:
+    my $lastParsed;
+    ($xsid, $lastParsed) = &xsid_for_file($file);
+    if ($lastParsed) {
+        ## We have already parsed
+        if ($clobber) {
+            &msg("Reparsing: $file");
+        } else {
+            &msg("Already parsed: $file");
+            return;
+        }
+    } else {
+        &msg("New Source: $file");
+    }
 
     my $handler = PubMedHandler->new(  );
     my $parser  = XML::Parser::PerlSAX->new( Handler => $handler );
@@ -62,22 +172,105 @@ sub parse_file {
         open($fh, "<$file") || &death("Failed to read file", $file, $!);
     }
     
+    my $t = time;
+    $dbh->begin_work;
+    ## Clear any old records for this XML file:
+    $clearPM->execute( $xsid );
     $parser->parse( Source => { ByteStream => $fh } );
-
+    $doneXS->execute($today, $xsid);
+    $dbh->commit;
+    $t = (time - $t) / 60;
+    warn sprintf("    Done: %.1f min\n", $t);
 }
 
-sub msg {
-    warn "[*] ".join("\n    ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
+
+sub get_dbh {
+    return $dbh if ($dbh);
+    if (-d $pmdb) {
+        $pmdb =~ s/\/+$//;
+        $pmdb = "$pmdb/$defDbName";
+    }
+    return &_create_db( $pmdb ) unless ( -s $pmdb );
+    return &_sths( $pmdb );
+ }
+
+sub _con_db {
+    my $file = shift;
+    &msg("Connecting to DB: $file");
+    return $dbh = 
+        DBI->connect("dbi:SQLite:dbname=$file",'','', {
+            AutoCommit => 1,
+            RaiseError => 1,
+            PrintError => 0 });
 }
 
-sub err {
-    warn "[!!] ERROR: ".join
-        ("\n     ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
+sub _sths {
+    my $file = shift;
+    $dbh ||= &_con_db($file);
+
+    $getXS   = $dbh->prepare("SELECT xsid, parsed FROM xml_source".
+                             " WHERE file = ?");
+    $setXS   = $dbh->prepare("INSERT INTO xml_source (file) VALUES (?)");
+    $doneXS  = $dbh->prepare("UPDATE xml_source SET parsed = ? WHERE xsid = ?");
+
+    $clearPM = $dbh->prepare("DELETE FROM pmid WHERE xsid = ?");
+    $setPM   = $dbh->prepare("INSERT INTO pmid (pmid, xsid, pubdate, title)".
+                             " VALUES (?, ?, ?, ?)");
+    return $dbh;
 }
 
-sub death { &err(@_); die " -- "; }
+sub xsid_for_file {
+    my ($file) = @_;
+    return wantarray ? (0,"") : 0 unless ($file);
+    my $short = basename($file);
+    $getXS->execute( $short );
+    my $rv = $getXS->fetchall_arrayref();
+    if ($#{$rv} == -1) {
+        ## Need to note this file in the DB
+        $setXS->execute( $short);
+        $getXS->execute( $short );
+        $rv = $getXS->fetchall_arrayref();
+        &death("Failed to insert new XML source", $file) if ($#{$rv} != 0);
+    } elsif ($#{$rv} != 0) {
+        &death("XML source is not uniquely represented in DB", $file);
+    }
+    return wantarray ? @{$rv->[0]} : $rv->[0][0];
+}
 
-### Custom SAX handler module:
+
+sub _create_db {
+    my $file = shift;
+    &msg("Creating SQLite database", $file);
+    &_con_db($file);
+    # print Dumper( $dbh->sqlite_db_status() );
+    ## Table to track files being parsed
+
+    ## Primary integer keys in SQLite act as sorta-kinda
+    ## auto-incrememnt fields, with the danger of value recycling
+    ## after delete:
+    ## https://stackoverflow.com/a/7906029
+
+    $dbh->do( "CREATE TABLE xml_source (
+  xsid   INTEGER PRIMARY KEY,
+  file   TEXT,
+  parsed TEXT
+)");
+    $dbh->do( "CREATE INDEX xf_idx ON xml_source (file)");
+    
+    ## FOREIGN KEY(xsid) REFERENCES xml_source(xsid),
+    $dbh->do( "CREATE TABLE pmid (
+  pmid     INTEGER PRIMARY KEY,
+  xsid     INTEGER,
+  pubdate  TEXT,
+  title    TEXT
+)");
+    
+    return &_sths( $file );
+}
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+###   Custom SAX handler module
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 
 package PubMedHandler;
 
@@ -215,14 +408,6 @@ sub _write_record {
     &msg("Multiple titles for PMID:$pmid") if ($#{$title} > 0);
     ## Life is much easier if we stick to ASCII
     $title->[0] =~ s/\P{IsASCII}/?/g;
-    printf(" %8s [%s] %s\n", "PMID:$pmid", $date, $title->[0]);
-}
-
-sub msg {
-    warn "[*] ".join("\n    ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
-}
-
-sub err {
-    warn "[!!] ERROR: ".join
-        ("\n     ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
+    $setPM->execute($pmid, $xsid, $date, $title->[0]);
+    # printf(" %8s [%s] %s\n", "PMID:$pmid", $date, $title->[0]);
 }
