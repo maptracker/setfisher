@@ -60,25 +60,26 @@ sub _ftp {
 
 sub fetch_url {
     my ($uReq, $dReq) = @_;
-    unless ($dReq) {
-        $dReq = $uReq; $dReq =~ s/.+\///;
-    }
+    $dReq    = basename($uReq) unless ($dReq);
     my $dest = "$tmpDir/$dReq"; # Local file path
     if (&source_needs_recovery($dest)) {
         ## File not yet downloaded, or request to re-download
         my $pending = 1;
+        ## For NCBI it looks like the timeout is 60 seconds, and
+        ## parsing is ~90 seconds per file on my system. Close and
+        ## reinitialize to be assured of a 'live' connection:
+        undef $ftp; &_ftp();
         while ($pending) {
             $ftp->get($uReq, $dest);
             if (-s $dest) {
                 &msg("Downloaded $dReq", $dest);
+                undef $ftp;
                 $pending = 0;
             } else {
-                if ($pending >= 3) {
-                    &err("Failed to recover remote file after $pending tries",
-                         "Source: $uReq", "Destination: $dest", $@);
-                    return "";
-                }
-                $pending++;
+                &err("Attempt $pending: Failed to recover remote file",
+                     "Source: $uReq", "Destination: $dest", $ftp->message);
+                return "" if ($pending++ >= 3);
+                sleep(5);
             }
         }
     }

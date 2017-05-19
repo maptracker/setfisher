@@ -16,7 +16,7 @@ BEGIN {
 }
 use lib "$scriptDir";
 require Utils;
-our ($args, $clobber, $ftp);
+our ($args, $clobber, $ftp, $tmpDir);
 
 use Net::FTP;
 use LWP::UserAgent;
@@ -33,6 +33,7 @@ my ($dbh, $xsid,
     $getXS, $setXS, $doneXS, $clearPM, $delPM, $setPM);
 my $defDbName = "simplePubMed.sqlite";
 my $maxAbst   = 150;
+my $noTitle   = "-No title-";
 
 
 my @mnThree    = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
@@ -70,13 +71,12 @@ for my $i (1..12) {
     $mnHash->{$i} = $i;
     $mnHash->{sprintf("%02d", $i)} = $i;
 }
-my $grabDate = { map { $_ => 1 } qw(Year Month Day MedlineDate) };
 
 my $fileReq = $args->{file};
-my $dirReq  = $args->{dir};
 my $pmdb    = $args->{pubmeddb};
 my $email   = $args->{email};
 my $analyze = $args->{analyze};
+my $keepxml = $args->{keepxml};
 
 if ($args->{h} || $args->{help} || !($pmdb && $email) ) {
     warn "
@@ -87,12 +87,38 @@ titles and publication dates. It was written to support metadata
 assignment for PubMed-based gene sets in the SetFisher package. It may
 have utility in other applications as well.
 
+The database extracts and stores the following information from all
+XML files found in the 'baseline' and 'updatefiles' section of
+Medline:
+
+ PubMed ID: The integer PubMed/Medline identifier, eg 17804965
+
+   Version: Almost always 1, but incremented if the same publication
+            is present in the system more than once.
+
+      Date: In YYYY-MM-DD format, leaving out day and month if they
+            are not identified. Taken from PubDate, or MedlineDate if
+            PubDate is not available.
+
+     Title: The article's title, eg 'A Structure for Deoxyribose
+            Nucleic Acid'. This will be taken from the XML field
+            ArticleTitle, or failing that from VernacularTitle,
+            failing that from AbstractText (truncated to $maxAbst
+            characters) and finally giving up with '$noTitle'.
+
+XML files will be downloaded from the NCBI FTP site and deleted after
+being transformed into TSV files (~10% the size of their XML sources).
+
 Required Arguments:
 
  -pubmeddb A path to the file that will hold the SQLite
            database. Alternatively, a directory to hold the file, in
            which case the database will be named '$defDbName' at that
            location.
+
+                     >>   ASSURE YOU HAVE SPACE   <<
+
+           In May 2017 the final database was a bit over 5 gigabytes.
 
     -email NCBI requests that you provide your email address as a
            password when using their FTP servers.
@@ -117,12 +143,19 @@ Optional Arguments:
            be done periodically to assure statistics are gathered for
            the indices.
 
+  -keepxml Default 0. If true, then XML files will be kept. Otherwise
+           they will be deleted after intermediate TSV files have been
+           generated from them.
+
+     -help Show this documentation
+
 ";
     &err("Please provide an email address for FTP access") unless ($email);
     &err("Please provide the path where you'd like the DB") unless ($pmdb);
     exit;
 }
 
+&msg("XML files are: ".($keepxml ?"Kept":"Discarded (set -keepxml to retain)"));
 
 if ($fileReq) {
     &parse_file( $fileReq );
@@ -150,47 +183,100 @@ sub parse_all {
         push @xmls, map { "$sd/$_" } $ftp->ls('*.xml.gz');
     }
     my $tot = $#xmls+1;
+    &death("No files found??") unless ($tot);
     my (@need, $lastParsed);
     foreach my $path (@xmls) {
         ($xsid, $lastParsed) = &xsid_for_file($path);
-        push @need, $path unless ($lastParsed && !$clobber);
+        unless ($lastParsed && !$clobber) {
+            push @need, [$path, $xsid, $lastParsed ? "Reparsing":"New Source"];
+        }
     }
     my $todo = $#need + 1;
-    &msg("Found $tot XML files, $todo need parsing");
-    foreach my $file (@need) {
-        &parse_file($file);
+    my $tdf  = $todo / $tot;
+    my @bits = (" Total Files: $tot",
+                sprintf("Need Parsing: %d = %.1f%%", $todo, 100*$tdf));
+                
+    if ($tdf > 0) {
+        if (my $sz = (-s $pmdb)) {
+            push @bits, sprintf("Est. DB Size: %.3f GB", $sz/((1-$tdf)* 10**9));
+        }
+    }
+    &msg(@bits);
+    foreach my $fx (@need) {
+        &parse_file(@{$fx});
     }
     &msg("All updates finished");
 }
 
 sub parse_file {
-    my ($file) = @_;
+    my ($file, $xsid, $act) = @_;
     return unless ($file);
+    $file =~ s/\.tsv.*$// if ($file =~ /\.tsv/);
+    &death("Unexpected file passed for parsing",
+           "Files should have format:",
+           "medline<stuff>.xml.gz",
+           "Request: $file") unless ($file =~ /\bmedline.+\.xml\.gz$/);
+
+    $act ||= "Manual Request";
+    unless ($xsid) {
+        ## Get the XML Source ID for this file:
+        &get_dbh();
+        my $lastParsed;
+        ($xsid, $lastParsed) = &xsid_for_file($file);
+        if ($lastParsed) {
+            ## We have already parsed
+            if ($clobber) {
+                $act = "Reparsing";
+            } else {
+                &msg("Already parsed: $file");
+                return;
+            }
+        } else {
+            $act = "New Source";
+        }
+    }
+    &msg("$act: $file");
+    my $tsv = &make_tsv($file); 
+    return unless ($tsv);
+
+    my $t = time;
+    ## Clear any old records for this XML file:
+    $clearPM->execute( $xsid );
+    open(TSV, "<$tsv") || &death("Failed to read TSV file", $tsv, $!);
+    my $head = <TSV>;
+    my $num  = 0;
+    while (<TSV>) {
+        s/[\n\r]+$//;
+        my ($pmid, $v, $date, $title) = split(/\t/);
+        $setPM->execute($pmid, $v, $xsid, $date, $title);
+        $num++;
+    }
+    close TSV;
+    $doneXS->execute($today, $xsid);
+    $dbh->commit;
+    my @bits = ("Entries: $num (xsid = $xsid)",
+                sprintf("DB Time: %d sec", time - $t));
+    &msg(@bits);
+}
+
+sub make_tsv {
+    my ($file) = @_;
+    my $tsv = join('/', $tmpDir, basename($file). ".tsv");
+    return $tsv unless (&output_needs_creation($tsv));
+
     unless (-s $file) {
         $file = &fetch_url($file);
         unless ($file) {
             &err("Failed to recover file, skipping:",$_[0]);
-            return;
+            return "";
         }
     }
-    &get_dbh();
 
-    ## Get the XML Source ID for this file:
-    my $lastParsed;
-    ($xsid, $lastParsed) = &xsid_for_file($file);
-    if ($lastParsed) {
-        ## We have already parsed
-        if ($clobber) {
-            &msg("Reparsing: $file");
-        } else {
-            &msg("Already parsed: $file");
-            return;
-        }
-    } else {
-        &msg("New Source: $file");
-    }
+    my $t = time;
 
-    my $handler = PubMedHandler->new(  );
+    my $handler = PubMedHandler->new( $tsv );
+    # die $handler->can("_end_Title");
+    # die $handler->can("_end_ArticleTitle");
     my $parser  = XML::Parser::PerlSAX->new( Handler => $handler );
     my $fh;
     if ($file =~ /\.gz$/) {
@@ -200,14 +286,22 @@ sub parse_file {
         open($fh, "<$file") || &death("Failed to read file", $file, $!);
     }
     
-    my $t = time;
     # $dbh->begin_work;
-    ## Clear any old records for this XML file:
-    $clearPM->execute( $xsid );
-    $parser->parse( Source => { ByteStream => $fh } );
-    $doneXS->execute($today, $xsid);
-    $dbh->commit;
-    warn sprintf("    Done: %.1f min\n", (time - $t) / 60);
+    eval {
+        $parser->parse( Source => { ByteStream => $fh } );
+    };
+    if ($handler->{doneXML}) {
+        my @bits = (" TSV: $tsv",
+                    sprintf("Time: %.1f min", (time - $t) / 60));
+        unless ($keepxml) {
+            unlink($file);
+        }
+        &msg(@bits);
+    } else {
+        unlink($tsv);
+        &death("Failed to complete parse of XML", $file);
+    }
+    return $tsv;
 }
 
 
@@ -294,15 +388,17 @@ sub _create_db {
     $dbh->do( "CREATE TABLE pmid (
   pmid     INTEGER,
   vers     INTEGER,
-  FOREIGN KEY(xsid) REFERENCES xml_source(xsid),
+  xsid     INTEGER,
   pubdate  TEXT,
-  title    TEXT
+  title    TEXT,
+  FOREIGN KEY(xsid) REFERENCES xml_source(xsid)
 )");
     ## A PMID can exist in multiple versions, and those versions can
     ## be in multiple files. This makes uniqueness management a bit more
     ## awkward; Can't handle it simply file-by-file. Example:
     ## PMID:27928497 in 17n0891 + 17n0892
     $dbh->do( "CREATE UNIQUE INDEX pmid_unique_idx ON pmid (pmid, vers)");
+    $dbh->commit;
     
     return &_sths( $file );
 }
@@ -322,10 +418,29 @@ sub new {
         stack  => [],
         record => {},
         done   => 0,
-        doneV  => {},
     };
     bless ($self, $class);
+    my $tsv = $self->{tsv} = shift;
+    my $tmp = $self->{tmp} = "$tsv.tmp";
+    my $fh;
+    open($fh, ">$tmp") || &death("Failed to write TSV", $tmp, $!);
+    print $fh join("\t", qw(pmid vers pubdate title))."\n";
+    $self->{fh} = $fh;
     return $self;
+}
+
+sub DESTROY {
+    my $self = shift;
+    unless ($self->{doneXML}) {
+        &err("Object destruction before XML parse completion!");
+        if (my $fh = $self->{fh}) {
+            close $fh;
+        }
+        # Do not allow partial TSV file:
+        if (my $tsv = $self->{tsv}) {
+            unlink($tsv) if (-s $tsv);
+        }
+    }
 }
 
 sub msg {
@@ -348,65 +463,105 @@ sub end_element {
     my ($self, $element) = @_;
     my $node = pop @{$self->{stack}};
     my $name = $node->{Name};
-    if ($name eq 'PubmedArticle') {
-        # Got to the end of a record, write it
-        $self->_write_record();
-    } elsif ($name eq 'PMID') {
-        # die Dumper($node);
-        # Primary ID
-        my $par = $self->{stack}[-1]{Name};
-        if ($par eq 'MedlineCitation') {
-            # PMID entries can show up elsewhere, so check parent
-            my $pmid = join('', @{$node->{text}});
-            ## die "DEBUGGING" if ($pmid > 100);
-            if ($self->{record}{pmid}) {
-                &err("Multiple PMID entries", "$pmid vs $self->{record}{pmid}");
-            } else {
-                $self->{record}{pmid} = $pmid;
-                $self->{record}{idv}  = -2;
-                if (my $att = $node->{Attributes}) {
-                    $self->{record}{idv} = $att->{Version} || -1;
-                }
+    if (my $meth = $self->can("_end_$name")) {
+        &{$meth}($self, $name, $node);
+    }
+}
+
+sub _end_PubmedArticle {
+    my ($self, $name, $node) = @_;
+    # Got to the end of a record, write it
+    $self->_write_record();
+}
+
+sub _end_PubmedArticleSet {
+    my ($self, $name, $node) = @_;
+    # Full document was parsed
+    $self->{doneXML} = 1;
+    if (my $fh = $self->{fh}) {
+        close $fh;
+        my $tsv = $self->{tsv};
+        my $tmp = $self->{tmp};
+        rename($tmp, $tsv);
+    }
+}
+
+sub _end_PMID {
+    my ($self, $name, $node) = @_;
+    # die Dumper($node);
+    # Primary ID
+    my $par = $self->{stack}[-1]{Name};
+    if ($par eq 'MedlineCitation') {
+        # PMID entries can show up elsewhere, so check parent
+        my $pmid = join('', @{$node->{text}});
+        ## die "DEBUGGING" if ($pmid > 100);
+        if ($self->{record}{pmid}) {
+            &err("Multiple PMID entries", "$pmid vs $self->{record}{pmid}");
+        } else {
+            $self->{record}{pmid} = $pmid;
+            $self->{record}{idv}  = -2;
+            if (my $att = $node->{Attributes}) {
+                $self->{record}{idv} = $att->{Version} || -1;
             }
         }
-    } elsif ($name eq 'ArticleTitle' || $name eq 'VernacularTitle') {
-        # Hopefully the title, which is 99% of why I am interested in
-        # parsing these files. Some entries have empty ArticleTitle,
-        # but filled VernacularTitle, eg PMID:27868948
-        if (my $txt = $node->{text}) {
-            ## These tags can be empty (no text) eg PMID:27868948
-            push @{$self->{record}{article}[-1]{$name}}, join('', @{$txt});
-        }
-    } elsif ($name eq 'AbstractText') {
-        ## Using this as a fallback title text
-        if (my $txt = $node->{text}) {
-            $txt = join('', @{$txt});
-            ## Truncate to $maxAbst characters
-            $txt = substr($txt, 0, $maxAbst).'...' 
-                if (CORE::length($txt) > $maxAbst );
-            push @{$self->{record}{article}[-1]{Abstract}}, $txt;
-        }
-    } elsif ($grabDate->{$name}) {
-        # Date information (Year, Month, Day and grab-bag "MedlineDate")
-        my $par = $self->{stack}[-1]{Name};
-        if ($par eq 'PubDate') {
-            # Date information shows up many places, make sure it is
-            # attached to the article
-            push @{$self->{record}{article}[-1]{$name}}, 
-            join('', @{$node->{text}});
-            #if ($name eq 'MedlineDate') { warn Dumper($self->{record}); die; }
-        }
-    } elsif ($name eq 'Title') {
-        my $par = $self->{stack}[-1]{Name};
-        if ($par eq 'Journal') {
-            # This appears to be the title of the journal. I am not
-            # doing anything with these at the moment. If someone were
-            # interested in getting this information, be sure to check
-            # if other parent tags (eg maybe "Conference", "TextBook",
-            # "SketchyBlog", etc) might be present
-            push @{$self->{record}{article}[-1]{$par}}, 
-            join('', @{$node->{text}});
-        }
+    }
+}
+
+# Globs do not seem to work with ->can("globname")
+sub _end_ArticleTitle    { shift->_end_Title_set( @_ ) }
+sub _end_VernacularTitle { shift->_end_Title_set( @_ ) }
+sub _end_Title_set {
+    my ($self, $name, $node) = @_;
+    # Hopefully the title, which is 99% of why I am interested in
+    # parsing these files. Some entries have empty ArticleTitle, but
+    # filled VernacularTitle, eg PMID:27868948
+    if (my $txt = $node->{text}) {
+        ## These tags can be empty (no text) eg PMID:27868948
+        push @{$self->{record}{article}[-1]{$name}}, join('', @{$txt});
+    }    
+}
+
+sub _end_AbstractText {
+    my ($self, $name, $node) = @_;
+    ## Using this as a fallback title text
+    if (my $txt = $node->{text}) {
+        $txt = join('', @{$txt});
+        ## Truncate to $maxAbst characters
+        $txt = substr($txt, 0, $maxAbst).'...' 
+            if (CORE::length($txt) > $maxAbst );
+        ## Abstract sections can have multiple entries. Just take the
+        ## first encounted one, generally will be introduction or
+        ## background. eg PMID:27735882
+        $self->{record}{article}[-1]{Abstract} ||= [ $txt ];
+    }
+}
+ 
+sub _end_Year        { shift->_end_Date_set( @_ ) }
+sub _end_Month       { shift->_end_Date_set( @_ ) }
+sub _end_Day         { shift->_end_Date_set( @_ ) }
+sub _end_MedlineDate { shift->_end_Date_set( @_ ) }
+sub _end_Date_set {
+    my ($self, $name, $node) = @_;
+    # Date information (Year, Month, Day and grab-bag "MedlineDate")
+    my $par = $self->{stack}[-1]{Name};
+    if ($par eq 'PubDate') {
+        # Date information shows up many places, make sure it is
+        # attached to the article
+        push @{$self->{record}{article}[-1]{$name}}, join('', @{$node->{text}});
+        #if ($name eq 'MedlineDate') { warn Dumper($self->{record}); die; }
+    }
+}
+
+sub _end_Title {
+    my ($self, $name, $node) = @_;
+    my $par = $self->{stack}[-1]{Name};
+    if ($par eq 'Journal') {
+        # This appears to be the title of the journal. I am not doing
+        # anything with these at the moment. If someone were
+        # interested in getting this information, be sure to check if
+        # other parent tags (eg maybe "Conference", "TextBook",
+        # "SketchyBlog", etc) might be present
+        push @{$self->{record}{article}[-1]{$par}}, join('', @{$node->{text}});
     }
 }
 
@@ -428,16 +583,6 @@ sub _write_record {
     my $pmid = $record->{pmid};
     return unless ($pmid);
     open(FOO, ">/tmp/foo.txt"); print FOO "Starting PMID $pmid\n"; close FOO;
-    my $rV   = $record->{idv};
-    if (my $dV = $self->{doneV}{$pmid}) {
-        ## Some records may be in the DB under multiple
-        ## versions. Capture only the most recent
-        return if ($dV >= $rV);
-        ## We will replace an older record; Delete it to prevent a
-        ## constraint violation:
-        $delPM->execute( $pmid );
-    }
-    $self->{doneV}{$pmid} = $rV;
     my $date = "";
     my @arts = @{$record->{article} || []};
     &msg("Multiple articles for PMID:$pmid") if ($#arts > 0);
@@ -491,15 +636,20 @@ sub _write_record {
         } else {
             &msg("No title found for PMID:$pmid");
         }
-        $title ||= ["-No title-"];
+        $title ||= [$noTitle];
     }
     &msg("Multiple titles for PMID:$pmid") if ($#{$title} > 0);
-    ## Life is much easier if we stick to ASCII
-    $title->[0] =~ s/\P{IsASCII}/?/g;
-    $setPM->execute($pmid, $record->{idv} || 0, $xsid, $date, $title->[0]);
-    unless (++$self->{done} % 1000) {
+    $title = $title->[0] || "";
+    ## Life is much easier if we stick to ASCII. This will remove some
+    ## special symbols
+    $title =~ s/\P{IsASCII}/?/g;
+    $title =~ s/\s*\t\s*/ /g; # Tabs would be A Bad Thing
+    my $fh = $self->{fh};
+    print $fh join
+        ("\t", $pmid, $record->{idv} || 0, $date, $title)."\n";
+    unless (++$self->{done} % 5000) {
         &msg(sprintf("  #%5d %15s [%-10s] %s", $self->{done}, "PMID:$pmid",
-                     $date, substr($title->[0], 0, 80) ) );
+                     $date, substr($title, 0, 80) ) );
     }
     # printf(" %8s [%s] %s\n", "PMID:$pmid", $date, $title->[0]);
 }

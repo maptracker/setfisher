@@ -2,7 +2,7 @@
 
 use strict;
 my $scriptDir;
-my $defTmp = "/tmp/entrezGeneSets";
+our $defTmp = "/tmp/entrezGeneSets";
 my $defFtp = "ftp.ncbi.nih.gov";
 my $defEC  = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
 
@@ -21,7 +21,6 @@ require Utils;
 our ($args, $clobber, $ftp);
 
 use Archive::Tar;
-use File::Path 'mkpath';
 use IO::Uncompress::Gunzip;
 
 my $geneIdUrl  = 'https://www.ncbi.nlm.nih.gov/gene/%s'; # For integer IDs
@@ -45,7 +44,7 @@ matching common name this option should be removed.
 
 my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
 
-&mkpath([$tmpDir, $outDir]);
+&mkpath([$outDir]);
 
 my $taxDat   = &extract_taxa_info( $args->{species} );
 
