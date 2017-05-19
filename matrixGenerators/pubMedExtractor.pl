@@ -2,7 +2,7 @@
 
 use strict;
 my $scriptDir;
-my $defTmp   = "/tmp/pubmedFiles";
+our $defTmp   = "/tmp/pubmedFiles";
 my $defFtp   = "ftp.ncbi.nlm.nih.gov";
 
 our $defaultArgs = {
@@ -24,12 +24,15 @@ use IO::Uncompress::Gunzip;
 use XML::Parser::PerlSAX;
 use DBI;
 
+# print Dumper($args); die;
 
 my ($sec, $min, $hr, $day, $mon, $year, $wday) = localtime;
 my $today = sprintf("%04d-%02d-%02d", $year+1900, $mon+1, $day);
 
-my ($dbh, $getXS, $setXS, $doneXS, $clearPM, $setPM, $xsid);
+my ($dbh, $xsid, 
+    $getXS, $setXS, $doneXS, $clearPM, $delPM, $setPM);
 my $defDbName = "simplePubMed.sqlite";
+my $maxAbst   = 150;
 
 
 my @mnThree    = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
@@ -73,6 +76,7 @@ my $fileReq = $args->{file};
 my $dirReq  = $args->{dir};
 my $pmdb    = $args->{pubmeddb};
 my $email   = $args->{email};
+my $analyze = $args->{analyze};
 
 if ($args->{h} || $args->{help} || !($pmdb && $email) ) {
     warn "
@@ -99,11 +103,19 @@ Optional Arguments:
 
    -tmpdir Default '$defTmp'. A location to hold downloaded files
 
-      -dir A remote directory in -ftp to parse.
+     -file A specific XML file to parse. If not provided, then the
+           remote site will be scanned for '*.xml.gz' files, all of
+           which will be loaded
 
-  -clobber Default 0, which will preserve any already-generated
-           files. Set to 1 to regenerate matrix files, and any value
-           greater than 1 to also re-download base files from Entrez.
+  -clobber Default 0, which will ignore files already loaded in the
+           database. A value of 1 will cause already-loaded XML files
+           to be reparsed. A value of 2 will also cause the remote
+           file to be fetched again.
+
+  -analyze Default 1, unless -file was specified, in which case
+           0. Will ANALYZE the database at the end of the run. Should
+           be done periodically to assure statistics are gathered for
+           the indices.
 
 ";
     &err("Please provide an email address for FTP access") unless ($email);
@@ -115,7 +127,16 @@ Optional Arguments:
 if ($fileReq) {
     &parse_file( $fileReq );
 } else {
+    $analyze = 1 unless (defined $analyze);
     &parse_all();
+}
+
+if ($analyze) {
+    my $t = time;
+    &msg("Running ANALYZE on database ... ");
+    &get_dbh();
+    $dbh->do("ANALYZE");
+    warn sprintf("    Done: %.1f min\n", (time - $t) / 60);
 }
 
 sub parse_all {
@@ -143,8 +164,15 @@ sub parse_all {
 }
 
 sub parse_file {
-    my $file = shift;
+    my ($file) = @_;
     return unless ($file);
+    unless (-s $file) {
+        $file = &fetch_url($file);
+        unless ($file) {
+            &err("Failed to recover file, skipping:",$_[0]);
+            return;
+        }
+    }
     &get_dbh();
 
     ## Get the XML Source ID for this file:
@@ -173,14 +201,13 @@ sub parse_file {
     }
     
     my $t = time;
-    $dbh->begin_work;
+    # $dbh->begin_work;
     ## Clear any old records for this XML file:
     $clearPM->execute( $xsid );
     $parser->parse( Source => { ByteStream => $fh } );
     $doneXS->execute($today, $xsid);
     $dbh->commit;
-    $t = (time - $t) / 60;
-    warn sprintf("    Done: %.1f min\n", $t);
+    warn sprintf("    Done: %.1f min\n", (time - $t) / 60);
 }
 
 
@@ -199,7 +226,7 @@ sub _con_db {
     &msg("Connecting to DB: $file");
     return $dbh = 
         DBI->connect("dbi:SQLite:dbname=$file",'','', {
-            AutoCommit => 1,
+            AutoCommit => 0,
             RaiseError => 1,
             PrintError => 0 });
 }
@@ -214,8 +241,10 @@ sub _sths {
     $doneXS  = $dbh->prepare("UPDATE xml_source SET parsed = ? WHERE xsid = ?");
 
     $clearPM = $dbh->prepare("DELETE FROM pmid WHERE xsid = ?");
-    $setPM   = $dbh->prepare("INSERT INTO pmid (pmid, xsid, pubdate, title)".
-                             " VALUES (?, ?, ?, ?)");
+    $delPM   = $dbh->prepare("DELETE FROM pmid WHERE pmid = ?");
+    $setPM   = $dbh->prepare
+        ("INSERT INTO pmid (pmid, vers, xsid, pubdate, title)".
+         " VALUES (?, ?, ?, ?, ?)");
     return $dbh;
 }
 
@@ -227,7 +256,10 @@ sub xsid_for_file {
     my $rv = $getXS->fetchall_arrayref();
     if ($#{$rv} == -1) {
         ## Need to note this file in the DB
-        $setXS->execute( $short);
+        eval {
+            $setXS->execute( $short);
+            $dbh->commit;
+        };
         $getXS->execute( $short );
         $rv = $getXS->fetchall_arrayref();
         &death("Failed to insert new XML source", $file) if ($#{$rv} != 0);
@@ -255,15 +287,22 @@ sub _create_db {
   file   TEXT,
   parsed TEXT
 )");
-    $dbh->do( "CREATE INDEX xf_idx ON xml_source (file)");
+    $dbh->do("CREATE UNIQUE INDEX xf_idx ON xml_source (file)");
     
+    ## xsid     INTEGER,
     ## FOREIGN KEY(xsid) REFERENCES xml_source(xsid),
     $dbh->do( "CREATE TABLE pmid (
-  pmid     INTEGER PRIMARY KEY,
-  xsid     INTEGER,
+  pmid     INTEGER,
+  vers     INTEGER,
+  FOREIGN KEY(xsid) REFERENCES xml_source(xsid),
   pubdate  TEXT,
   title    TEXT
 )");
+    ## A PMID can exist in multiple versions, and those versions can
+    ## be in multiple files. This makes uniqueness management a bit more
+    ## awkward; Can't handle it simply file-by-file. Example:
+    ## PMID:27928497 in 17n0891 + 17n0892
+    $dbh->do( "CREATE UNIQUE INDEX pmid_unique_idx ON pmid (pmid, vers)");
     
     return &_sths( $file );
 }
@@ -280,11 +319,17 @@ sub new {
     my $proto = shift;
     my $class = ref($proto) || $proto;
     my $self = {
-        stack => [],
+        stack  => [],
         record => {},
+        done   => 0,
+        doneV  => {},
     };
     bless ($self, $class);
     return $self;
+}
+
+sub msg {
+    return &main::msg(@_);
 }
 
 sub start_element {
@@ -307,6 +352,7 @@ sub end_element {
         # Got to the end of a record, write it
         $self->_write_record();
     } elsif ($name eq 'PMID') {
+        # die Dumper($node);
         # Primary ID
         my $par = $self->{stack}[-1]{Name};
         if ($par eq 'MedlineCitation') {
@@ -317,13 +363,29 @@ sub end_element {
                 &err("Multiple PMID entries", "$pmid vs $self->{record}{pmid}");
             } else {
                 $self->{record}{pmid} = $pmid;
+                $self->{record}{idv}  = -2;
+                if (my $att = $node->{Attributes}) {
+                    $self->{record}{idv} = $att->{Version} || -1;
+                }
             }
         }
-    } elsif ($name eq 'ArticleTitle') {
+    } elsif ($name eq 'ArticleTitle' || $name eq 'VernacularTitle') {
         # Hopefully the title, which is 99% of why I am interested in
-        # parsing these files.
-        push @{$self->{record}{article}[-1]{Title}}, 
-        join('', @{$node->{text}});
+        # parsing these files. Some entries have empty ArticleTitle,
+        # but filled VernacularTitle, eg PMID:27868948
+        if (my $txt = $node->{text}) {
+            ## These tags can be empty (no text) eg PMID:27868948
+            push @{$self->{record}{article}[-1]{$name}}, join('', @{$txt});
+        }
+    } elsif ($name eq 'AbstractText') {
+        ## Using this as a fallback title text
+        if (my $txt = $node->{text}) {
+            $txt = join('', @{$txt});
+            ## Truncate to $maxAbst characters
+            $txt = substr($txt, 0, $maxAbst).'...' 
+                if (CORE::length($txt) > $maxAbst );
+            push @{$self->{record}{article}[-1]{Abstract}}, $txt;
+        }
     } elsif ($grabDate->{$name}) {
         # Date information (Year, Month, Day and grab-bag "MedlineDate")
         my $par = $self->{stack}[-1]{Name};
@@ -362,8 +424,20 @@ sub _write_record {
     my $self = shift;
     my $record = $self->{record};
     #print Dumper($record); die;
-    my $pmid = $record->{pmid};
     return unless ($record);
+    my $pmid = $record->{pmid};
+    return unless ($pmid);
+    open(FOO, ">/tmp/foo.txt"); print FOO "Starting PMID $pmid\n"; close FOO;
+    my $rV   = $record->{idv};
+    if (my $dV = $self->{doneV}{$pmid}) {
+        ## Some records may be in the DB under multiple
+        ## versions. Capture only the most recent
+        return if ($dV >= $rV);
+        ## We will replace an older record; Delete it to prevent a
+        ## constraint violation:
+        $delPM->execute( $pmid );
+    }
+    $self->{doneV}{$pmid} = $rV;
     my $date = "";
     my @arts = @{$record->{article} || []};
     &msg("Multiple articles for PMID:$pmid") if ($#arts > 0);
@@ -404,10 +478,28 @@ sub _write_record {
             $date = $1;
         }
     }
-    my $title = $art->{Title} ||= ["-No title-"];
+    my $title = $art->{ArticleTitle} || $art->{VernacularTitle} || 
+        $art->{Abstract};
+    unless ($title) {
+        # No title found
+        if (my $jour = $art->{Journal}) {
+            # At least note the journal
+            $title = [ map { "[Untitled] $_" } @{$jour} ] if ($jour->[0]);
+            ## ... but these seem to get updated! eg PMID:27869070,
+            ## which is untitled in 2016 XML but has title ("Une cause
+            ## inhabituelle d'hyperCKemie.") at NLM as of May 2017.
+        } else {
+            &msg("No title found for PMID:$pmid");
+        }
+        $title ||= ["-No title-"];
+    }
     &msg("Multiple titles for PMID:$pmid") if ($#{$title} > 0);
     ## Life is much easier if we stick to ASCII
     $title->[0] =~ s/\P{IsASCII}/?/g;
-    $setPM->execute($pmid, $xsid, $date, $title->[0]);
+    $setPM->execute($pmid, $record->{idv} || 0, $xsid, $date, $title->[0]);
+    unless (++$self->{done} % 1000) {
+        &msg(sprintf("  #%5d %15s [%-10s] %s", $self->{done}, "PMID:$pmid",
+                     $date, substr($title->[0], 0, 80) ) );
+    }
     # printf(" %8s [%s] %s\n", "PMID:$pmid", $date, $title->[0]);
 }

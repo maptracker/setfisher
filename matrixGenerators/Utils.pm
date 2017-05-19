@@ -1,6 +1,6 @@
 use strict;
-use LWP::UserAgent;
 use Data::Dumper;
+use File::Path 'mkpath';
 
 our ($defaultArgs, $defTmp, $ftp);
 
@@ -10,27 +10,13 @@ our $args = &parseargs({
     ## Defaults common to tools:
     tmpdir   => $defTmp,
     clobber  => 0,
-    verify_hostname => 0,
-                       });
+    verify_hostname => 0,  });
 
-my $tmpDir   = $args->{tmpdir}; $tmpDir =~ s/\/+$//;
-my $clobber  = $args->{clobber} || 0;
-my $ua       = LWP::UserAgent->new;
+our $tmpDir   = $args->{tmpdir}; $tmpDir =~ s/\/+$//;
+our $clobber  = $args->{clobber} || 0;
+&mkpath([$tmpDir]) if ($tmpDir);
 
-$ua->env_proxy;
-if (my $prox = $args->{proxy}) {
-    $ua->proxy(['http', 'ftp'], $prox);
-    &msg("Set proxy:", $prox);
-}
-foreach my $sslopt (qw(verify_hostname SSL_ca_file SSL_ca_path)) {
-    ## Certificates are fun!
-    my $v = $args->{lc($sslopt)};
-    if (defined $v) {
-        $ua->ssl_opts( $sslopt, $v);
-        &msg("SSL Option:", "$sslopt => $v");
-    }
-}
-
+# die Dumper($args);
 
 sub parseargs {
     ## Command line argument parsing
@@ -80,15 +66,20 @@ sub fetch_url {
     my $dest = "$tmpDir/$dReq"; # Local file path
     if (&source_needs_recovery($dest)) {
         ## File not yet downloaded, or request to re-download
-        my $url = "$ftp/$uReq"; # Remote URL
-        my $res = $ua->get( $url, ':content_file' => $dest );
-        if (-s $dest) {
-            &msg("Downloaded $dReq", $dest);
-        } else {
-            die join("\n  ", "Faliled to recover file",
-                     "Source: $url", "Destination: $dest",
-                     sprintf("HTTP Result: %s=%s",
-                             $res->code(), $res->message()),  "");
+        my $pending = 1;
+        while ($pending) {
+            $ftp->get($uReq, $dest);
+            if (-s $dest) {
+                &msg("Downloaded $dReq", $dest);
+                $pending = 0;
+            } else {
+                if ($pending >= 3) {
+                    &err("Failed to recover remote file after $pending tries",
+                         "Source: $uReq", "Destination: $dest", $@);
+                    return "";
+                }
+                $pending++;
+            }
         }
     }
     return $dest;
