@@ -56,12 +56,16 @@ sub _ftp {
     return $ftp;
 }
 
-
+sub local_file {
+    # Local temp file for a remote URL
+    my ($uReq, $dReq) = @_;
+    $dReq ||= basename($uReq);
+    return "$tmpDir/$dReq";
+}
 
 sub fetch_url {
     my ($uReq, $dReq) = @_;
-    $dReq    = basename($uReq) unless ($dReq);
-    my $dest = "$tmpDir/$dReq"; # Local file path
+    my $dest = &local_file( @_ );
     if (&source_needs_recovery($dest)) {
         ## File not yet downloaded, or request to re-download
         my $pending = 1;
@@ -72,7 +76,7 @@ sub fetch_url {
         while ($pending) {
             $ftp->get($uReq, $dest);
             if (-s $dest) {
-                &msg("Downloaded $dReq", $dest);
+                &msg("Downloaded $uReq:", $dest);
                 undef $ftp;
                 $pending = 0;
             } else {

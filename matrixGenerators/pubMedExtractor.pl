@@ -133,6 +133,11 @@ Optional Arguments:
            remote site will be scanned for '*.xml.gz' files, all of
            which will be loaded
 
+   -update If true, indicates that the provided XML file is an update
+           (ie, not from the 'baseline' directory). If you forget to
+           provide this value, there's a high chance that database
+           updates will fail with 'UNIQUE constraint failed' errors.
+
   -clobber Default 0, which will ignore files already loaded in the
            database. A value of 1 will cause already-loaded XML files
            to be reparsed. A value of 2 will also cause the remote
@@ -158,7 +163,7 @@ Optional Arguments:
 &msg("XML files are: ".($keepxml ?"Kept":"Discarded (set -keepxml to retain)"));
 
 if ($fileReq) {
-    &parse_file( $fileReq );
+    &parse_file( $fileReq, $args->{update} );
 } else {
     $analyze = 1 unless (defined $analyze);
     &parse_all();
@@ -176,21 +181,24 @@ sub parse_all {
     &msg("Finding XML files at NCBI");
     &get_dbh();
     &_ftp();
-    my @xmls;
+    my $tot = 0;
+    my @need;
     foreach my $type (qw(baseline updatefiles)) {
         my $sd = "/pubmed/$type";
         $ftp->cwd($sd);
-        push @xmls, map { "$sd/$_" } $ftp->ls('*.xml.gz');
-    }
-    my $tot = $#xmls+1;
-    &death("No files found??") unless ($tot);
-    my (@need, $lastParsed);
-    foreach my $path (@xmls) {
-        ($xsid, $lastParsed) = &xsid_for_file($path);
-        unless ($lastParsed && !$clobber) {
-            push @need, [$path, $xsid, $lastParsed ? "Reparsing":"New Source"];
+        my @found = map { "$sd/$_" } $ftp->ls('*.xml.gz');
+        $tot     += $#found + 1;
+        my $upd   = $type eq 'updatefiles' ? 1 : 0;
+        
+        foreach my $path (@found) {
+            my ($xsid, $lastParsed) = &xsid_for_file($path);
+            unless ($lastParsed && !$clobber) {
+                push @need, [$path, $upd, $xsid, 
+                             $lastParsed ? "Reparsing":"New Source"];
+            }
         }
     }
+    &death("No files found??") unless ($tot);
     my $todo = $#need + 1;
     my $tdf  = $todo / $tot;
     my @bits = (" Total Files: $tot",
@@ -209,7 +217,7 @@ sub parse_all {
 }
 
 sub parse_file {
-    my ($file, $xsid, $act) = @_;
+    my ($file, $isUpd, $xsid, $act) = @_;
     return unless ($file);
     $file =~ s/\.tsv.*$// if ($file =~ /\.tsv/);
     &death("Unexpected file passed for parsing",
@@ -238,16 +246,21 @@ sub parse_file {
     &msg("$act: $file");
     my $tsv = &make_tsv($file); 
     return unless ($tsv);
-
     my $t = time;
     ## Clear any old records for this XML file:
     $clearPM->execute( $xsid );
     open(TSV, "<$tsv") || &death("Failed to read TSV file", $tsv, $!);
     my $head = <TSV>;
     my $num  = 0;
+    if (!defined $isUpd && $file =~ /update/) {
+        &msg("Presuming that requested file is an update");
+        $isUpd = 1;
+    }
     while (<TSV>) {
         s/[\n\r]+$//;
         my ($pmid, $v, $date, $title) = split(/\t/);
+        ## Remove any old entries if this is an update file:
+        $delPM->execute($pmid, $v) if ($isUpd);
         $setPM->execute($pmid, $v, $xsid, $date, $title);
         $num++;
     }
@@ -260,23 +273,18 @@ sub parse_file {
 }
 
 sub make_tsv {
-    my ($file) = @_;
-    my $tsv = join('/', $tmpDir, basename($file). ".tsv");
+    my ($fReq) = @_;
+    my $tsv = join('/', $tmpDir, basename($fReq). ".tsv");
     return $tsv unless (&output_needs_creation($tsv));
-
+    my $file = &fetch_url($fReq);
     unless (-s $file) {
-        $file = &fetch_url($file);
-        unless ($file) {
-            &err("Failed to recover file, skipping:",$_[0]);
-            return "";
-        }
+        &err("Failed to recover file, skipping:",$_[0]);
+        return "";
     }
 
     my $t = time;
 
     my $handler = PubMedHandler->new( $tsv );
-    # die $handler->can("_end_Title");
-    # die $handler->can("_end_ArticleTitle");
     my $parser  = XML::Parser::PerlSAX->new( Handler => $handler );
     my $fh;
     if ($file =~ /\.gz$/) {
@@ -335,7 +343,7 @@ sub _sths {
     $doneXS  = $dbh->prepare("UPDATE xml_source SET parsed = ? WHERE xsid = ?");
 
     $clearPM = $dbh->prepare("DELETE FROM pmid WHERE xsid = ?");
-    $delPM   = $dbh->prepare("DELETE FROM pmid WHERE pmid = ?");
+    $delPM   = $dbh->prepare("DELETE FROM pmid WHERE pmid = ? AND vers = ?");
     $setPM   = $dbh->prepare
         ("INSERT INTO pmid (pmid, vers, xsid, pubdate, title)".
          " VALUES (?, ?, ?, ?, ?)");
