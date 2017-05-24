@@ -18,8 +18,10 @@ BEGIN {
 }
 use lib "$scriptDir";
 require Utils;
-our ($args, $clobber, $ftp);
+our ($args, $clobber, $ftp, $tmpDir);
 
+use DBI;
+use DBD::SQLite;
 use Archive::Tar;
 use IO::Uncompress::Gunzip;
 
@@ -80,6 +82,16 @@ Optional Arguments:
            is generally reasonable, but also fairly arbitrary on a
            fine scale.
 
+ -pubmeddb A path to a SQLite database that holds PubMed (Medline)
+           publication dates and article titles. While optional, the
+           PubMed ontology will not be created in the absence of this
+           database (it's really not too informative to only know the
+           PubMed ID for an enriched publication).
+
+           To create this supporting database, see the included utility:
+
+                 pubMedExtractor.pl
+
 ";
     warn "\n[!!] Failed to find target species:\n     $taxDat->{error}\n\n"
         if ($taxDat->{error});
@@ -131,8 +143,9 @@ sub make_metadata_file {
         &msg("Using existing Metadata file:", $trg);
         return $trg;
     }
-    open (METAF, ">$trg") || &death("Failed to wirte metadata file",
-                                    $trg, $!);
+    my $tmp = "$trg.tmp";
+    open (METAF, ">$tmp") || &death("Failed to wirte metadata file",
+                                    $tmp, $!);
     
     &msg("Parsing basic Gene metadata");
     ## If you see 'expected column' errors, you will need to change
@@ -252,6 +265,7 @@ sub make_metadata_file {
     }
     close $fh;
     close METAF;
+    rename($tmp, $trg);
     &msg("Generated Entrez metadata file", $trg);
     return $trg;
 }
@@ -363,28 +377,20 @@ sub map_symbol {
     my @gids    = sort { $genes{$a} <=> $genes{$b} } keys %genes;
     my ($rnum,$cnum) = ($#rowIds + 1, $#gids + 1);
 
-    open(MTX, ">$trg") || &death("Failed to write Symbol map", $trg, $!);
-    print MTX "%%MatrixMarket matrix coordinate real general
-% Mapping from $specID symbols to Entrez IDs
-% $rnum x $cnum sparse matrix with $nznum non-zero cells
-% -- The 'setfisher' package can parse these comments to decorate the matrix --
-% Separator '$mtxSep'
-%% DEFAULT Name $specID Symbol-to-Entrez Map
-%% DEFAULT Description 1.0=Official Symbol, 0.5=Interim, 0.4=Preferred unofficial, 0.3=Unofficial
-% 'Preferred unofficial' = Just the first listed unofficial symbol
-%
-% Rows are Gene Symbols
-%% DEFAULT RowDim Gene Symbol
-%% DEFAULT RowUrl $symUrl
-% Columns are Entrez IDs
-%% DEFAULT ColDim Entrez ID
-%% DEFAULT ColUrl $geneIdUrl
-%
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write Symbol map", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
+          "1.0=Official Symbol, 0.5=Interim, 0.4=Preferred unofficial, 0.3=Unofficial",
+          "Gene Symbol", $symUrl,
+          "Entrez ID", $geneIdUrl);
+
+    print MTX "%
 % CAUTION: Some symbols have case/capitalization subtleties. While
 % there are often historical reasons for these case decisions,
 % attempting to extract information from a gene symbol's case is about
 % as reliable as determining the contents of a wrapped present by
-% listening to the noises it makes when shaken. If you are pivotting
+% listening to the noises it makes when shaken. If you are pivoting
 % data from symbols (rather than accessions) you're already working at
 % a significant disadvantage:
 %             PLEASE MATCH SYMBOLS CASE-INSENSITIVELY
@@ -393,7 +399,6 @@ sub map_symbol {
 % $bar
 % Symbol statuses:
 ";
-
     # Basic statistics commentary
     foreach my $stat (sort { $statuses{$b} <=> $statuses{$a} } keys %statuses) {
         printf(MTX "%% %15s : %d : score %s\n", $stat, $statuses{$stat},
@@ -415,11 +420,7 @@ sub map_symbol {
             printf(MTX "%%  '%s' := %5d (%s)\n", $oc, $ocd->{n}, $ocd->{ex});
         }
     }
-    print MTX "% $bar
-% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
-% the triples that store the actual mappings.
-% $bar
-";
+    print MTX &_rowcol_meta_comment_block();
 
     ## Note row metadata
     my @meta = qw(Official NotOfficial);
@@ -435,15 +436,10 @@ sub map_symbol {
     }
 
     ## Column metadata
-    print MTX "\% $bar\n";
+    print MTX "% $bar\n";
     &mtx_entrez(\@gids, 'Col');
 
-    ## Finally, note triples for non-zero cells
-    print MTX "% $bar
-% Matrix triples : Row Col Score
-% $bar
-";
-    printf(MTX "  %d %d %d\n", $rnum, $cnum, $nznum);
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
     for my $i (0..$#rowIds) {
         my $hits = $symbols{$rowIds[$i]}{hits};
         for (my $j = 0; $j < $#{$hits}; $j += 2) {
@@ -451,6 +447,7 @@ sub map_symbol {
         }
     }
     close MTX;
+    rename($tmp, $trg);
     &msg("Generated Symbol to Entrez mapping", $trg);
     return $trg;
 }
@@ -473,21 +470,116 @@ sub ontology_pubmed {
     my $trg = sprintf("%s/Ontology-%s_Entrez-to-PubMed.mtx", 
                       $outDir, $specID);
     unless (&output_needs_creation($trg)) {
-        &msg("Keeping existing GeneOntology file:", $trg);
+        &msg("Keeping existing PubMed file:", $trg);
         return $trg;
     }
+    my $dbf = $args->{pubmeddb};
+    unless ($dbf) {
+        &err("Can not create PubMed ontology",
+             "Please provide SQLite DB path with -pubmeddb",
+             "The DB can be generated with pubMedExtractor.pl");
+        return "";
+    }
+
     &capture_gene_meta();
     &msg("Parsing PubMed");
+
     ## If you see 'expected column' errors, you will need to change
     ## the right hand value (after the '=>') of the offending column,
     ## after determining what the new column name is:
     my $cols = { 
         taxid  => 'tax_id',
         gene   => 'GeneID',
+        pmid   => 'PubMed_ID',
     };
     my ($fh) = &gzfh("gene/DATA/gene2pubmed.gz", "gene2pubmed.gz", $cols);
+    my $tInd = $cols->{taxid}; # Taxid, eg 9606
+    my $oInd = $cols->{pmid};  # PubMed ID, eg 9873079
+    my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
+    my ($nznum, $nont) = (0,0);
+    my (%genes, %ontMeta);
+
+    while (<$fh>) {
+        s/[\n\r]+$//;
+        my @row = split("\t");
+        unless ($row[$tInd] == $taxid) {
+            ## Stop parsing if we have already found some hits. THIS
+            ## MAY BE A BAD IDEA. It should speed up parsing (neglects
+            ## need to scan whole file) but there is no guarantee that
+            ## taxa won't end up scattered through file in future
+            ## versions:
+            last if ($nont);
+            next; # Otherwise, keep scanning for taxid
+        }
+        map { s/^\-$// } @row; # Turn '-' cells to empty string
+        my $oid = $row[$oInd];
+        my $om = $ontMeta{$oid} ||= {
+            order       => ++$nont,
+        };
+        # Capture orderID/score pairs
+        push @{$genes{ $row[ $lInd ] }}, ( $om->{order}, 1 );
+        $nznum++;
+    }
     close $fh;
     warn "     ... writing matrix market file ...\n";
+
+    my @ontIds = sort { $ontMeta{$a}{order} <=> 
+                            $ontMeta{$b}{order} } keys %ontMeta;
+    my @gids   = sort { $a <=> $b } keys %genes;
+    my ($rnum, $cnum) = ($#gids + 1, $#ontIds + 1);
+
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write PubMed ontology", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( "Ontology", $rnum, $cnum, $nznum, "$specID Entrez PubMed",
+          "PubMed assignments for $specID Entrez genes",
+          "Entrez ID", $geneIdUrl,
+          "PubMed ID", "https://www.ncbi.nlm.nih.gov/pubmed/%s");
+    print MTX &_setfisher_comment_block();
+    print MTX &_min_set_mtx_block( 5 );
+    print MTX &_max_set_mtx_block
+        ( 15, "An exhaustive survey of the Drop Bear transcriptome" );
+    print MTX &_min_onto_mtx_block( 2 );
+    print MTX &_rowcol_meta_comment_block();
+
+    ## Row metadata
+    &mtx_entrez(\@gids, 'Row');
+    print MTX "% $bar\n";
+
+    ## Column metadata
+    
+    &msg("Extracting PubMed metadata", $dbf);
+    ## Read-only connection: https://stackoverflow.com/a/34360995
+    my $dbh = DBI->connect("dbi:SQLite:dbname=$dbf",'','', {
+        sqlite_open_flags => DBD::SQLite::OPEN_READONLY,
+        AutoCommit => 1,
+        RaiseError => 1,
+        PrintError => 0 });
+    my $get = $dbh->prepare
+        ("SELECT vers, pubdate, title FROM pmid WHERE pmid = ?");
+
+    my @meta = qw(Date Description);
+    printf(MTX "%% Col %s\n", join($mtxSep, "Name", @meta));
+    for my $i (0..$#ontIds) {
+        my $oId = $ontIds[$i];
+        $get->execute( $oId );
+        my $dat = $get->fetchall_arrayref();
+        my ($newest) = sort { $b->[0] <=> $a->[0] } @{$dat};
+        my ($vers, $dt, $desc) = @{$newest || [0, '','']};
+        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $oId, $dt, $desc));
+    }
+
+    &msg("Writing connections");
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+    for my $i (0..$#gids) {
+        my $hits = $genes{$gids[$i]};
+        for (my $j = 0; $j < $#{$hits}; $j += 2) {
+            printf(MTX "%d %d %d\n", $i+1, $hits->[$j], $hits->[$j+1]);
+        }
+    }
+    close MTX;
+    rename($tmp, $trg);
+    &msg("Generated Entrez PubMed ontology", $trg);
     return $trg;
 }
 
@@ -524,8 +616,8 @@ sub ontology_go {
     my $gInd = $cols->{goid};  # GO ID, eg GO:0005886
     my $eInd = $cols->{ec};    # Evidence code, eg TAS
     my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
-    my (%genes, %goMeta);
-    my ($nznum, $ngo) = (0,0);
+    my (%genes, %ontMeta);
+    my ($nznum, $nont) = (0,0);
 
     while (<$fh>) {
         s/[\n\r]+$//;
@@ -536,16 +628,16 @@ sub ontology_go {
             ## need to scan whole file) but there is no guarantee that
             ## taxa won't end up scattered through file in future
             ## versions:
-            last if ($ngo);
+            last if ($nont);
             next; # Otherwise, keep scanning for taxid
         }
         map { s/^\-$// } @row; # Turn '-' cells to empty string
         my $gid = $row[$gInd];
         ## Capture term metadata once
-        my $gm = $goMeta{$gid} ||= {
+        my $gm = $ontMeta{$gid} ||= {
             Description => $row[ $cols->{term} ],
             Category    => $row[ $cols->{cat}  ],
-            order       => ++$ngo,
+            order       => ++$nont,
         };
         my $sc = $ecSc{ $row[ $eInd ] };
         unless ($sc) {
@@ -563,109 +655,44 @@ sub ontology_go {
     close $fh;
     warn "     ... writing matrix market file ...\n";
 
-    my @goids = sort { $goMeta{$a}{order} <=> $goMeta{$b}{order} } keys %goMeta;
-    my @gids  = sort { $a <=> $b } keys %genes;
-    my ($rnum, $cnum) = ($#gids + 1, $#goids + 1);
+    my @ontIds = sort { $ontMeta{$a}{order} 
+                        <=> $ontMeta{$b}{order} } keys %ontMeta;
+    my @gids   = sort { $a <=> $b } keys %genes;
+    my ($rnum, $cnum) = ($#gids + 1, $#ontIds + 1);
 
-    open(MTX, ">$trg") || &death("Failed to write Symbol map", $trg, $!);
-    print MTX "%%MatrixMarket matrix coordinate real general
-% Mapping from $specID Entrez IDs to GeneOntology Terms
-% $rnum x $cnum sparse matrix with $nznum non-zero cells
-% -- The 'setfisher' package can parse these comments to decorate the matrix --
-% Separator '$mtxSep'
-%% DEFAULT Name $specID Entrez GeneOntology
-%% DEFAULT Description GeneOntology assignments for $specID Entrez genes
-%
-% Rows are Entrez IDs
-%% DEFAULT RowDim Entrez ID
-%% DEFAULT RowUrl $geneIdUrl
-% Columns are GO Terms
-%% DEFAULT ColDim GO Term
-%% DEFAULT ColUrl http://amigo.geneontology.org/amigo/term/%s
-%
-% Terms with few genes assigned to them struggle to reach statistical
-% significance. Excluding them removes some distractions, but also
-% helps minimize multiple-testing penalties on 'long shot' terms. The
-% threshold below represents the minimum number of genes to be
-% assigned to a term for the term to be kept.
-%
-%% DEFAULT minSetSize 7
-%
-% A major distortion in Fisher-based testing can come from
-% 'questionable' genes. These include real-but-untranscribed entities
-% (eg pseudogenes), speculative entries that will eventually be
-% removed from the transcriptome, or rare genes that are expressed
-% only in certain tissues or developmental stages. From a
-% marbles-in-an-urn perspective, all these categories represent
-% marbles that can NEVER be removed from the urn - the effect is to
-% inflate the significance of those that you do, since the world size
-% is larger than it really should be. A fairly simple way to
-% automatically recognize such objects is to look at the total number
-% of terms annotated to each gene, since speculative genes tend to be
-% unannotated. The filter below removes genes with fewer than the
-% indicated number of terms assigned to it.
-%
-%% DEFAULT minOntoSize 2
-%
-% High-level GO terms tend to be less useful in biological
-% interpretation. We have also observed that they tend to be
-% disproportionately significant as they are greatly impacted by the
-% effect mentioned above (un-selectable genes distorting the
-% significance of enriched sets). Terms that are assigned to a higher
-% percentage of the world below will be excluded from the analysis. In
-% addition to possibly bringing some clarity to reports (how often is
-% a significant hit to 'Catalytic process' going to help you?) it
-% brings a small multiple testing benefit.
-%
-%% DEFAULT maxSetPerc 5
-%
-% Used in SetFisher, the filters above would be applied recursively;
-% Terms are removed, then genes, and the process is repeated until no
-% further alterations occur.
-%
-%% $bar
-%% Values should be treated as factors representing evidence codes:
-";
-
-    my $top = "%% ------     ";
-    my $bot = "%% LEVELS [,][";
-    for my $li (0..$#ecl) {
-        my $l = $ecl[$li];
-        my $v = $ecSc{$l};
-        $l .= ',' unless ($li == $#ecl);
-        $bot .= $l;
-        $top .= sprintf('%-'.CORE::length($l).'s', $v);
-    }
-    print MTX "$top\n";
-    print MTX "$bot]\n";
-    print MTX "%% Lower factor values should represent lower confidence evidence.\n";
-    print MTX "%% http://geneontology.org/page/guide-go-evidence-codes\n";
-    print MTX "% $bar
-% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
-% the triples that store the actual mappings.
-% $bar
-";
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write GO ontology", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( "Ontology", $rnum, $cnum, $nznum, "$specID Entrez GeneOntology",
+          "GeneOntology assignments for $specID Entrez genes",
+          "Entrez ID", $geneIdUrl,
+          "GO Term", "http://amigo.geneontology.org/amigo/term/%s");
+    print MTX &_setfisher_comment_block();
+    print MTX &_min_set_mtx_block( 7 );
+    print MTX &_max_set_mtx_block( 5, "Catalytic process" );
+    print MTX &_min_onto_mtx_block( 2 );
+    print MTX &_factor_map_block
+        ( \@ecl, \%ecSc, "Evidence Codes",
+          ["Lower factor values should represent lower confidence evidence",
+           "http://geneontology.org/page/guide-go-evidence-codes"]);
+    print MTX &_rowcol_meta_comment_block();
 
     ## Row metadata
     &mtx_entrez(\@gids, 'Row');
-    print MTX "\% $bar\n";
+    print MTX "% $bar\n";
 
     ## Column metadata
     my @meta = qw(Description Category);
     printf(MTX "%% Col %s\n", join($mtxSep, "Name", @meta));
-    for my $i (0..$#goids) {
-        my $goid = $goids[$i];
-        my $dat  = $goMeta{$goid};
-        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $goid,
+    for my $i (0..$#ontIds) {
+        my $oId = $ontIds[$i];
+        my $dat = $ontMeta{$oId};
+        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $oId,
                                             map { $dat->{$_} } @meta));
     }
 
-    ## Finally, note triples for non-zero cells
-    print MTX "% $bar
-% Matrix triples : Row Col Score
-% $bar
-";
-    printf(MTX "  %d %d %d\n", $rnum, $cnum, $nznum);
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+
     for my $i (0..$#gids) {
         my $hits = $genes{$gids[$i]};
         for (my $j = 0; $j < $#{$hits}; $j += 2) {
@@ -673,8 +700,8 @@ sub ontology_go {
         }
     }
     close MTX;
+    rename($tmp, $trg);
     &msg("Generated Entrez GO ontology", $trg);
-
     return $trg;
 }
 
@@ -746,3 +773,129 @@ sub extract_taxa_info {
     return { error => "No match for '$req' found in $srcFile" };
 }
 
+sub _initial_mtx_block {
+    my ($what, $rnum, $cnum, $nznum, 
+        $name, $desc,
+        $rnm, $rlnk, $cnm, $clnk) = @_;
+    return "%%MatrixMarket matrix coordinate real general
+% $what relating $specID ${rnm}s to ${cnm}s
+% $rnum x $cnum sparse matrix with $nznum non-zero cells
+% -- The 'setfisher' package can parse these comments to decorate the matrix --
+% Separator '$mtxSep'
+%
+%% DEFAULT Name $name
+%% DEFAULT Description $desc
+%
+% Rows are ${rnm}s
+%% DEFAULT RowDim $rnm
+%% DEFAULT RowUrl $rlnk
+% Columns are ${cnm}s
+%% DEFAULT ColDim $cnm
+%% DEFAULT ColUrl $clnk
+";
+}
+
+sub _setfisher_comment_block {
+    return "% $bar
+% The filters described below can be recognized by the SetFisher
+% package as pruning parameters. The filters are applied recursively,
+% removing terms, then genes, and then repeating until no further
+% alterations occur to the matrix.
+% $bar
+";
+}
+
+sub _min_onto_mtx_block {
+    my $def = shift;
+    $def = 2 unless (defined $def);
+    return "%
+% A major distortion in Fisher-based testing can come from
+% 'questionable' genes. These include real-but-untranscribed entities
+% (eg pseudogenes), speculative entries that will eventually be
+% removed from the transcriptome, or rare genes that are expressed
+% only in certain tissues or developmental stages. From a
+% marbles-in-an-urn perspective, all these categories represent
+% marbles that can NEVER be removed from the urn. The effect is
+% generally to inflate the significance of those that you do, since
+% the world size is larger than it really should be AND these
+% unselectable marbles generally have sparse annotation compared to
+% the 'real' ones that can be selected. This reduced level of
+% annotation is used by minOntoSize to remove genes that are likely to
+% be speculative. The filter below removes genes with fewer than the
+% indicated number of terms assigned to it.
+%
+%% DEFAULT minOntoSize $def
+";
+}
+
+sub _min_set_mtx_block {
+    my $def = shift;
+    $def = 5 unless (defined $def);
+    return "%
+% Terms with few genes assigned to them struggle to reach statistical
+% significance. Excluding them removes some distractions, but also
+% helps minimize multiple-testing penalties on 'long shot' terms. The
+% threshold below represents the minimum number of genes to be
+% assigned to a term for the term to be kept.
+%
+%% DEFAULT minSetSize $def
+";
+
+}
+
+sub _max_set_mtx_block {
+    my ($def, $example) = @_;
+    $def = 10 unless (defined $def);
+    return "%
+% Terms with many genes tend to be less useful in biological
+% interpretation - for example:
+%  '$example'
+% We have also observed that they tend to be disproportionately
+% significant as they are greatly impacted by the effect mentioned
+% under minOntoSize (un-selectable genes distorting the significance
+% of enriched sets). If a term is assigned to a greater percentage of
+% the world than the value listed below it will be excluded from the
+% matrix used in analysis. In addition to removing clutter from
+% reports, it brings a small multiple testing benefit.
+%
+%% DEFAULT maxSetPerc $def
+";
+}
+
+sub _rowcol_meta_comment_block {
+    return "%% $bar
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+% $bar
+";
+}
+
+sub _triple_header_block {
+    my ($rnum, $cnum, $nznum) = @_;
+return "% $bar
+% Matrix triples : Row Col Score
+% $bar
+". sprintf("  %d %d %d\n", $rnum, $cnum, $nznum);
+}
+
+sub _factor_map_block {
+    my ($factorNames, $valueMap, $what, $comments) = @_;
+    my $rv = "%
+%% $bar
+%% Values should be treated as factors representing $what:
+";
+
+    my $top = "%% ------     ";
+    my $bot = "%% LEVELS [,][";
+    for my $li (0..$#{$factorNames}) {
+        my $l = $factorNames->[$li];
+        my $v = $valueMap->{$l};
+        $l .= ',' unless ($li == $#{$factorNames});
+        $bot .= $l;
+        $top .= sprintf('%-'.CORE::length($l).'s', $v);
+    }
+    $rv .= "$top\n";
+    $rv .= "$bot]\n";
+    map { $rv .= "%% $_\n" } @{$comments} if ($comments);
+    return $rv;
+}
