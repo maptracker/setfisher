@@ -7,6 +7,7 @@ my $defFtp   = "ftp.ncbi.nlm.nih.gov";
 
 our $defaultArgs = {
     pubmeddb => "",
+    scramble => 1,
     ftp      => $defFtp,
 };
 
@@ -28,11 +29,13 @@ use DBI;
 
 my ($sec, $min, $hr, $day, $mon, $year, $wday) = localtime;
 my $today = sprintf("%04d-%02d-%02d", $year+1900, $mon+1, $day);
+srand( time() ^ ($$ + ($$<<15)) ); # For -scramble
 
 my ($dbh, $xsid, 
     $getXS, $setXS, $doneXS, $clearPM, $delPM, $setPM);
 my $defDbName = "simplePubMed.sqlite";
 my $maxAbst   = 150;
+my $noteMod   = 5000;
 my $noTitle   = "-No title-";
 
 
@@ -101,10 +104,13 @@ Medline:
             PubDate is not available.
 
      Title: The article's title, eg 'A Structure for Deoxyribose
-            Nucleic Acid'. This will be taken from the XML field
-            ArticleTitle, or failing that from VernacularTitle,
-            failing that from AbstractText (truncated to $maxAbst
-            characters) and finally giving up with '$noTitle'.
+            Nucleic Acid'. This will be taken from the following XML
+            fields, stopping on the first one found:
+
+            ArticleTitle > BookTitle > VernacularTitle > AbstractText
+
+            AbstractText will be truncated to $maxAbst characters. If
+            none are found, then '$noTitle' will be used.
 
 XML files will be downloaded from the NCBI FTP site and deleted after
 being transformed into TSV files (~10% the size of their XML sources).
@@ -118,10 +124,15 @@ Required Arguments:
 
                      >>   ASSURE YOU HAVE SPACE   <<
 
-           In May 2017 the final database was a bit over 5 gigabytes.
+           In May 2017 the final database was roughly 4 gigabytes.
 
     -email NCBI requests that you provide your email address as a
-           password when using their FTP servers.
+           password when using their FTP servers. While there is no
+           formal validation of the email, please note that NCBI has
+           been known to block IP addresses if they receive excessive
+           web traffic (speaking from a colleague's experience with a
+           run-away forked wget job). A valid email address will allow
+           them to contact you before they block you off...
 
 Optional Arguments:
 
@@ -132,6 +143,20 @@ Optional Arguments:
      -file A specific XML file to parse. If not provided, then the
            remote site will be scanned for '*.xml.gz' files, all of
            which will be loaded
+
+     -fork If provided, then fork that many child processes to
+           pre-populate the TSV files derived from the XML
+           sources. XML parsing is the slowest step, so running this
+           initially can generate the database significantly
+           faster. In general, you will not want to provide a value
+           larger than the number of cores your computer has. You may
+           wish to also run the script as 'nice -n 19' (see the man
+           page for nice).
+
+ -scramble Default 1. When using -fork, if this value is true then the
+           child processes will be given a randomly shuffled set of
+           files to process. This generally will help in evening out
+           task assignment if some files have already been processed.
 
    -update If true, indicates that the provided XML file is an update
            (ie, not from the 'baseline' directory). If you forget to
@@ -164,6 +189,8 @@ Optional Arguments:
 
 if ($fileReq) {
     &parse_file( $fileReq, $args->{update} );
+} elsif (my $fk = $args->{fork}) {
+    &prepopulate($fk);
 } else {
     $analyze = 1 unless (defined $analyze);
     &parse_all();
@@ -177,14 +204,15 @@ if ($analyze) {
     warn sprintf("    Done: %.1f min\n", (time - $t) / 60);
 }
 
-sub parse_all {
-    &msg("Finding XML files at NCBI");
+sub find_needed {
+    my $includeDone = shift;
     &get_dbh();
-    &_ftp();
+    &msg("Finding XML files at NCBI");
     my $tot = 0;
     my @need;
     foreach my $type (qw(baseline updatefiles)) {
         my $sd = "/pubmed/$type";
+        undef $ftp; &_ftp();
         $ftp->cwd($sd);
         my @found = map { "$sd/$_" } $ftp->ls('*.xml.gz');
         $tot     += $#found + 1;
@@ -192,7 +220,8 @@ sub parse_all {
         
         foreach my $path (@found) {
             my ($xsid, $lastParsed) = &xsid_for_file($path);
-            unless ($lastParsed && !$clobber) {
+            
+            if (!$lastParsed || $clobber || $includeDone) {
                 push @need, [$path, $upd, $xsid, 
                              $lastParsed ? "Reparsing":"New Source"];
             }
@@ -204,13 +233,60 @@ sub parse_all {
     my @bits = (" Total Files: $tot",
                 sprintf("Need Parsing: %d = %.1f%%", $todo, 100*$tdf));
                 
-    if ($tdf > 0) {
+    if ($tdf < 1) {
         if (my $sz = (-s $pmdb)) {
             push @bits, sprintf("Est. DB Size: %.3f GB", $sz/((1-$tdf)* 10**9));
         }
     }
     &msg(@bits);
-    foreach my $fx (@need) {
+    return \@need;
+}
+
+sub prepopulate {
+    my $fk = shift;
+    my $need  = &find_needed( 'includeDone' );
+    my @files = map {$_->[0]} @{$need};
+    my $num   = $#files;
+    my @bits = ("Preparsing all XML files to TSV",
+                "    Fork: $fk processes");
+    if ($args->{scramble}) {
+        push @bits, "Scramble: File order randomized for load balancing";
+        @files = sort { rand(1) <=> 0.5 } @files;
+    }
+    &msg( @bits );
+    my $block = int($num / $fk) || 1;
+    my @pids;
+    $noteMod = 50000; # Just note the first entry in each file
+    while ($#files > -1) {
+        my @task = splice(@files, 0, $block);
+        my $pid;
+        if ($pid = CORE::fork) {
+            # This is the parent process
+            push @pids, $pid;
+        } elsif (defined $pid) {
+            # This is the child
+            undef $dbh;
+            undef $ftp;
+            foreach my $file (@task) {
+                &make_tsv($file);
+            }
+            exit;
+        } else {
+            # ... something bad happened
+            &death("Failed to fork a child process");
+        }
+    }
+    foreach my $pid (@pids) {
+        waitpid($pid, 0);
+        warn "   Forked child $pid has completed\n";
+    }
+    &msg("Forking complete",
+         "If you now run without parameters the database will be loaded");
+}
+
+sub parse_all {
+    my $need = &find_needed();
+    foreach my $fx (@{$need}) {
         &parse_file(@{$fx});
     }
     &msg("All updates finished");
@@ -326,11 +402,12 @@ sub get_dbh {
 sub _con_db {
     my $file = shift;
     &msg("Connecting to DB: $file");
-    return $dbh = 
+    $dbh = 
         DBI->connect("dbi:SQLite:dbname=$file",'','', {
             AutoCommit => 0,
             RaiseError => 1,
             PrintError => 0 });
+    return $dbh;
 }
 
 sub _sths {
@@ -455,19 +532,59 @@ sub msg {
     return &main::msg(@_);
 }
 
+=head2 PubMed Primary XML Nodes
+
+There are several XML layers that hold article information
+
+  DTDs: https://www.nlm.nih.gov/databases/dtd/
+
+There appear to be three distinct top-level nodes:
+
+  PubmedArticleSet BookDocumentSet PubmedBookArticleSet
+
+I *think* the XML files are all <PubmedArticleSet>? I believe my code
+would have thrown an error if other root tags were encountered.
+
+=head3 PubmedArticle / Article
+
+The vast majority of entries will be here, eg:
+
+  7297678 [1981-08-31] "Proalbumin Lille, a new variant of human serum albumin"
+
+  https://www.ncbi.nlm.nih.gov/pubmed/?report=xml&format=text&term=7297678
+
+=head3 PubmedBookArticle / BookDocument
+
+A specific article within a formal book? In the example below,
+ArticleTitle is still set.
+
+  20301340 [1993] "Alzheimer Disease Overview" in <Book> "GeneReviews"
+
+  https://www.ncbi.nlm.nih.gov/pubmed/?report=xml&format=text&term=20301340
+
+=cut
+
 sub start_element {
     my ($self, $element) = @_;
     my $name = $element->{Name};
     push @{$self->{stack}}, $element;
-    if ($name eq 'PubmedArticle') {
+    if ($name eq 'PubmedArticle' || $name eq 'PubmedBookArticle') {
         $self->{record} = {};
-    } elsif ($name eq 'Article') {
+    } elsif ($name eq 'Article' || $name eq 'BookDocument') {
         push @{$self->{record}{article}}, {};
     }
 
 }
 
 sub end_element {
+
+    # Essentially all data capture occurs when a tag closes. These are
+    # handled by methods named '_end_<TAGNAME>'. Some tags use the
+    # same method. Normally I'd handle that with globs (eg '*alias =
+    # \&actual_method;') but I was not able to get that to work using
+    # can(). So shared tags will have explicit wrapper methods set for
+    # them pointing to '_shared_' functions.
+
     my ($self, $element) = @_;
     my $node = pop @{$self->{stack}};
     my $name = $node->{Name};
@@ -476,7 +593,10 @@ sub end_element {
     }
 }
 
-sub _end_PubmedArticle {
+
+sub _end_PubmedBookArticle { shift->_shared_record_method( @_ ) }
+sub _end_PubmedArticle     { shift->_shared_record_method( @_ ) }
+sub _shared_record_method {
     my ($self, $name, $node) = @_;
     # Got to the end of a record, write it
     $self->_write_record();
@@ -515,10 +635,10 @@ sub _end_PMID {
     }
 }
 
-# Globs do not seem to work with ->can("globname")
-sub _end_ArticleTitle    { shift->_end_Title_set( @_ ) }
-sub _end_VernacularTitle { shift->_end_Title_set( @_ ) }
-sub _end_Title_set {
+sub _end_ArticleTitle    { shift->_shared_title_method( @_ ) }
+sub _end_BookTitle       { shift->_shared_title_method( @_ ) }
+sub _end_VernacularTitle { shift->_shared_title_method( @_ ) }
+sub _shared_title_method {
     my ($self, $name, $node) = @_;
     # Hopefully the title, which is 99% of why I am interested in
     # parsing these files. Some entries have empty ArticleTitle, but
@@ -544,11 +664,11 @@ sub _end_AbstractText {
     }
 }
  
-sub _end_Year        { shift->_end_Date_set( @_ ) }
-sub _end_Month       { shift->_end_Date_set( @_ ) }
-sub _end_Day         { shift->_end_Date_set( @_ ) }
-sub _end_MedlineDate { shift->_end_Date_set( @_ ) }
-sub _end_Date_set {
+sub _end_Year        { shift->_shared_date_method( @_ ) }
+sub _end_Month       { shift->_shared_date_method( @_ ) }
+sub _end_Day         { shift->_shared_date_method( @_ ) }
+sub _end_MedlineDate { shift->_shared_date_method( @_ ) }
+sub _shared_date_method {
     my ($self, $name, $node) = @_;
     # Date information (Year, Month, Day and grab-bag "MedlineDate")
     my $par = $self->{stack}[-1]{Name};
@@ -631,8 +751,8 @@ sub _write_record {
             $date = $1;
         }
     }
-    my $title = $art->{ArticleTitle} || $art->{VernacularTitle} || 
-        $art->{Abstract};
+    my $title = $art->{ArticleTitle} || $art->{VernacularTitle} ||
+        $art->{BookTitle} || $art->{Abstract};
     unless ($title) {
         # No title found
         if (my $jour = $art->{Journal}) {
@@ -655,7 +775,7 @@ sub _write_record {
     my $fh = $self->{fh};
     print $fh join
         ("\t", $pmid, $record->{idv} || 0, $date, $title)."\n";
-    unless (++$self->{done} % 5000) {
+    unless ($self->{done}++ % $noteMod) {
         &msg(sprintf("  #%5d %15s [%-10s] %s", $self->{done}, "PMID:$pmid",
                      $date, substr($title, 0, 80) ) );
     }
