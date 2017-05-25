@@ -1,8 +1,10 @@
 use strict;
 use Data::Dumper;
 use File::Path 'mkpath';
+use Net::FTP;
+use LWP::UserAgent;
 
-our ($defaultArgs, $defTmp, $ftp);
+our ($defaultArgs, $defTmp, $ftp, $ua);
 
 our $args = &parseargs({
     ## Tool-specific defaults:
@@ -56,6 +58,24 @@ sub _ftp {
     return $ftp;
 }
 
+sub _ua {
+    return $ua if ($ua);
+    $ua       = LWP::UserAgent->new;
+    $ua->env_proxy;
+    if (my $prox = $args->{proxy}) {
+        $ua->proxy(['http', 'ftp'], $prox);
+        &msg("Set proxy:", $prox);
+    }
+    foreach my $sslopt (qw(verify_hostname SSL_ca_file SSL_ca_path)) {
+        ## Certificates are fun!
+        my $v = $args->{lc($sslopt)};
+        if (defined $v) {
+            $ua->ssl_opts( $sslopt, $v);
+            &msg("SSL Option:", "$sslopt => $v");
+        }
+    }
+}
+
 sub local_file {
     # Local temp file for a remote URL
     my ($uReq, $dReq) = @_;
@@ -86,6 +106,32 @@ sub fetch_url {
                 sleep(5);
             }
         }
+    }
+    return $dest;
+}
+
+sub get_url {
+    my ($url, $dReq) = @_;
+    my $dest = &local_file( @_ );
+    if (&source_needs_recovery($dest)) {
+        &_ua();
+        my $resp = $ua->get($url, ':content_file' => $dest );
+        if ($resp->is_success) {
+            if (-s $dest) {
+                &msg("Downloaded $url:", $dest);
+            } else {
+                &death("Failed to recover URL:",
+                       "   URL: $url",
+                       "  File: $dest",
+                       "Web request succesful, but file is empty");
+            }
+        } else {
+            &death("Failed to download URL",
+                   "   URL: $url",
+                   "  File: $dest",
+                   "Status: ".$resp->status_line);
+        }
+
     }
     return $dest;
 }

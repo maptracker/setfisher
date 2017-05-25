@@ -6,9 +6,14 @@ our $defTmp = "/tmp/entrezGeneSets";
 my $defFtp = "ftp.ncbi.nih.gov";
 my $defEC  = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
 
+## RefSeq Status codes:
+## https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
+my $defRsStat = "SUPPRESSED,NA,WGS,MODEL,INFERRED,PREDICTED,PROVISIONAL,REVIEWED,VALIDATED";
+
 our $defaultArgs = {
     ftp      => $defFtp,
     eclevels => $defEC,
+    rslevels => $defRsStat,
     dir      => ".",
 };
 
@@ -45,6 +50,7 @@ matching common name this option should be removed.
 =cut
 
 my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
+&backfill_pubmed(21413195);
 
 &mkpath([$outDir]);
 
@@ -81,6 +87,12 @@ Optional Arguments:
            evidence codes should be listed first. The default ranking
            is generally reasonable, but also fairly arbitrary on a
            fine scale.
+
+ -rslevels Default '$defRsStat'.
+           Like -eclevels, but maps RefSeq status codes to an integer
+           score. Small values are considered 'lower confidence'.
+
+           See: https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
 
  -pubmeddb A path to a SQLite database that holds PubMed (Medline)
            publication dates and article titles. While optional, the
@@ -132,6 +144,8 @@ push @taxBits, "File token: $specID";
 &msg("Target species:", @taxBits);
 
 &map_symbol();
+&map_locuslink();
+&map_refseq();
 &ontology_go();
 &ontology_pubmed();
 
@@ -144,7 +158,7 @@ sub make_metadata_file {
         return $trg;
     }
     my $tmp = "$trg.tmp";
-    open (METAF, ">$tmp") || &death("Failed to wirte metadata file",
+    open (METAF, ">$tmp") || &death("Failed to write metadata file",
                                     $tmp, $!);
     
     &msg("Parsing basic Gene metadata");
@@ -299,11 +313,122 @@ sub capture_gene_meta {
     return $geneMeta;
 }
 
+sub map_locuslink {
+    my $trg = sprintf("%s/Map-%s_LocusLink-to-Entrez.mtx", 
+                      $outDir, $specID);
+    unless (&output_needs_creation($trg)) {
+        &msg("Keeping existing LocusLink map:", $trg);
+        return $trg;
+    }
+    &capture_gene_meta();
+    my @gids = sort { $a <=> $b } keys %{$geneMeta};
+    my $rnum = $#gids + 1;
+    my ($cnum, $nznum) = ($rnum, $rnum);
+    
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write LocusLink map", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
+          "Simple identity matrix directly mapping LocusLink to Entrez IDs",
+          "LocusLink ID", "https://www.ncbi.nlm.nih.gov/gene/?term=%s",
+          "Entrez ID", $geneIdUrl);
+    print MTX "%
+% This is just a very simple identity matrix that maps a LocusLink
+% identifier to its numeric Entrez ID. Given an Entrez ID '#' the
+% LocusLink ID would be 'LOC#'. That is, 'LOC859' is Entrez ID '859'.
+%
+% This mapping can of course be done very efficiently in code by
+% simply adding or stripping 'LOC' as needed. If possible, you should
+% take that approach. However, this matrix is generated to aid in
+% automated analysis of diverse query inputs.
+%
+";
+
+    print MTX &_rowcol_meta_comment_block();
+
+    my @meta = qw(Symbol Type Description);
+    printf(MTX "%% Row %s\n", join($mtxSep, "Name", @meta));
+    for my $i (0..$#gids) {
+        my $id   = $gids[$i];
+        my $m    = $geneMeta->{$id} || {};
+        my @line = ("LOC$id", map {defined $_ ? $_ : ""} map {$m->{$_}} @meta);
+        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, @line));
+    }
+
+    ## Column metadata
+    print MTX "% $bar\n";
+    &mtx_entrez(\@gids, 'Col');
+
+    ## The triples are just a diagonal of '1's
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+    for my $i (0..$#gids) {
+        printf(MTX "%d %d 1\n", $i+1, $i+1);
+    }
+    close MTX;
+
+    rename($tmp, $trg);
+    &msg("Generated LocusLink to Entrez mapping", $trg);
+    return $trg;
+}
+
+sub map_refseq {
+    &make_refseq_file();
+    
+}
+
+sub make_refseq_file {
+    my $trg = sprintf("%s/Metadata-%s_Refseq.tsv", $outDir, $specID);
+    unless (&output_needs_creation($trg)) {
+        &msg("Using existing RefSeq file:", $trg);
+        return $trg;
+    }
+    my $tmp = "$trg.tmp";
+    open (TSV, ">$tmp") || &death("Failed to write RefSeq file",
+                                    $tmp, $!);
+
+     my $cols = { 
+        taxid  => 'tax_id',
+        gene   => 'GeneID',
+        status => 'status',
+        rid    => 'RNA_nucleotide_accession.version',
+        pid    => 'protein_accession.version',
+        mid    => 'mature_peptide_accession.version',
+
+        # Not going to do anything with symbol here, but they're short
+        # and aid in grep-debugging the file
+        sym    => 'Symbol',
+
+        # I'm not interested in GI data, they're in these columns:
+        rgi    => 'RNA_nucleotide_gi',
+        pgi    => 'protein_gi',
+        mgi    => 'mature_peptide_gi',
+    };
+    my ($fh)  = &gzfh("gene/DATA/gene2refseq.gz", "gene2refseq.gz", $cols);
+
+    die "WORKING HERE: Need to decide how to structure these IDs.
+Try to also generalize for Ensembl?";
+
+    my @colOut = qw(SET COLUMNS HERE);
+    print TSV join("\t", @colOut) ."\n";
+
+    while (<$fh>) {
+        s/[\n\r]+$//;
+        my @row = split("\t");
+    }
+    close $fh;
+    close TSV;
+    rename($tmp, $trg);
+    &msg("Generated RefSeq assignments file", $trg);
+    return $trg;
+    
+}
+
+
 sub map_symbol {
     my $trg = sprintf("%s/Map-%s_Symbol-to-Entrez.mtx", 
                       $outDir, $specID);
     unless (&output_needs_creation($trg)) {
-        &msg("Keeping existing GeneOntology file:", $trg);
+        &msg("Keeping existing Gene Symbol map:", $trg);
         return $trg;
     }
     &capture_gene_meta();
@@ -535,6 +660,12 @@ sub ontology_pubmed {
           "PubMed assignments for $specID Entrez genes",
           "Entrez ID", $geneIdUrl,
           "PubMed ID", "https://www.ncbi.nlm.nih.gov/pubmed/%s");
+    print MTX "%
+% These data were extracted from the NLM/NCBI FTP sites:
+%   https://ftp.ncbi.nih.gov/gene/DATA/gene2pubmed.gz
+%   https://ftp.ncbi.nih.gov/pubmed/baseline/
+%   https://ftp.ncbi.nih.gov/pubmed/updatefiles/
+";
     print MTX &_setfisher_comment_block();
     print MTX &_min_set_mtx_block( 5 );
     print MTX &_max_set_mtx_block
@@ -564,6 +695,9 @@ sub ontology_pubmed {
         my $oId = $ontIds[$i];
         $get->execute( $oId );
         my $dat = $get->fetchall_arrayref();
+        ## Not all PMIDs are in the XML files (eg Book entries)
+        ## Use NCBI EFetch to recover these:
+        $dat = &backfill_pubmed( $oId) if ($#{$dat} == -1);
         my ($newest) = sort { $b->[0] <=> $a->[0] } @{$dat};
         my ($vers, $dt, $desc) = @{$newest || [0, '','']};
         printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $oId, $dt, $desc));
@@ -864,9 +998,10 @@ sub _max_set_mtx_block {
 
 sub _rowcol_meta_comment_block {
     return "%% $bar
-% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
-% the triples that store the actual mappings.
-% $bar
+% Comment blocks for [Row Name] and [Col Name] follow (defining row
+% and column names, plus metadata), followed finally by the triples
+% that store the actual mappings.
+%% $bar
 ";
 }
 
@@ -898,4 +1033,13 @@ sub _factor_map_block {
     $rv .= "$bot]\n";
     map { $rv .= "%% $_\n" } @{$comments} if ($comments);
     return $rv;
+}
+
+sub backfill_pubmed {
+    my $pmid = shift;
+    # my $url  = "https://www.ncbi.nlm.nih.gov/pubmed/?report=xml&format=json&term=$pmid";
+    # my $url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/ecitmatch.cgi?db=pubmed&retmode=json&id=$pmid";
+    my $url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=$pmid";
+    my $file = &get_url($url, "BackFill-$pmid.xml");
+    die "WORKING HERE: Need to parse information out of XML and load into SQLite (file = $file )";
 }

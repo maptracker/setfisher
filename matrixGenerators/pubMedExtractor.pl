@@ -19,8 +19,6 @@ use lib "$scriptDir";
 require Utils;
 our ($args, $clobber, $ftp, $tmpDir);
 
-use Net::FTP;
-use LWP::UserAgent;
 use IO::Uncompress::Gunzip;
 use XML::Parser::PerlSAX;
 use DBI;
@@ -542,8 +540,23 @@ There appear to be three distinct top-level nodes:
 
   PubmedArticleSet BookDocumentSet PubmedBookArticleSet
 
-I *think* the XML files are all <PubmedArticleSet>? I believe my code
-would have thrown an error if other root tags were encountered.
+However, Book-related information does not appear within these XML files:
+
+  https://www.nlm.nih.gov/pubs/techbull/nd16/brief/nd16_data_distrib.html
+
+  "XML data content: On October 6, 2016, NLM began exporting
+  publisher-supplied citations with the MedlineCitation Status
+  attribute: Publisher. Future annual MEDLINE/PubMed baselines
+  will contain citations in this status. This will include all
+  records with the attribute Publisher with one exception: book
+  and book chapters delivered from the NCBI Bookshelf are not
+  distributed via the NLM FTP server. These records are available
+  through the NLM API, E-utilities."
+
+  (Thanks to Peter Seibert at PubMed for pointing this out)
+
+  I will build on-demand calls in client programs to back-fill these
+  data using either E-utils or URL hacking to make one-off calls.
 
 =head3 PubmedArticle / Article
 
