@@ -15,12 +15,9 @@
 #' @field colMap A list generated to map color names to crayon functions
 #'
 #' @importFrom data.table data.table rbindlist
-#' @importFrom methods setRefClass
-#' @importFrom methods new
+#' @importFrom methods new setRefClass
+#' @importClassesFrom data.table data.table
 #' @import crayon
-#'
-#' @seealso \link{EventLoggerI} for a stub class designed to be
-#'     inherited by other RefClass objects that hold an event log.
 #'
 #' @examples
 #'
@@ -37,6 +34,37 @@
 #' log
 #' # Expose the underlying data.table:
 #' log$log
+#'
+#' # Have this class inherited by another RefClass object:
+#' 
+#' ## Create a simple RefClass object that inherits (contains) EventLogger:
+#' foo <- setRefClass("foo",
+#'   fields = list( x = 'numeric' ), contains = c("EventLogger"))
+#' 
+#' ## Set the foo-Class methods:
+#' foo$methods(
+#'     initialize = function( x=1, ... ) {
+#'         initFields(x=x)
+#'         callSuper(...)
+#'     },
+#'     set_x = function( val ) {
+#'         x <<- val
+#'         actionMessage(c("Set x:", val))
+#'     },
+#'     del_x = function() {
+#'         x <<- as.numeric(NA)
+#'         ## Note that this is NOT base::message(), but the RC object version:
+#'         message("Cleared x", color='magenta', prefix='[-]')
+#'     })
+#' 
+#' ## Create a new method and manipulate it
+#' z <- foo()
+#' z$set_x(10)
+#' z$set_x(3.14)
+#' z$del_x()
+#' 
+#' ## Show the log:
+#' z$log
 #' 
 #' @export EventLogger
 #' @exportClass EventLogger
@@ -54,18 +82,29 @@ EventLogger <-
 
 EventLogger$methods(
     
-    initialize = function(...,
-        useColor = TRUE,
-        verbose  = TRUE,
-        log      = data.table( Date = Sys.time(),
-            Message = "Log initialized", key = "Date") ) {
-        callSuper(..., useColor = useColor, verbose = verbose, log = log)
-       .setEventColorMap( useColor )
+    initialize = function(useColor=TRUE, verbose =TRUE, log=NULL, ...) {
+        initFields(useColor=useColor, verbose=verbose, ...)
+        log <<- if (is.null(log)) {
+                    
+### This require() statement is silly when using EventLogger directly
+### - the package is imported and available when creating objects with
+### EventLogger(). However, when using it as an inherited class (via
+### contains=) it seems to be neccesary. If I fail to include this
+### here, the generation of the default log object fails with:
+###    Error in callSuper(..., x = x) : could not find function "data.table"
+### It seems like I am doing something wrong setting up inheritance,
+### but I can't for the life of me figure out what.
+                    
+                    require("data.table", quietly=TRUE)
+                    data.table(Date=Sys.time(),
+                               Message="Log initialized", key="Date")
+                } else { log }
+        .setEventColorMap( useColor )
     },
 
     message = function(msg = "No message provided!", prefix = NULL,
-        color = NULL, bgcolor = NULL, datestamp = FALSE, fatal = FALSE,
-        collapse = " ") {
+                       color = NULL, bgcolor = NULL, datestamp = FALSE, fatal = FALSE,
+                       collapse = " ") {
         "\\preformatted{Display an optionally colorized message, and store
 it in the log table. Parameters:
       msg - The text to display and show
@@ -126,7 +165,7 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     
     dateMessage = function ( msg = "No message provided!", ... ) {
         "Calls message() with datestamp=TRUE"
-        message( ... , msg=msg, datestamp = TRUE)
+        message(msg=msg, datestamp = TRUE, ...)
     },
 
     actionMessage = function (msg = "No message provided!!", prefix = '[+]',
@@ -245,16 +284,17 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
             }
         }
         colMap
-    }
+    },
 
+    .isDef = function (x) {
+        # "is defined"
+        if (is.null(x)) {
+            FALSE
+        } else if (length(x) == 0 || all(is.na(x))) {
+            FALSE
+        } else {
+            TRUE
+        }
+    }
 )
 
-.isDef <- function (x) {
-    if (is.null(x)) {
-        FALSE
-    } else if (length(x) == 0 || all(is.na(x))) {
-        FALSE
-    } else {
-        TRUE
-    }
-}

@@ -81,8 +81,35 @@ log
 # Expose the underlying data.table:
 log$log
 
-}
-\seealso{
-\link{EventLoggerI} for a stub class designed to be
-    inherited by other RefClass objects that hold an event log.
+# Have this class inherited by another RefClass object:
+
+## Create a simple RefClass object that inherits (contains) EventLogger:
+foo <- setRefClass("foo",
+  fields = list( x = 'numeric' ), contains = c("EventLogger"))
+
+## Set the foo-Class methods:
+foo$methods(
+    initialize = function( x=1, ... ) {
+        initFields(x=x)
+        callSuper(...)
+    },
+    set_x = function( val ) {
+        x <<- val
+        actionMessage(c("Set x:", val))
+    },
+    del_x = function() {
+        x <<- as.numeric(NA)
+        ## Note that this is NOT base::message(), but the RC object version:
+        message("Cleared x", color='magenta', prefix='[-]')
+    })
+
+## Create a new method and manipulate it
+z <- foo()
+z$set_x(10)
+z$set_x(3.14)
+z$del_x()
+
+## Show the log:
+z$log
+
 }
