@@ -19,20 +19,22 @@ in field $log.
 \section{Fields}{
 
 \describe{
-\item{\code{log}}{The data.table holding log messages}
-
-\item{\code{useColor}}{Logical flag to indicate if color should be used in messaging}
-
-\item{\code{verbose}}{Logical flag indicating if verbose messaging should be active}
-
-\item{\code{colMap}}{A list generated to map color names to crayon functions}
+\item{\code{log}}{A list object holding the data.table which records the
+log messages}
 }}
 
 \section{Methods}{
 
 \describe{
 \item{\code{actionMessage(msg = "No message provided!!", prefix = "[+]",
-  color = "red", ...)}}{Calls message with a '[+]' prefix and red coloring}
+  color = "red", ...)}}{\preformatted{Calls message with a '[+]' prefix and red coloring
+}}
+
+\item{\code{colMap(color, bg = FALSE)}}{\preformatted{Picks the appropriate crayon color for a color name
+    color - The name (string) of the color, *or* a function reference
+       bg - Default FALSE. If TRUE, then the method will return the relevant
+            background color method
+}}
 
 \item{\code{colorize(msg = "", color = NULL, bgcolor = NULL)}}{\preformatted{Colorize a string with crayon. Parameters:
       msg - The string to colorize
@@ -40,12 +42,15 @@ in field $log.
   bgcolor - The color to assign to the background
 }}
 
-\item{\code{dateMessage(msg = "No message provided!", ...)}}{Calls message() with datestamp=TRUE}
+\item{\code{dateMessage(msg = "No message provided!", ...)}}{\preformatted{Calls message() with datestamp=TRUE
+}}
 
 \item{\code{debugMessage(msg = "No message provided!!", prefix = "[DEBUG]",
-  color = "white", bgcolor = "blue", ...)}}{Calls message with a '[DEBUG]' prefix and white/blue coloring}
+  color = "white", bgcolor = "blue", ...)}}{\preformatted{Calls message with a '[DEBUG]' prefix and white/blue coloring
+}}
 
-\item{\code{err(msg = "No message provided!!", prefix = "[ERROR]", ...)}}{Calls message with an '[ERROR]' prefix and red/yellow coloring}
+\item{\code{err(msg = "No message provided!!", prefix = "[ERROR]", ...)}}{\preformatted{Calls message with an '[ERROR]' prefix and red/yellow coloring
+}}
 
 \item{\code{message(msg = "No message provided!", prefix = NULL, color = NULL,
   bgcolor = NULL, datestamp = FALSE, fatal = FALSE, collapse = " ")}}{\preformatted{Display an optionally colorized message, and store
@@ -62,13 +67,19 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
  collapse - Default '', text to use when collapsing msg vector.
 }}
 
+\item{\code{showLog(width = 0.7 * getOption("width"), relative = TRUE, pad = 11,
+  n = 0)}}{Pretty-prints the log, including total elapsed time}
+
 \item{\code{tidyTime(x = NULL, pad = 0)}}{Reports a time interval with unit management and colorization based on overall elapsed time}
+
+\item{\code{useColor(newval = NULL)}}{\preformatted{Get/Set flag to use color or not. Parameters:
+   newval - Optional new value. Should be logical or as.logical()-able.
+}}
 }}
 
 \examples{
 
 log <- EventLogger()
-x <- "wobble"
 log$message("Did something important")
 Sys.sleep(3)
 log$actionMessage("Something emphatic has happened")
@@ -79,7 +90,7 @@ log$debugMessage("Remember to comment this out in production")
 # Pretty print the log, including an elapsed time:
 log
 # Expose the underlying data.table:
-log$log
+log$log$log # Everyone loves it
 
 # Have this class inherited by another RefClass object:
 
@@ -110,6 +121,6 @@ z$set_x(3.14)
 z$del_x()
 
 ## Show the log:
-z$log
+z$log$log
 
 }

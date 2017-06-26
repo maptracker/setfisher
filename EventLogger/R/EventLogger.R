@@ -9,20 +9,18 @@
 #' data.table holding the log information can be directly accessed
 #' in field $log.
 #'
-#' @field log The data.table holding log messages
-#' @field useColor Logical flag to indicate if color should be used in messaging
-#' @field verbose Logical flag indicating if verbose messaging should be active
-#' @field colMap A list generated to map color names to crayon functions
+#' @field log A list object holding the data.table which records the
+#'     log messages
 #'
 #' @importFrom data.table data.table rbindlist
 #' @importFrom methods new setRefClass
+#' @importFrom CatMisc is.def
 #' @importClassesFrom data.table data.table
 #' @import crayon
 #'
 #' @examples
 #'
 #' log <- EventLogger()
-#' x <- "wobble"
 #' log$message("Did something important")
 #' Sys.sleep(3)
 #' log$actionMessage("Something emphatic has happened")
@@ -33,7 +31,7 @@
 #' # Pretty print the log, including an elapsed time:
 #' log
 #' # Expose the underlying data.table:
-#' log$log
+#' log$log$log # Everyone loves it
 #'
 #' # Have this class inherited by another RefClass object:
 #' 
@@ -64,7 +62,7 @@
 #' z$del_x()
 #' 
 #' ## Show the log:
-#' z$log
+#' z$log$log
 #' 
 #' @export EventLogger
 #' @exportClass EventLogger
@@ -73,17 +71,14 @@
 EventLogger <-
     setRefClass("EventLogger",
                 fields = list(
-                    useColor = "logical",
-                    log      = "data.table",
-                    verbose  = "logical",
-                    colMap   = "list"
+                    log      = "list",
+                    verbose  = "logical"
                     ),
                 )
 
 EventLogger$methods(
     
-    initialize = function(useColor=TRUE, verbose =TRUE, log=NULL, ...) {
-        initFields(useColor=useColor, verbose=verbose, ...)
+    initialize = function(useColor=TRUE, verbose=TRUE, log=NULL, ...) {
         log <<- if (is.null(log)) {
                     
 ### This require() statement is silly when using EventLogger directly
@@ -96,10 +91,15 @@ EventLogger$methods(
 ### but I can't for the life of me figure out what.
                     
                     require("data.table", quietly=TRUE)
-                    data.table(Date=Sys.time(),
-                               Message="Log initialized", key="Date")
-                } else { log }
-        .setEventColorMap( useColor )
+                    require("CatMisc", quietly=TRUE)
+                    list(useColor=useColor,
+                         verbose=verbose,
+                         log=data.table(Date=Sys.time(),
+                                        Message="Log initialized", key="Date"))
+                } else {
+                    log
+                }
+        .setEventColorMap( )
     },
 
     message = function(msg = "No message provided!", prefix = NULL,
@@ -133,13 +133,48 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         m <- colorize(m, NULL, bgcolor)
         if (fatal) {
             stop(m)
-        } else if (verbose) {
+        } else if (log$verbose) {
             base::message(m)
         }
         ## Add entry to log table
-        log <<- rbindlist(list(log, data.table(
+        log$log <<- rbindlist(list(log$log, data.table(
             Date = ti, paste(msg, collapse = " "))))
-        invisible(log)
+        invisible(log$log)
+    },
+
+    useColor = function(newval=NULL) {
+        "\\preformatted{Get/Set flag to use color or not. Parameters:
+   newval - Optional new value. Should be logical or as.logical()-able.
+}"
+        if (!is.null(newval)) {
+            nv <- as.logical(newval)[1]
+            if (is.na(nv)) {
+                err("useColor() should be provided with a boolean argument")
+            } else {
+                log$useColor <<- nv
+            }
+        }
+        log$useColor
+    },
+
+    colMap = function(color, bg=FALSE) {
+        "\\preformatted{Picks the appropriate crayon color for a color name
+    color - The name (string) of the color, *or* a function reference
+       bg - Default FALSE. If TRUE, then the method will return the relevant
+            background color method
+}"
+        
+        if (!useColor()) return(NA)
+        if (is.function(color)) return( color )
+        key    <- ifelse(bg, "BG", "FG")
+        fnName <- log$colMap[[ key ]][ tolower(color) ]
+        if (is.def(fnName) && exists(fnName)) {
+            ## Getting a variable by variable string name: get()
+            ## https://stackoverflow.com/a/3971855
+            get(fnName)
+        } else {
+            NA
+        }
     },
 
     colorize = function(msg = "", color = NULL, bgcolor = NULL) {
@@ -149,39 +184,37 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
   bgcolor - The color to assign to the background
 }"
         
-        ## Since colMap will not be set up when useColor is false,
-        ## this should return uncolorized text when appropriate
         if (!is.character(msg)) msg <- as.character(msg)
-        if (.isDef(color)   && !is.function(color))
-            color <- colMap$FG[[ tolower(color) ]]
-        if (.isDef(color) && exists(color)) msg <- get(color)(msg)
-        if (.isDef(bgcolor) && !is.function(bgcolor))
-            bgcolor <- colMap$BG[[ tolower(bgcolor) ]]
-        if (.isDef(bgcolor)) msg <- get(bgcolor)(msg)
+        fgFn <- colMap(color, FALSE)
+        if (is.function(fgFn)) msg <- fgFn(msg)
+        bgFn <- colMap(bgcolor, TRUE)
+        if (is.function(bgFn)) msg <- bgFn(msg)
         msg
-        ## Getting a variable by variable string name: get()
-        ## https://stackoverflow.com/a/3971855
     },
     
     dateMessage = function ( msg = "No message provided!", ... ) {
-        "Calls message() with datestamp=TRUE"
+        "\\preformatted{Calls message() with datestamp=TRUE
+}"
         message(msg=msg, datestamp = TRUE, ...)
     },
 
     actionMessage = function (msg = "No message provided!!", prefix = '[+]',
         color = "red", ...) {
-        "Calls message with a '[+]' prefix and red coloring"
+        "\\preformatted{Calls message with a '[+]' prefix and red coloring
+}"
         message(msg=msg, prefix=prefix, color=color, ...)
     },
 
     debugMessage = function (msg = "No message provided!!", prefix = '[DEBUG]',
         color = "white", bgcolor = "blue", ...) {
-        "Calls message with a '[DEBUG]' prefix and white/blue coloring"
+        "\\preformatted{Calls message with a '[DEBUG]' prefix and white/blue coloring
+}"
         message(msg=msg, prefix=prefix, color=color, bgcolor=bgcolor, ...)
     },
 
     err = function (msg = "No message provided!!", prefix = '[ERROR]', ...) {
-        "Calls message with an '[ERROR]' prefix and red/yellow coloring"
+        "\\preformatted{Calls message with an '[ERROR]' prefix and red/yellow coloring
+}"
         message(msg=msg, prefix=prefix, collapse="\n",
                 color="red", bgcolor="yellow", ...)
     },
@@ -210,13 +243,13 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
                          sprintf("%.3f %s", x, unit)), color)
     },
 
-    show = function ( width = 0.7 * getOption("width"),
+    showLog = function ( width = 0.7 * getOption("width"),
         relative = TRUE, pad = 11, n = 0) {
         "Pretty-prints the log, including total elapsed time"
         usingMethods("tidyTime") # Needed for use in apply
         head <- colorize("Activity log:", "blue")
         ## Nicely format the log
-        HMS <- log$Date
+        HMS <- log$log$Date
         nl  <- length(HMS)
         tot <- difftime(HMS[nl], HMS[1], units='secs')
         if (relative) {
@@ -232,7 +265,7 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         } else {
             HMS <- colorize(format(HMS, "%H:%M:%S"), "yellow")
         }
-        msgs <- log$Message
+        msgs <- log$log$Message
         if (n > 0) {
             msgs <- tail(msgs, n)
             HMS  <- tail(HMS, n)
@@ -249,52 +282,31 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         invisible(NULL)
     },
 
-    .setEventColorMap = function( useColor ) {
-        if (!useColor) {
-            colMap <<- list()
-        } else if (is.null(colMap) || is.null(colMap$FG)) {
-            ## if (require("crayon", quietly = TRUE)) {
-            if (TRUE) {
-                ## Was difficult to juggle referencing colors by function
-                ## name when you can't be sure the user has installed
-                ## crayon. Instead, make a named lookup of crayon
-                ## functions, which will then be used by $colorize() to
-                ## get() the correct function, provided it exists().
-                myNames <- c("black", "red", "green", "yellow", "blue",
-                             "magenta", "cyan", "white", "silver",
-                             "gray", "purple", "lightblue")
-                fgNames <- myNames
-                names(fgNames) <- myNames
-                ## I have included some aliases, remap to the R/ANSI names:
-                fgNames[ "gray" ]      <- "silver"
-                fgNames[ "purple" ]    <- "magenta"
-                fgNames[ "lightblue" ] <- "cyan"
-                ## Background color is the same, but with capitalized first
-                ## letter and a "bg" prefix:
-                bgNames <- vapply(fgNames, function (x) {
-                    paste("bg", toupper(substr(x,1,1)),
-                          substr(x,2,nchar(x)), sep="") }, "")
-                colMap <<- list(FG = fgNames, BG = bgNames)
-            } else{
-                ## crayon is not available
-                message(c("Could not activate color logging for messages:\n",
-                          "  crayon is not installed. To install:\n",
-                          "  install.packages('crayon')"))
-                colMap <<- list( FG = character(), BG = character() )
-            }
-        }
-        colMap
-    },
+    show = function (...) showLog(...),
 
-    .isDef = function (x) {
-        # "is defined"
-        if (is.null(x)) {
-            FALSE
-        } else if (length(x) == 0 || all(is.na(x))) {
-            FALSE
-        } else {
-            TRUE
-        }
+    .setEventColorMap = function( useColor ) {
+        if (!is.null(log$colMap) && !is.null(log$colMap$FG))
+            return (log$colMap)
+        ## Was difficult to juggle referencing colors by function name
+        ## when you can't be sure the user has installed
+        ## crayon. Instead, make a named lookup of crayon functions,
+        ## which will then be used by $colorize() to get() the correct
+        ## function, provided it exists().
+        myNames <- c("black", "red", "green", "yellow", "blue",
+                     "magenta", "cyan", "white", "silver",
+                     "gray", "purple", "lightblue")
+        fgNames <- myNames
+        names(fgNames) <- myNames
+        ## I have included some aliases, remap to the R/ANSI names:
+        fgNames[ "gray" ]      <- "silver"
+        fgNames[ "purple" ]    <- "magenta"
+        fgNames[ "lightblue" ] <- "cyan"
+        ## Background color is the same, but with capitalized first
+        ## letter and a "bg" prefix, eg "bgYellow":
+        bgNames <- vapply(fgNames, function (x) {
+            paste("bg", toupper(substr(x,1,1)),
+                  substr(x,2,nchar(x)), sep="") }, "")
+        log$colMap <<- list(FG = fgNames, BG = bgNames)
     }
 )
 
