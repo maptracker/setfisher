@@ -3,7 +3,6 @@
 export(EventLogger)
 exportClasses(EventLogger)
 import(crayon)
-importClassesFrom(data.table,data.table)
 importFrom(CatMisc,is.def)
 importFrom(data.table,data.table)
 importFrom(data.table,rbindlist)
