@@ -1,7 +1,7 @@
 Package: EventLogger
 Title: Capture events and timings across multiple objects in a shared DataTable
-Version: 1.7
-Date: 2017-06-26
+Version: 1.8
+Date: 2017-06-27
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
 Maintainer: Charles Tilford <cran@agent.fastmail.com>

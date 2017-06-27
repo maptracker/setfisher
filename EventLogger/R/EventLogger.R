@@ -10,9 +10,12 @@
 #' in field $log.
 #'
 #' @field log The data.table holding log messages
-#' @field useCol Logical flag to indicate if color should be used in messaging
-#' @field vb Logical flag indicating if verbose messaging should be active
-#' @field colMap A list generated to map color names to crayon functions
+#' @field useCol Logical flag to indicate if color should be used in
+#'     messaging
+#' @field vb Logical flag indicating if verbose messaging should be
+#'     active
+#' @field colMap An internally generated list that maps color names to
+#'     crayon functions
 #'
 #' @importFrom methods new setRefClass
 #' @importFrom CatMisc is.def
@@ -34,43 +37,10 @@
 #' # Expose the underlying data.table:
 #' myEL$log
 #'
-#' # Have this class inherited by another RefClass object:
-#' 
-#' ## Create a simple RefClass object that inherits (contains) EventLogger:
-#' foo <- setRefClass("foo",
-#'   fields = list( x = 'numeric' ), contains = c("EventLogger"))
-#' 
-#' ## Set the foo-Class methods:
-#' foo$methods(
-#'     initialize = function( x=1, ... ) {
-#'         initFields(x=x)
-#'         callSuper(...)
-#'     },
-#'     set_x = function( val ) {
-#'         x <<- val
-#'         actionMessage(c("Set x:", val))
-#'     },
-#'     del_x = function() {
-#'         x <<- as.numeric(NA)
-#'         ## Note that this is NOT base::message(), but the RC object version:
-#'         message("Cleared x", color='magenta', prefix='[-]')
-#'     })
-#' 
-#' ## Create a new method and manipulate it
-#' z <- foo()
-#' z$set_x(10)
-#' z$set_x(3.14)
-#' z$del_x()
+#' ## Demo with inheritance of the class:
 #'
-#' ## Create a second object that will share the log
+#' demo("objectInheritance", package="EventLogger", ask=FALSE)
 #'
-#' q <- foo(log=z)
-#' q$actionMessage("Hello from Q")
-#' q$set_x(1234)
-#' q$message(c("z =", z$x, "and q =", q$x))
-#' 
-#' ## Show the log, using z
-#' z$log
 #' 
 #' @export EventLogger
 #' @exportClass EventLogger
@@ -89,31 +59,39 @@ EventLogger <-
 
 EventLogger$methods(
     
-    initialize = function(useColor=TRUE, verbose =TRUE, log=NULL, ...) {
-
-### This require() statement is silly when using EventLogger directly
-### - the package is imported and available when creating objects with
-### EventLogger(). However, when using it as an inherited class (via
-### contains=) it seems to be neccesary. If I fail to include this
-### here, the generation of the default log object fails with:
-###    Error in callSuper(..., x = x) : could not find function "data.table"
-### It seems like I am doing something wrong setting up inheritance,
-### but I can't for the life of me figure out what.
-                    
-        require("data.table", quietly=TRUE)
-        require("CatMisc",    quietly=TRUE)
-
-        useCol   <<- useColor
-        vb       <<- verbose
+    initialize = function(useColor=NULL, verbose=NULL, log=NULL, ...) {
+        "\\preformatted{Create a new object using EventLogger():
+        log - Optional EventLogger object. This is used if EventLogger is an
+              inherited ('contains') class in another RefClass object, and you
+              wish that object to share the event log from a previously created
+              object.
+   useColor - Defaults to TRUE, toggles if crayon::-based coloring is applied
+              to printed messages. If 'log' is provided, changes will affect
+              that shared object
+    verbose - Defaults to TRUE, toggles if log events are also printed to the
+              terminal. If 'log' is provided, changes will affect that shared
+              object
+}"
+        callSuper(...)
         EvLogObj <<- log
         if (is.null(EvLogObj)) {
-            log <<- data.table(Date=Sys.time(),
-                               Message="Log initialized", key="Date")
+            ## Make a log table from scratch - this will be utilized
+            log <<- data.table::data.table(Date=Sys.time(),
+              Message="Log initialized", key="Date")
         } else {
-            log <<- data.table(Date=Sys.time(),
-                               Message="STUB TABLE - see $EvLogObj for shared table", key="Date")
+            ## Make a "dummy" log table to fill the field; It will NOT
+            ## be used, instead the $log in EvLogObj will be utilized
+            log <<- data.table::data.table(Date=Sys.time(),
+              Message="STUB TABLE - see $EvLogObj for shared table", key="Date")
         }
-        .setEventColorMap( )
+        ## Manage useColor and verbose flags through methods. Default
+        ## is TRUE for both, but can be user set.
+        useCol   <<- TRUE
+        vb       <<- TRUE
+        .self$useColor(useColor)
+        .self$verbose(verbose)
+        ## Set the string-to-colorizerMethod lookup list:
+        colNameToFunc( )
     },
 
     message = function(msg = "No message provided!", prefix = NULL,
@@ -153,11 +131,13 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         ## Add entry to log table
         if (!is.null(EvLogObj)) {
             ## Use a shared object
-            EvLogObj$log <<- rbindlist(list(EvLogObj$log, data.table(
+            EvLogObj$log <<-
+                data.table::rbindlist(list(EvLogObj$log, data.table::data.table(
                  Date = ti, paste(msg, collapse = " "))))
             invisible(EvLogObj$log)
         } else {
-            log <<- rbindlist(list(log, data.table(
+            log <<-
+                data.table::rbindlist(list(log, data.table::data.table(
                  Date = ti, paste(msg, collapse = " "))))
             invisible(log)
         }
@@ -170,17 +150,10 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
             background color method
 }"
         
-        if (!useColor()) return(NA)
+        if (!useColor() || ! CatMisc::is.def(color)) return(NA)
         if (is.function(color)) return( color )
         key    <- ifelse(bg, "BG", "FG")
-        fnName <- colMap[[ key ]][ tolower(color) ]
-        if (is.def(fnName) && exists(fnName)) {
-            ## Getting a variable by variable string name: get()
-            ## https://stackoverflow.com/a/3971855
-            get(fnName)
-        } else {
-            NA
-        }
+        colNameToFunc()[[ key ]][[ tolower(color) ]]
     },
 
     colorize = function(msg = "", color = NULL, bgcolor = NULL) {
@@ -201,6 +174,8 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     useColor = function(newval=NULL) {
         "\\preformatted{Get/Set flag to use color or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
+
+     Current value is returned invisibly
 }"
         if (!is.null(EvLogObj)) {
             ## Use a shared object
@@ -213,12 +188,14 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
                 useCol <<- nv
             }
         }
-        useCol
+        invisible(useCol)
     },
 
     verbose = function(newval=NULL) {
         "\\preformatted{Get/Set flag for messaging to be verbose or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
+
+     Current value is returned invisibly
 }"
         if (!is.null(EvLogObj)) {
             ## Use a shared object
@@ -231,7 +208,7 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
                 vb <<- nv
             }
         }
-        vb
+        invisible(vb)
     },
 
     dateMessage = function ( msg = "No message provided!", ... ) {
@@ -322,8 +299,9 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         invisible(NULL)
     },
 
-    .setEventColorMap = function( ) {
-        if (!is.null(colMap) && !is.null(colMap$FG)) return (colMap)
+    colNameToFunc = function( ) {
+        use <- if(is.null(EvLogObj)) { .self } else { EvLogObj }
+        if (!is.null(use$colMap) && !is.null(use$colMap$FG)) return (use$colMap)
         ## Was difficult to juggle referencing colors by function name
         ## when you can't be sure the user has installed
         ## crayon. Instead, make a named lookup of crayon functions,
@@ -343,7 +321,26 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         bgNames <- vapply(fgNames, function (x) {
             paste("bg", toupper(substr(x,1,1)),
                   substr(x,2,nchar(x)), sep="") }, "")
-        colMap <<- list(FG = fgNames, BG = bgNames)
+        bgNames[ "silver" ] <- "bgWhite"
+        bgNames[ "gray" ] <- "bgWhite"
+        ## Initially I tried to manage this as a simple string->string
+        ## lookup, and then converted each string to a function
+        ## on-the-fly with get(). However, get() will need package
+        ## crayon to be in the search space, and when EventLogger is
+        ## used via inheritance that seems to not be the case. So I am
+        ## going to instead use this as a string->function lookup, and
+        ## evaluate each function here.
+        cm <- list(FG = fgNames, BG = bgNames)
+        cf <- list()
+        for (typ in names(cm)) {
+            cf[[typ]] <- list()
+            for (nm in cm[[typ]]) {
+                ## eval() in R: https://stackoverflow.com/a/1743796
+                cf[[typ]][[nm]] <-
+                    eval(parse(text=paste("crayon::", nm, sep="")))
+            }
+        }
+        use$colMap <- cf
     }
 )
 

@@ -21,11 +21,14 @@ in field $log.
 \describe{
 \item{\code{log}}{The data.table holding log messages}
 
-\item{\code{useCol}}{Logical flag to indicate if color should be used in messaging}
+\item{\code{useCol}}{Logical flag to indicate if color should be used in
+messaging}
 
-\item{\code{vb}}{Logical flag indicating if verbose messaging should be active}
+\item{\code{vb}}{Logical flag indicating if verbose messaging should be
+active}
 
-\item{\code{colMap}}{A list generated to map color names to crayon functions}
+\item{\code{colMap}}{An internally generated list that maps color names to
+crayon functions}
 }}
 
 \section{Methods}{
@@ -53,6 +56,19 @@ in field $log.
 
 \item{\code{err(msg = "No message provided!!", prefix = "[ERROR]", ...)}}{Calls message with an '[ERROR]' prefix and red/yellow coloring}
 
+\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{Create a new object using EventLogger():
+        log - Optional EventLogger object. This is used if EventLogger is an
+              inherited ('contains') class in another RefClass object, and you
+              wish that object to share the event log from a previously created
+              object.
+   useColor - Defaults to TRUE, toggles if crayon::-based coloring is applied
+              to printed messages. If 'log' is provided, changes will affect
+              that shared object
+    verbose - Defaults to TRUE, toggles if log events are also printed to the
+              terminal. If 'log' is provided, changes will affect that shared
+              object
+}}
+
 \item{\code{message(msg = "No message provided!", prefix = NULL, color = NULL,
   bgcolor = NULL, datestamp = FALSE, fatal = FALSE, collapse = " ")}}{\preformatted{Display an optionally colorized message, and store
 it in the log table. Parameters:
@@ -72,10 +88,14 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
 
 \item{\code{useColor(newval = NULL)}}{\preformatted{Get/Set flag to use color or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
+
+     Current value is returned invisibly
 }}
 
 \item{\code{verbose(newval = NULL)}}{\preformatted{Get/Set flag for messaging to be verbose or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
+
+     Current value is returned invisibly
 }}
 }}
 
@@ -94,42 +114,9 @@ myEL
 # Expose the underlying data.table:
 myEL$log
 
-# Have this class inherited by another RefClass object:
+## Demo with inheritance of the class:
 
-## Create a simple RefClass object that inherits (contains) EventLogger:
-foo <- setRefClass("foo",
-  fields = list( x = 'numeric' ), contains = c("EventLogger"))
+demo("objectInheritance", package="EventLogger", ask=FALSE)
 
-## Set the foo-Class methods:
-foo$methods(
-    initialize = function( x=1, ... ) {
-        initFields(x=x)
-        callSuper(...)
-    },
-    set_x = function( val ) {
-        x <<- val
-        actionMessage(c("Set x:", val))
-    },
-    del_x = function() {
-        x <<- as.numeric(NA)
-        ## Note that this is NOT base::message(), but the RC object version:
-        message("Cleared x", color='magenta', prefix='[-]')
-    })
-
-## Create a new method and manipulate it
-z <- foo()
-z$set_x(10)
-z$set_x(3.14)
-z$del_x()
-
-## Create a second object that will share the log
-
-q <- foo(log=z)
-q$actionMessage("Hello from Q")
-q$set_x(1234)
-q$message(c("z =", z$x, "and q =", q$x))
-
-## Show the log, using z
-z$log
 
 }
