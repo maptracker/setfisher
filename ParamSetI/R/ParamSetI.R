@@ -1,38 +1,73 @@
 ### Generalized paramater storage container
 
-#' SetFisher Paramter Interface
+#' Paramter Set Interface
 #'
 #' Inherited class holding parameter manipulation functions
 #'
 #' @field paramSet List holding key-value pairs used by an object
-#' @field paramDef List holding default key-value pairs
+#' @field paramDef List holding parameter definitions
 #' @field varName Single string holding extracted variable names. Used
 #'     for reporting R code that utilizes actual variable names being
 #'     used.
 #' 
-#' @importFrom dynamictable dynamictable
-#' @importFrom methods setRefClass new
+#' @import CatMisc
+#' @importFrom methods new setRefClass
+#' @importClassesFrom EventLogger EventLogger
 #'
-#' @import data.table
+#' @examples
+#' 
+#' ## Demo with inheritance of the class:
+#' demo("objectInheritance", package="ParamSetI", ask=FALSE)
 #'
+#' @export ParamSetI
+#' @exportClass ParamSetI
+#' 
 
-SetFisherParamI <-
-    setRefClass("SetFisherParamI",
+ParamSetI <-
+    setRefClass("ParamSetI",
                 fields = list(
                     paramSet = "list",
                     paramDef = "data.frame",
-                    varName  = "character"
-                    ),
-                contains = c("SetFisherLoggerI")
+                    varName  = "character" ),
+                contains = c("EventLogger") )
 
-                )
+ParamSetI$methods(
 
-
-SetFisherParamI$methods(
+    initialize = function(params=NA, ... ) {
+        "\\preformatted{Create a new object using ParamSetI():
+     params - Optional list of key/value pairs that will be passed to
+              setParamList()
+        ... - dots will also be passed on to setParamList()
+}"
+        callSuper(...)
+        setParamList( params=params, ... )
+    },
 
     param = function (key = NA, val = NA, append = FALSE, default = NA,
                       clobber = TRUE, check.class = NA, is.scalar = TRUE,
                       coerce = TRUE) {
+        "\\preformatted{Gets/Sets a parameter. Parameters:
+      key - The name of the parameter. If NA will simply return NA. Key names
+            are case insensitive.
+      val - Optional new value. If not NA, then the parameter value will be
+            set, with behavior modified by some of the flags below
+   append - Default FALSE, which will cause the parameter to be set to 'val'.
+            If TRUE, val will be appended to the end of the current vector
+            holding the value for 'key'.
+  default - Optional value to return if the value of 'key' is 'not defined',
+            which corresponds to NA, NULL or zero-length vectors.
+  clobber - Default TRUE, which allows an already-set value to be replaced with
+            'val'. Using FALSE is primarily used for managing default settings.
+ check.class - Default NA, which will not cause a class check. If provided,
+            'val' will be checked with is.class() to see if it matches the
+            requested value. If not, an error will be reported and 'key'
+            will not be set. The value 'percent' will be interpreted as
+            'numeric'.
+ is.scalar - Default TRUE, which will result in only val[1] being used. Set
+            to FALSE if you wish all elements of 'val' to be assigned to 'key'
+   coerce - Default TRUE, which will attempt to coerce 'val' to 'check.class'
+            in the event that check.class is not NA
+}"
         if (is.na(key)) return( NA )
         ## Always ignore the case of the key:
         key <- tolower(key)
@@ -47,12 +82,12 @@ SetFisherParamI$methods(
                 ## allows a preference-ordered list to be provided.
                 val <- val[ !is.na(val) ][1]
             }
-            if (clobber || !is.def(paramSet[[ key ]])) {
+            if (clobber || !CatMisc::is.def(paramSet[[ key ]])) {
                 ## setting clobber to false prevents the value from
                 ## being set if one already exists (used for mananging
                 ## default settings)
-                vecDat <- .parenRE("^\\s*\\[(.+?)\\]\\[(.+?)\\]\\s*$", val)
-                if (is.something(vecDat[1])) {
+                vecDat <- CatMisc::parenRegExp("^\\s*\\[(.+?)\\]\\[(.+?)\\]\\s*$", val)
+                if (CatMisc::is.something(vecDat[1])) {
                     ## The construct "[,][A,B,C]" is used to specify a
                     ## vector of values. The first [] block specifies
                     ## the text delimiter, the second the values
@@ -60,9 +95,9 @@ SetFisherParamI$methods(
                 }
                 ## Check type of value if a class check was requested
                 ## or is stored in the parameter definitions.
-                chk <- ifelse(is.na(check.class), paramDef[key, "class"],
-                              check.class)
-                if (is.def(chk)) {
+                chk <- if (is.na(check.class)) {
+                           paramDef[key, "class"] } else { check.class }
+                if (CatMisc::is.def(chk)) {
                     ## 'percent' is a conveinence class to help with
                     ## automated value reporting.
                     if (chk == "percent") chk <- "numeric"
@@ -86,7 +121,7 @@ SetFisherParamI$methods(
                         val <- coerced
                     }
                 }
-                if (append && is.def(paramSet[[ key ]])) {
+                if (append && CatMisc::is.def(paramSet[[ key ]])) {
                     ## append flag will extend an existing value
                     paramSet[[ key ]] <<- c(paramSet[[ key ]], val)
                 } else {
@@ -96,9 +131,9 @@ SetFisherParamI$methods(
             }
         }
         rv <- NA
-        if (hasParam(key) && is.def(paramSet[[key]])) {
+        if (hasParam(key) && CatMisc::is.def(paramSet[[key]])) {
             rv <- paramSet[[key]]
-        } else if (is.def(default)) {
+        } else if (CatMisc::is.def(default)) {
             ## a default value is specified in the event that a
             ## parameter is not set
             rv <- default
@@ -107,47 +142,52 @@ SetFisherParamI$methods(
     },
 
     hasParam = function(key) {
+        "Returns TRUE if the provided key has been set or is in the defaults"
         ## A parameter always exists if there is a definition for
         ## it. This is done to help avoid falling back to looking for
         ## an object field in some functions.
         tlk <- tolower(key)
-        tlk %in% rownames(paramDef) || tlk %in% names(paramSet)
+        is.element(tlk, rownames(paramDef)) || is.element(tlk, names(paramSet))
     },
 
-    .setParamList = function (x, ...) {
-        ## Set one or more parameters provided by a list object
-        if (!is.list(x)) return(NA)
-        for (k in names(x)) {
-            param(k, x[[k]], ... )
+    setParamList = function (params=NULL, ...) {
+        "\\preformatted{Set one or more parameters provided by a list object. Parameters:
+   params - The list holding the parameters, with the names as key names
+      ... - dots will be passed to param() for each key/value pair
+}"
+        if (!is.list(params)) return(NA)
+        for (k in names(params)) {
+            param(k, params[[k]], ... )
         }
     },
 
-    .setParamDefs = function(x) {
-        ## Set the parameter definitions by text block. Format of each
-        ## line is "keyName [optionalClass] optional description" eg:
+    defineParameters = function(x) {
+        "\\preformatted{Set the parameter definitions by text block.
+   Format of each line is 'keyName [optionalClass] optional description' eg:
         
-        ## myFirstKey [integer] Number of widgets to consider
-        ## myOtherKey [character] URL for widget lookup
-        ## ThatKey Flexible reporting value for this 'n' that
+myFirstKey [integer] Number of widgets to consider
+myOtherKey [character] URL for widget lookup
+ThatKey Widget asset key, can be text or numeric
+}"
         
-        if (!is.def(x)) return(NA)
+        if (!CatMisc::is.def(x)) return(NA)
         lines <- unlist(base::strsplit(x, "[\n\r]+"))
         nl <- length(lines)
         keys <- cls <- desc <- rep("", nl)
         nk <- 0
         for (line in lines) {
-            keyDat <- .parenRE("^\\s*(\\S+)(.*)", line)
+            keyDat <- CatMisc::parenRegExp("^\\s*(\\S+)(.*)", line)
             key    <- keyDat[1]
-            if (is.def(key)) {
+            if (CatMisc::is.def(key)) {
                 nk <- nk + 1
                 keys[nk] <- key
-                clsDat <- .parenRE("^\\s*\\[\\s*(\\S+)\\s*\\](.*)", keyDat[2])
-                if (is.def(clsDat[1])) {
+                clsDat <- CatMisc::parenRegExp("^\\s*\\[\\s*(\\S+)\\s*\\](.*)", keyDat[2])
+                if (CatMisc::is.def(clsDat[1])) {
                     cls[nk] <- tolower(clsDat[1])
                     keyDat[2] <- clsDat[2]
                 }
-                dscDat <-  .parenRE("^\\s*(.+?)\\s*$", keyDat[2])
-                if (is.def(dscDat[1])) desc[nk] <- dscDat[1]
+                dscDat <-  CatMisc::parenRegExp("^\\s*(.+?)\\s*$", keyDat[2])
+                if (CatMisc::is.def(dscDat[1])) desc[nk] <- dscDat[1]
             }
         }
         nks <- seq_len(nk)
@@ -156,6 +196,20 @@ SetFisherParamI$methods(
             stringsAsFactors=FALSE)
         rownames(df) <- tolower(keys[nks])
         paramDef <<- df
+    },
+
+    showParameters = function () {
+        objName <- .selfVarName()
+        fmt <- sprintf("%s$param('%s', %s) : %%s\n", colorize(objName, "white"),
+                       colorize("%s", "purple"), colorize("%s", "red"))
+        lines <- character()
+        for (i in seq_len(nrow(paramDef))) {
+            k <- paramDef[i,"key"]
+            v <- param(k)
+            if (is.character(v)) v <- sprintf("'%s'", v)
+            lines <- c(lines, sprintf(fmt, k , v, paramDef[i, "description"]))
+        }
+        cat(paste(lines, collapse=""))        
     },
 
     .selfVarName = function( def = "myObj", fallbackVar = "" ) {
@@ -179,20 +233,21 @@ SetFisherParamI$methods(
         ## space. I am only looking in the global environment (1), and
         ## there are many ways this might not be quite right, but it
         ## is close enough. I hope.
-        if (!is.something(varName)) {
+        if (!CatMisc::is.something(varName)) {
             ## No attempt to find the object yet. Do so just this once
             for (vn in ls(1)) {
                 if (identical(get(vn), .self)) varName <<- vn
             }
-            if (!is.something(varName)) {
+            if (!CatMisc::is.something(varName)) {
                 ## Still not found
                 varName <<- def
             }
         }
-        if (is.something(fallbackVar) && varName == def) {
+        if (CatMisc::is.something(fallbackVar) && varName == def) {
             fallbackVar
         } else {
             varName
         }
     }
 )
+
