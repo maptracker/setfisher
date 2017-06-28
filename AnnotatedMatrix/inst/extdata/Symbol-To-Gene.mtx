@@ -1,0 +1,482 @@
+%%MatrixMarket matrix coordinate real general
+% Separator ' :: '
+%
+%% This is a demonstration matrix that maps 167 gene symbols to 67
+%% human Entrez Gene identifiers. The data were extracted from the
+%% MapTracker graph database.
+%
+%% DEFAULT Name Sample Human Symbol-to-Entrez Lookup
+%% DEFAULT Description 4=Official Symbol, 3=Preferred unofficial, 2=Unofficial, 1=Unknown
+% Rows are Gene Symbols
+%% DEFAULT RowDim Gene Symbol
+%% DEFAULT RowUrl https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D
+% Columns are Entrez IDs
+%% DEFAULT ColDim Entrez ID
+%% DEFAULT ColUrl https://www.ncbi.nlm.nih.gov/gene/%s
+%
+%% Values should be treated as factors representing official
+%% assignment levels:
+%
+%% ------     1       2          3                   4 
+%% LEVELS [,][Unknown,Unofficial,UnofficialPreferred,Official]
+%
+%% "Official" indicates HGNC official nomenclature. "Unknown"
+%% indicates that the connection between the symbol and the identifier
+%% traversed network paths of uncertain provenance. For genes that
+%% have no Official symbols but one or more Unofficial ones, one of
+%% them will be labeled as "UnofficialPreferred", indicating the
+%% symbol that is listed first in NCBI listings.
+%
+% - - - - - - - - - - - - - - - - - - - - 
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+%-------------------------------------------
+% Row Name
+% 1 AR
+% 2 AIRE1
+% 3 APSI
+% 4 PGA1
+% 5 APS1
+% 6 APECED
+% 7 AIRE
+% 8 AIS
+% 9 HUMARA
+% 10 DHTR
+% 11 HYSP1
+% 12 SBMA
+% 13 SMAX1
+% 14 AR8
+% 15 NR3C4
+% 16 TFM
+% 17 KD
+% 18 p75
+% 19 GARS
+% 20 MGC47764
+% 21 GART
+% 22 GARTF
+% 23 PGFT
+% 24 AIRS
+% 25 PRGS
+% 26 PAIS
+% 27 P40
+% 28 p40
+% 29 NBP
+% 30 P29
+% 31 TG
+% 32 TGN
+% 33 AITD3
+% 34 OTUD7C
+% 35 AISBL
+% 36 TNFA1P2
+% 37 A20
+% 38 MGC104522
+% 39 MGC138687
+% 40 TNFAIP3
+% 41 MGC138688
+% 42 p53CP
+% 43 TP53CP
+% 44 p63
+% 45 AIR
+% 46 TP53L
+% 47 CUSP
+% 48 p73H
+% 49 EEC3
+% 50 B(p51A)
+% 51 p51
+% 52 OFC8
+% 53 B(p51B)
+% 54 TP73L
+% 55 KET
+% 56 LMS
+% 57 SHFM4
+% 58 TP63
+% 59 p73L
+% 60 RHS
+% 61 CD357
+% 62 AITR
+% 63 TNFRSF18
+% 64 GITR-D
+% 65 GITR
+% 66 MGC138237
+% 67 TL6
+% 68 GITRL
+% 69 hGITRL
+% 70 TNLG2A
+% 71 TNFSF18
+% 72 AITRL
+% 73 AOP2
+% 74 aiPLA2
+% 75 NSGPx
+% 76 MGC46173
+% 77 PRX
+% 78 p29
+% 79 HEL-S-128m
+% 80 PRDX6
+% 81 KIAA0106
+% 82 1-Cys
+% 83 AIRC
+% 84 MGC5024
+% 85 PAICS
+% 86 DKFZp781N1372
+% 87 ADE2
+% 88 MGC1343
+% 89 ADE2H1
+% 90 AIPL2
+% 91 LCA4
+% 92 AIPL1
+% 93 VAMAS2
+% 94 HFH2
+% 95 FOXD3
+% 96 AIS1
+% 97 Genesis
+% 98 CDw328
+% 99 D-siglec
+% 100 SIGLEC19P
+% 101 CD328
+% 102 SIGLECP2
+% 103 QA79
+% 104 p75/AIRM1
+% 105 SIGLEC7
+% 106 AIRM1
+% 107 SIGLEC-7
+% 108 PISP
+% 109 PDZD11
+% 110 AIPP1
+% 111 PDZK11
+% 112 MGC87009
+% 113 SIAE
+% 114 CSE-C
+% 115 LSE
+% 116 YSG2
+% 117 AIS6
+% 118 CSEC
+% 119 RP3-426F10.1
+% 120 SHREW1
+% 121 MOT8
+% 122 AJAP1
+% 123 SHREW-1
+% 124 P51
+% 125 KIAA1485
+% 126 ZNF406
+% 127 MGC126817
+% 128 ZFAT1
+% 129 ZFAT
+% 130 MGC126815
+% 131 HSPC086
+% 132 RP11-397D12.1
+% 133 ZCCHC7
+% 134 FLJ22611
+% 135 AIR1
+% 136 AIRAP
+% 137 ZFAND2A
+% 138 NT5C1B
+% 139 AIRP
+% 140 MGC26640
+% 141 CN1B
+% 142 CN-IB
+% 143 AIRAPL
+% 144 ZFAND2B
+% 145 AIT
+% 146 MGC125354
+% 147 SMCT1
+% 148 SLC5A8
+% 149 SMCT
+% 150 IS1
+% 151 IS2
+% 152 AIS2
+% 153 VAMAS3
+% 154 VAMAS4
+% 155 AIS3
+% 156 AITD1
+% 157 AITD2
+% 158 AITD4
+% 159 VAMAS5
+% 160 AIS4
+% 161 CELIAC6
+% 162 AIS5
+% 163 AIRN
+% 164 NCRNA00088
+% 165 IGF2R-AS
+% 166 IGF2RAS
+% 167 IGF2R-AS1
+%-------------------------------------------
+% Col Name :: Symbol :: Description
+% 1 LOC231 :: AKR1B1 :: aldo-keto reductase family 1 member B
+% 2 LOC326 :: AIRE :: Autoimmune regulator
+% 3 LOC367 :: AR :: Androgen receptor
+% 4 LOC374 :: AREG :: Amphiregulin
+% 5 LOC1523 :: CUX1 :: cut like homeobox 1
+% 6 LOC2617 :: GARS :: Glycyl-tRNA synthetase
+% 7 LOC2618 :: GART :: Phosphoribosylglycinamide formyltransferase, phosphoribosylglycinamide synthetase, phosphoribosylaminoimidazole synthetase
+% 8 LOC3059 :: HCLS1 :: Hematopoietic cell-specific lyn substrate 1
+% 9 LOC3578 :: IL9 :: Interleukin 9
+% 10 LOC3921 :: RPSA :: Ribosomal protein SA
+% 11 LOC4682 :: NUBP1 :: Nucleotide binding protein 1
+% 12 LOC5594 :: MAPK1 :: Mitogen-activated protein kinase 1
+% 13 LOC5657 :: PRTN3 :: Proteinase 3
+% 14 LOC5713 :: PSMD7 :: proteasome 26S subunit, non-ATPase 7
+% 15 LOC7038 :: TG :: Thyroglobulin
+% 16 LOC7128 :: TNFAIP3 :: TNF alpha induced protein 3
+% 17 LOC7133 :: TNFRSF1B :: TNF receptor superfamily member 1B
+% 18 LOC7160 :: p53CP :: {Deprecated} tumor protein p53-competing protein. More recent records: LOC8626
+% 19 LOC7405 :: UVRAG :: UV radiation resistance associated
+% 20 LOC7808 :: AIR :: Acute insulin response (2)
+% 21 LOC8461 :: NBP :: {Deprecated} tumor protein p53-like. More recent records: LOC8626
+% 22 LOC8626 :: TP63 :: TUMOR PROTEIN p63
+% 23 LOC8784 :: TNFRSF18 :: TNF receptor superfamily member 18
+% 24 LOC8995 :: TNFSF18 :: TNF superfamily member 18
+% 25 LOC9181 :: ARHGEF2 :: Rho/Rac guanine nucleotide exchange factor 2
+% 26 LOC9588 :: PRDX6 :: Peroxiredoxin 6
+% 27 LOC10244 :: RABEPK :: Rab9 effector protein with kelch motifs
+% 28 LOC10314 :: LANCL1 :: LanC like 1
+% 29 LOC10606 :: PAICS :: phosphoribosylaminoimidazole carboxylase and phosphoribosylaminoimidazolesuccinocarboxamide synthase
+% 30 LOC10969 :: EBNA1BP2 :: EBNA1 binding protein 2
+% 31 LOC10970 :: CKAP4 :: cytoskeleton associated protein 4
+% 32 LOC11168 :: PSIP1 :: PC4 and SFRS1 interacting protein 1
+% 33 LOC23746 :: AIPL1 :: aryl hydrocarbon receptor interacting protein like 1
+% 34 LOC25824 :: PRDX5 :: Peroxiredoxin 5
+% 35 LOC25949 :: SYF2 :: SYF2 pre-mRNA splicing factor
+% 36 LOC27022 :: FOXD3 :: Forkhead box D3
+% 37 LOC27036 :: SIGLEC7 :: sialic acid binding Ig like lectin 7
+% 38 LOC28935 :: IGKV1-27 :: immunoglobulin kappa variable 1-27
+% 39 LOC50978 :: LMS :: {Deprecated} Limb-mammary syndrome. More recent records: LOC8626
+% 40 LOC51248 :: PDZD11 :: PDZ domain containing 11
+% 41 LOC54414 :: SIAE :: sialic acid acetylesterase
+% 42 LOC55190 :: NUDT11 :: Nudix hydrolase 11
+% 43 LOC55966 :: AJAP1 :: adherens junctions associated protein 1
+% 44 LOC57541 :: ZNF398 :: Zinc finger protein 398
+% 45 LOC57623 :: ZFAT :: zinc finger and AT-hook domain containing
+% 46 LOC57716 :: PRX :: Periaxin
+% 47 LOC80347 :: COASY :: Coenzyme A synthase
+% 48 LOC84186 :: ZCCHC7 :: zinc finger CCHC-type containing 7
+% 49 LOC90637 :: ZFAND2A :: zinc finger AN1-type containing 2A
+% 50 LOC93034 :: NT5C1B :: 5'-nucleotidase, cytosolic IB
+% 51 LOC114191 :: SIGLECP2 :: {Deprecated} sialic acid binding Ig-like lectin 19, pseudogene. More recent records: LOC27036
+% 52 LOC130617 :: ZFAND2B :: zinc finger AN1-type containing 2B
+% 53 LOC160728 :: SLC5A8 :: Solute carrier family 5 member 8
+% 54 LOC260402 :: IS1 :: Adolescent idiopathic scoliosis
+% 55 LOC282552 :: IS2 :: Scoliosis, idiopathic 2
+% 56 LOC284367 :: SIGLEC17P :: sialic acid binding Ig like lectin 17, pseudogene
+% 57 LOC339541 :: C1orf228 :: chromosome 1 open reading frame 228
+% 58 LOC373071 :: AIS1 :: autoimmune susceptibility 1
+% 59 LOC378426 :: AIS2 :: autoimmune susceptibility 2
+% 60 LOC378427 :: AIS3 :: autoimmune susceptibility 3 (vitiligo specific)
+% 61 LOC387578 :: AITD1 :: Autoimmune thyroid disease, susceptibility to, 1
+% 62 LOC387579 :: AITD2 :: Autoimmune thyroid disease, susceptibility to, 2
+% 63 LOC387580 :: AITD3 :: {Deprecated} Autoimmune thyroid disease, susceptibility to, 3. More recent records: LOC7038
+% 64 LOC387581 :: AITD4 :: Autoimmune thyroid disease, susceptibility to, 4
+% 65 LOC619405 :: AIS4 :: autoimmune disease, susceptibility to, 4
+% 66 LOC100188846 :: CELIAC6 :: Celiac disease, susceptibility to, 6
+% 67 LOC100271873 :: AIRN :: antisense of IGF2R non-protein coding RNA
+%-------------------------------------------
+% Matrix triples : Row Col Score
+%-------------------------------------------
+  167 67 208
+1 1 2
+1 3 4
+1 4 2
+2 2 2
+3 2 2
+4 2 2
+5 2 2
+5 42 2
+6 2 2
+7 2 4
+8 3 2
+8 22 1
+8 54 2
+9 3 2
+10 3 2
+11 3 2
+12 3 2
+13 3 2
+14 3 2
+15 3 2
+16 3 2
+17 3 2
+18 5 2
+18 8 2
+18 17 2
+18 32 2
+18 37 2
+19 6 4
+19 7 2
+20 7 2
+21 7 4
+22 7 2
+23 7 2
+24 7 2
+25 7 2
+26 7 2
+26 29 2
+27 9 2
+27 14 2
+27 25 2
+27 30 2
+28 10 2
+28 12 2
+28 22 1
+28 27 2
+28 28 2
+28 57 2
+29 11 2
+29 21 1
+29 22 1
+29 47 2
+30 13 2
+30 35 2
+31 15 4
+32 15 2
+33 15 2
+33 45 2
+33 63 1
+34 16 2
+35 16 2
+36 16 2
+37 16 2
+37 38 2
+38 16 2
+39 16 2
+40 16 4
+41 16 2
+42 18 1
+42 22 1
+43 18 1
+43 22 1
+44 19 2
+44 22 1
+44 31 2
+45 20 3
+45 67 2
+46 21 1
+46 22 1
+47 22 1
+48 22 1
+49 22 1
+50 22 1
+51 22 1
+52 22 1
+53 22 1
+54 22 1
+55 22 1
+56 22 1
+56 39 1
+57 22 1
+58 22 4
+59 22 1
+60 22 1
+61 23 2
+62 23 2
+63 23 4
+64 23 2
+65 23 2
+66 24 2
+67 24 2
+68 24 2
+69 24 2
+70 24 2
+71 24 4
+72 24 2
+73 26 2
+74 26 2
+75 26 2
+76 26 2
+77 26 2
+77 46 4
+78 26 2
+79 26 2
+80 26 4
+80 34 2
+81 26 2
+82 26 2
+83 29 2
+84 29 2
+85 29 4
+86 29 2
+87 29 2
+88 29 2
+89 29 2
+90 33 2
+91 33 2
+92 33 4
+93 36 2
+94 36 2
+95 36 4
+96 36 2
+96 54 2
+96 58 4
+97 36 2
+98 37 2
+99 37 2
+100 37 2
+100 51 1
+101 37 2
+102 37 2
+102 51 1
+102 56 2
+103 37 2
+104 37 2
+105 37 4
+106 37 2
+107 37 2
+108 40 2
+109 40 4
+110 40 2
+111 40 3
+112 41 2
+113 41 4
+114 41 2
+115 41 2
+116 41 3
+117 41 2
+118 41 2
+119 43 2
+120 43 2
+121 43 2
+122 43 4
+123 43 2
+124 44 2
+125 45 2
+126 45 2
+127 45 2
+128 45 2
+129 45 4
+130 45 2
+131 48 2
+132 48 2
+133 48 4
+134 48 2
+135 48 2
+136 49 2
+137 49 4
+138 50 4
+139 50 2
+140 50 2
+141 50 2
+142 50 2
+143 52 2
+144 52 4
+145 53 2
+146 53 2
+147 53 2
+148 53 4
+149 53 2
+150 54 3
+151 55 3
+152 55 2
+152 59 4
+153 59 2
+154 60 2
+155 60 4
+156 61 3
+157 62 3
+158 64 3
+159 65 2
+160 65 3
+161 66 3
+162 66 2
+163 67 4
+164 67 2
+165 67 2
+166 67 2
+167 67 2

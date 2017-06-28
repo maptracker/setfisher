@@ -38,7 +38,6 @@
 #' myEL$log
 #'
 #' ## Demo with inheritance of the class:
-#'
 #' demo("objectInheritance", package="EventLogger", ask=FALSE)
 #'
 #' 
@@ -235,7 +234,10 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     },
 
     tidyTime = function (x = NULL, pad = 0) {
-        "Reports a time interval with unit management and colorization based on overall elapsed time"
+        "\\preformatted{Reports a time interval with unit management and colorization based on overall elapsed time
+        x - The time unit to be tidied, in seconds
+      pad - Default 0, a minimum width that the final string should occupy
+}"
         unit  <- "s"
         color <- "yellow";
         if (is.null(x) || is.na(x)) {
@@ -258,9 +260,25 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
                          sprintf("%.3f %s", x, unit)), color)
     },
 
-    show = function ( width = 0.7 * getOption("width"),
-        relative = TRUE, pad = 11, n = 0) {
-        "Pretty-prints the log, including total elapsed time"
+    show = function (...) {
+        "\\preformatted{Pretty-prints the log, including total elapsed time
+A simple wrapper for logText(), and is auto-invoked if an EventLogger
+object is evaluated in the shell
+}"
+        cat( .self$logText(...) )
+    },
+
+    logText = function ( width = 0.7 * getOption("width"),
+                        relative = TRUE, pad = 11, n = 0) {
+        "\\preformatted{Format the log data to show events and elapsed times
+    width - Default 70% of the 'widht' option. The length to be used when
+            strwrap()ing the event text
+ relative - Default TRUE, will show the time elapsed between events. If
+            FALSE will show absolute time stamps
+      pad - Default 11, character padding
+        n - Default 0, if greater will only show that number of most
+            recent events
+}"
         usingMethods("tidyTime") # Needed for use in apply
         head <- colorize("Activity log:", "blue")
         ## Use a shared log object, if available
@@ -295,11 +313,11 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
         lines <- apply(matrix(c(HMS,msg), ncol = 2),
                        1,function(x) { (sprintf("%s | %s", x[1],x[2])) })
         lines <- c(lines, sprintf("  Total: %s", tidyTime(tot)))
-        cat(head, lines, sep = "\n")
-        invisible(NULL)
+        paste(head, lines, sep = "\n")
     },
 
     colNameToFunc = function( ) {
+        "Internal utility, generates list-of-lists that maps color names to crayon functions"
         use <- if(is.null(EvLogObj)) { .self } else { EvLogObj }
         if (!is.null(use$colMap) && !is.null(use$colMap$FG)) return (use$colMap)
         ## Was difficult to juggle referencing colors by function name

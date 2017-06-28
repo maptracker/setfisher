@@ -12,7 +12,9 @@
 #'     applied filters
 #' @field matrixMD data.table holding metadata associated with the
 #'     matrix
-#' @field levels Character array of level names for factor matrices
+#' @field lvlVal Character array of level names for factor matrices
+#' @field filterLog data.frame storing filtering events that transpire
+#'     during the pruning of matrices prior to analysis.
 #' @field rowChanges Named character vector of any row names that
 #'     needed changing. Values are the original name, names are the
 #'     names after processing with make.names() (if valid = TRUE) or
@@ -22,7 +24,7 @@
 #' @importFrom methods new setRefClass
 #' @importFrom utils read.table
 #' @importFrom data.table data.table rbindlist as.data.table fread
-#'     setkey
+#'     setkey setkeyv fsetdiff
 #' @import Matrix
 #' @importFrom CatMisc is.def is.something
 #' @import ParamSetI
@@ -47,7 +49,8 @@ AnnotatedMatrix <-
                     matrixRaw  = "dgTMatrix",
                     matrixUse  = "ANY", # dgTMatrix
                     matrixMD   = "data.table",
-                    levels     = "character",
+                    filterLog  = "data.table",
+                    lvlVal     = "character",
 
                     ## If row or column names need to be remapped:
                     rowChanges = "character",
@@ -84,7 +87,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
 ")
         setParamList( params=params, ... )
         .readMatrix( ... )
-        matrixUse <<- NULL
+        reset()
     },
     
     matrix = function( raw=FALSE) {
@@ -95,6 +98,299 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             will be returned.
 }"
         if (raw || !CatMisc::is.def(matrixUse)) { matrixRaw } else { matrixUse }
+    },
+
+    reset = function( asFactor=FALSE ) {
+        "Reset any filters that were applied - the 'used' matrix will be the original 'raw' one"
+        matrixUse <<- NULL
+        filterLog <<- data.table(id = character(), key = "id")
+        invisible(NA)
+    },
+
+    filterByScore = function( min=NA, max=NA, filterEmpty=TRUE, reason=NA ) {
+        obj <- matrix()
+        rv  <- 0
+        if (filterEmpty) removeEmpty("Empty rows and cols before score filter")
+        if (is.something(min)) {
+            ## Zero out entries that fall below min
+            inds <- which( obj != 0 & obj < min, arr.ind = TRUE)
+            numZ <- nrow(inds)
+            if (numZ > 0) {
+                ## At least some cells were zeroed out
+                obj[ inds ] <- 0
+                rv      <- rv + numZ
+                testTxt <- paste("x <", min)
+                numTxt  <- paste(numZ, "Cells")
+                filterDetails(id=testTxt, type="Val", metric=numTxt,
+                              reason=reason)
+                if (filterEmpty) {
+                    ## Strip empty rows and columns
+                    matrixUse <<- obj
+                    if (!is.na(reason[1])) testTxt <- paste(testTxt, reason[1])
+                    removeEmpty(testTxt)
+                    obj <- matrix()
+                }
+            }
+        }
+        if (is.something(max)) {
+            ## Zero out entries that are above max
+            inds <- which( obj != 0 & obj > max, arr.ind = TRUE)
+            numZ <- nrow(inds)
+            if (numZ > 0) {
+                ## At least some cells were zeroed out
+                obj[ inds ] <- 0
+                rv      <- rv + numZ
+                testTxt <- paste("x >", max)
+                numTxt  <- paste(numZ, "Cells")
+                filterDetails(id=testTxt, type="Val", metric=numTxt,
+                              reason=reason)
+                if (filterEmpty) {
+                    ## Strip empty rows and columns
+                    matrixUse <<- obj
+                    if (!is.na(reason[1])) testTxt <- paste(testTxt, reason[1])
+                    removeEmpty(testTxt)
+                    obj <- matrix()
+                }
+            }
+        }
+        if (rv != 0 && !filterEmpty) matrixUse <<- obj
+        invisible(rv)
+    },
+
+    removeEmpty = function(reason=NA) {
+        toss <- removeEmptyRows(reason)
+        toss <- c(toss, removeEmptyColumns(reason))
+        invisible(toss)
+    },
+
+    removeEmptyColumns = function(reason=NA) {
+        obj     <- matrix()
+        isEmpty <- Matrix::colSums(obj != 0) == 0
+        toss    <- names(isEmpty)[ isEmpty ]
+        if (length(toss) != 0) {
+            ## Some columns have been removed
+            filterDetails(id=toss, type="Col", metric="AllZero", reason=reason)
+            matrixUse <<- obj[ , !isEmpty]
+        }
+        invisible(toss)
+    },
+
+    removeEmptyRows = function(reason=NA) {
+        obj     <- matrix()
+        isEmpty <- Matrix::rowSums(obj != 0) == 0
+        toss    <- names(isEmpty)[ isEmpty ]
+        if (length(toss) != 0) {
+            ## Some columns have been removed
+            filterDetails(id=toss, type="Row", metric="AllZero", reason=reason)
+            matrixUse <<- obj[ !isEmpty, ]
+        }
+        invisible(toss)
+    },
+
+    map = function(input, via=NULL, ignore.case=TRUE, keep.best=FALSE,
+                   collapse=NULL, collapse.token=',', collapse.func=mean,
+                   preserve.input=TRUE, column.func=max
+                   ) {
+        if (!is.vector(input) || !is.character(input[1])) {
+            err("mapToCol() must be provided with a character vector as input")
+            return(NA)
+        }
+        obj   <- matrix()
+        ## Build some named vectors to generalize mapping IDs between
+        ## input and the matrix
+        rn    <- rownames(obj)
+        cn    <- colnames(obj)
+        inp   <- input
+        if (ignore.case) {
+            rn  <- setNames(tolower(rn), rn)
+            cn  <- setNames(tolower(cn), cn)
+            inp <- setNames(tolower(input), input)
+        } else {
+            names(rn)  <- rn
+            names(cn)  <- cn
+            names(inp) <- input
+        }
+        dups   <- duplicated(inp)
+        if (sum(dups) == 0) {
+            dups <- character()
+        } else {
+            ## Some of the input is duplicated
+            dups <- unique( inp[duplicated(inp)] )
+            inp  <- inp[ !duplicated(inp) ]
+        }
+        colIn  <- FALSE
+        colOut <- FALSE
+        if (!is.null(collapse)) {
+            colTok <- colTok[1] # Assure it's just a single string
+            if (grepl('in', collapse[1], ignore.case=TRUE)) {
+                colIn  <- TRUE
+            } else if (grepl('out', collapse[1], ignore.case=TRUE)) {
+                colOut <- TRUE
+            } else {
+                err("mapToCol() collapse parameter must be 'in' or 'out'")
+            }
+        }
+        if (is.null(via)) {
+            ## Automatically determine if we are starting with rows/cols
+            rCnt <- sum(is.element(inp, rn))
+            cCnt <- sum(is.element(inp, cn))
+            if (cCnt > rCnt) {
+                ## We have more matches in columns than rows
+                via   <- "col"
+            } else {
+                via   <- 'row'
+            }
+        } else if (grepl('^row', via[1], ignore.case=TRUE)) {
+            via   <- 'row'
+        } else if (grepl('^col', via[1], ignore.case=TRUE)) {
+            via   <- 'col'
+        } else {
+            err(c("mapToCol() unrecognized 'via' argument.",
+                  "Should be 'row' or 'col', or NULL for automatic"))
+            return(NA)
+        }
+        matNm <- if (via == 'col') {
+                     ## We're entering the matrix from columns,
+                     ## transpose for simplicity
+                     obj <- Matrix::t(obj)
+                     cn
+                 } else {
+                     rn
+                 }
+        ## Determine any unknown IDs
+        unk <- base:setdiff(inp, matNm)
+        ids <- if (length(unk) > 0) {
+            ## Some user IDs do not have a match in the matrix.
+            unk <- inp[ unk ] # Restore user's case:
+            base::intersect(inp, matNm)
+        } else {
+            inp
+        }
+        unMap  <- character()
+        vecStp <- 100
+        inpNm  <- character(vecStp)
+        outNm  <- character(vecStp)
+        outSc  <- numeric(vecStp)
+        rcnt   <- 0
+        for (id in ids) {
+            # Select the indices for matrix row(s) matching the id:
+            ind <- which(id == matNm)
+            rows <- obj[ ind, , drop=FALSE]
+            ## Select the columns that are non-zero
+            cSum <- Matrix::colSums( rows )
+            rows <- rows[ , cSum != 0, drop=FALSE]
+            if (length(rows) == 0) {
+                ## No mappings! The input ID existed in the matrix,
+                ## but there are no non-zero mappings to the other
+                ## edge.
+                unMap <- c(unMap, id)
+                next
+            }
+            ## Move from a subset of the matrix to a single vector
+            vec <- if (nrow(rows) > 1) {
+                ## We are matching multiple matrix rows with this
+                ## ID. This can happen when there are multiple cases
+                ## for the same rowname (eg gene symbols "p40" and
+                ## "P40")
+                apply(rows, 2, column.func)
+            } else {
+                ## Just use drop to take care of the extra dimension
+                rows[1, , drop=TRUE]
+            }
+
+            if (keep.best) {
+                ## Only keep the top-scored result(s)
+                mx  <- max(vec)
+                vec <- vec[ vec == max ]
+            }
+
+
+### WORK HERE. need to integerize the collapse.func()'ed value if the
+### matrix is representing factors.
+
+            
+            if (colIn && length(vec) != 1) {
+                ## Request to collapse by input ID
+                nms <- paste(names(vec), collapse=collapse.token)
+                vec <- setNames(collapse.func(vec), nms)
+            }
+            vl <- length(vec)
+            need <- rcnt + vl - length(inpNm)
+            if (need > 0) {
+                ## Need to grow our results vectors
+                inpNm  <- c(inpNm, character(need + vecStp))
+                outNm  <- c(outNm, character(need + vecStp))
+                outSc  <- c(outSc, numeric(need + vecStp))
+            }
+            newInds <- seq(rcnt+1, length.out=vl)
+            inpNm[ newInds ] <- rep(input[id], vl)
+            outNm[ newInds ] <- matNm[names(vec)]
+            outSc[ newInds ] <- vec
+            rcnt <- rcnt + vl
+        }
+        sl <- seq_len(rcnt)
+        rv <- data.frame(input  = inpNm[sl],
+                         output = outNm[sl],
+                         score  = outSc[sl])
+        attr(rv, "Unmapped")   <- unMap
+        attr(rv, "Unknown")    <- unk
+        attr(rv, "Via")        <- via
+        attr(rv, "Duplicated") <- dups
+        attr(rv, "Notes")      <-
+            list(Via = "Whether your input was matched to rows or columns of the matrix",
+                 Duplicated = "IDs that were present twice or more (possibly after case removal)",
+                 Unmapped = "Your ID is in the matrix, but does not have a target with non-zero score",
+                 Unknown = "Your ID could not be matched to one in the matrix")
+        rv
+    },
+
+
+    filterDetails = function ( id=NA, type=NA,  metric=NA, reason=NA) {
+        if (is.null(metric)) return(NA)
+        if (any(is.na(id))) {
+            ## Should not happen! This method should only be called on
+            ## defined identifiers
+            err(sprintf(
+                "Filtering noted for metric='%s' on type='%s', but some IDs are NA",
+                if (all(is.null(metric))) { "-NULL-" } else { metric },
+                if (all(is.null(type))) { "-NULL-" } else { type }),
+                prefix = "[CodeError]")
+            id <- id[ !is.na(id) ]
+        }
+        if (length(id) == 0) {
+            ## Should not happen! There should always be at least one
+            ## identifier
+            err(sprintf(
+                "Filtering noted for metric='%s' on type='%s', but no IDs provided",
+                if (all(is.null(metric))) { "-NULL-" } else { metric },
+                if (all(is.null(type))) { "-NULL-" } else { type }),
+                prefix = "[CodeError]")
+            return(NA)
+        }
+        row <- data.table::data.table(id=id, metric=metric, type=type,
+                                      reason=reason, key="id")
+        ## Do not add any entries that are already recorded as
+        ## filtered (only note the first exclusion)
+        newR <- data.table::fsetdiff(row[["id"]], filterLog[["id"]])
+        filterLog <<- data.table::rbindlist(list(filterLog, row[newR]),
+                                            fill = TRUE)
+        data.table::setkeyv(filterLog, "id")
+        filterLog
+    },
+
+levels = function( asFactor=FALSE ) {
+        "\\preformatted{Returns factor levels, if appropriate. If not, returns NULL
+ asFactor - Default FALSE, which will return an ordered character vector of the
+            level values (names). If true, a factor will be returned with
+            appropriate levels assigned
+}"
+        if (!CatMisc::is.something(lvlVal)) {
+            NULL
+        } else if (asFactor) {
+            factor(lvlVal)
+        } else {
+            lvlVal
+        }
     },
 
 
@@ -167,7 +463,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         matrixMD   <<- rv$metadata
         if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
         if (!is.null(rv$colChanges)) colChanges <<- rv$colChanges
-        if (CatMisc::is.def(rv$levels)) levels <<- rv$levels
+        if (CatMisc::is.def(rv$levels)) lvlVal <<- rv$levels
         ## Set default parameters, without clobbering any already set
         if (CatMisc::is.def(rv$params)) setParamList(rv$params, clobber = FALSE)
 
@@ -605,10 +901,11 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         }
     },
 
-    show = function (...) { cat( .self$.showText(...) ) },
+    show = function (...) { cat( .self$matrixText(...) ) },
 
-    .showText = function ( pad = "", useObj = NULL, fallbackVar = NULL,
-                          compact = FALSE, color=TRUE ) {
+    matrixText = function ( pad = "", useObj = NULL, fallbackVar = NULL,
+                          compact = FALSE, color=NULL ) {
+        if (is.null(color)) color <- useColor() # Use EventLogger setting
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         ## Variable name for use in sample methods
         objName <- .self$.selfVarName("myMatrix", fallbackVar)
@@ -621,10 +918,10 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                        msg, doCol(file, "white"),
                        ifelse(fromRDS, doCol('.rds', "purple"),""),
                        doCol(age,"red"))
-        if (CatMisc::is.something(levels) && !compact) {
+        if (CatMisc::is.something(lvlVal) && !compact) {
             ## Report the factor levels
             indent <- "\n      ";
-            lvl <- paste(doCol(strwrap(paste(levels, collapse = ', '),
+            lvl <- paste(doCol(strwrap(paste(lvlVal, collapse = ', '),
                                           width = 0.7 * getOption("width")),
                                   "purple"), collapse = indent)
             msg <- sprintf("%s    %s%s%s\n", msg, doCol(
@@ -690,7 +987,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         mdRow <- ifelse(is.null(matrixMD), 0, nrow(matrixMD))
         if (mdRow != 0 && !compact) {
             mcols <- names(matrixMD)[-1]
-            msg   <- paste(c(msg, doCol(sprintf("  %d IDs have metadata assigned in up to %d keys:\n", mdRow, length(mcols)), "blue"), collapse = ""))
+            msg   <- paste(c(msg, doCol(sprintf("  %d IDs have metadata assigned in up to %d keys, eg:\n", mdRow, length(mcols)), "blue"), collapse = ""))
             for (mcol in mcols) {
                 ## Get a non-NA sample ID with this annotation
                 notNA <- !is.na(matrixMD[[ mcol]])
