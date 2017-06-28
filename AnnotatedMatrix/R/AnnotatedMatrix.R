@@ -1,15 +1,15 @@
-#' SetFisher Matrix
+#' Annotated Matrix
 #'
 #' Annotated sparse matrix for capturing query lists, identifier
 #' mappings and ontology lookups
 #'
-#' @field setfisher Pointer back to the parent SetFisher object
 #' @field file Path to file the matrix was loaded from
 #' @field fromRDS Logical, true if the loaded file was an RDS object
-#' @field log The SetFisherLogger object holding log (activity)
-#'     entries
-#' @field matrixRaw The Matrix object as loaded from the file
-#' @field matrixUse The Matrix object after any filters are applied
+#' @field log EventLogger object holding log (activity) entries
+#' @field matrixRaw The Matrix object as loaded from the file, will
+#'     not be altered by the object.
+#' @field matrixUse The Matrix object after manipulation by any
+#'     applied filters
 #' @field matrixMD data.table holding metadata associated with the
 #'     matrix
 #' @field levels Character array of level names for factor matrices
@@ -19,23 +19,31 @@
 #'     make.unique() if (valid = FALSE)
 #' @field colChanges As per rowChanges, but for column names
 #'
+#' @importFrom methods new setRefClass
+#' @importFrom utils read.table
+#' @importFrom data.table data.table rbindlist as.data.table fread
+#'     setkey
 #' @import Matrix
+#' @importFrom CatMisc is.def is.something
+#' @import ParamSetI
+#' @importClassesFrom EventLogger EventLogger
 #'
-#' @export SetFisherMatrix
-#' @exportClass SetFisherMatrix
+#' @examples
+#'
+#' ## Load a toy symbol-to-gene mapping matrix and use it to convert
+#' ## some genes to Entrez Gene IDs
+#' demo("geneSymbolMapping", package="AnnotatedMatrix", ask=FALSE)
 #' 
-#' @include SetFisherLoggerI.R
-#' @include SetFisherParamI.R
-#' @include SetFisherUtils.R
-#'
+#' 
+#' @export AnnotatedMatrix
+#' @exportClass AnnotatedMatrix
+#' 
 
-SetFisherMatrix <-
-    setRefClass("SetFisherMatrix",
+AnnotatedMatrix <-
+    setRefClass("AnnotatedMatrix",
                 fields = list(
-                    setfisher  = "SetFisher",
                     file       = "character",
                     fromRDS    = "logical",
-                    log        = "SetFisherLogger",
                     matrixRaw  = "dgTMatrix",
                     matrixUse  = "ANY", # dgTMatrix
                     matrixMD   = "data.table",
@@ -45,20 +53,28 @@ SetFisherMatrix <-
                     rowChanges = "character",
                     colChanges = "character"
                     ),
-                contains = c("SetFisherLoggerI", "SetFisherParamI")
+                contains = c("EventLogger", "ParamSetI")
                 )
 
 
-SetFisherMatrix$methods(
+AnnotatedMatrix$methods(
     
-    initialize = function(... , setfisher = NA, file = NA, param = NA ) {
-        if (!is.def(setfisher)) return()
-        if (!is.def(setfisher)) stop("SetFisherMatrix entries should be created from a SetFisher object. Provided = ", setfisher)
-        log <<- setfisher$log # Set here so messaging works
-        if (!is.def(file)) err("SetFisherMatrix must define 'file' when created", fatal = TRUE)
-        callSuper(..., setfisher = setfisher, file = file)
+    initialize = function(file=NA, params=NA, ... ) {
+        "\\preformatted{Create a new object using AnnotatedMatrix():
+       file - Required, a path to the file that stores the matrix. See
+              .readMatrix() for details on supported formats
+     params - Optional list of key/value pairs that will be passed to
+              setParamList()
+        ... - dots will also be passed on to setParamList(), as well as to
+              .readMatrix()
+}"
+        callSuper(...)
+        if (!CatMisc::is.def(file))
+            err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
+        file <<- file
+        base::message("Above is early init: AnnotatedMatrix v=", packageVersion("AnnotatedMatrix"))
         fromRDS   <<- FALSE
-        .self$.setParamDefs("
+        defineParameters("
 Name        [character] Optional name assigned to the matrix
 Description [character] Optional description for the matrix
 RowDim      [character] Optional name for the row dimension
@@ -66,13 +82,19 @@ ColDim      [character] Optional name for the column dimension
 RowUrl [character] Optional base URL for row names (%s placeholder for name)
 ColUrl [character] Optional base URL for column names (%s placeholder for name)
 ")
-        .self$.setParamList( param )
+        setParamList( params=params, ... )
         .readMatrix( ... )
         matrixUse <<- NULL
     },
     
-    matrix = function( raw = FALSE) {
-        if (raw | !is.def(matrixUse)) { matrixRaw } else { matrixUse }
+    matrix = function( raw=FALSE) {
+        "\\preformatted{Retrieves the underlying Matrix for this object. Parameters:
+      raw - Default FALSE, in which case the filtered Matrix (held in field
+            'matrixUse') will be returned, if it is available. If not available,
+            or if raw is TRUE, then the raw (as loaded from file) Matrix
+            will be returned.
+}"
+        if (raw || !CatMisc::is.def(matrixUse)) { matrixRaw } else { matrixUse }
     },
 
 
@@ -104,7 +126,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
  
 
     .readMatrix = function ( format = "", ... ) {
-        if (!is.def(file)) err("SetFisherMatrix objects must define 'file' when created", fatal = TRUE)
+        if (!CatMisc::is.def(file)) err("AnnotatedMatrix objects must define 'file' when created", fatal = TRUE)
         objFile <- paste(file,'rds', sep = '.')
         if (file.exists(objFile) &&
             (!file.exists(file) || file.mtime(objFile) >= file.mtime(file))) {
@@ -117,7 +139,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             rv <- readRDS(objFile)
             fromRDS <<- TRUE
         } else {
-            if (!file.exists(file)) err(c("Can not make SetFisherMatrix",
+            if (!file.exists(file)) err(c("Can not make AnnotatedMatrix",
                                           "File does not exist : ", file),
                                         fatal = TRUE)
 
@@ -131,12 +153,12 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                        grepl('\\.(inp)', file, ignore.case = TRUE)) {
                 rv <- .readMatrixLOL( ... )
             } else {
-                err(c("Can not make SetFisherMatrix - unrecognized file type: ",
+                err(c("Can not make AnnotatedMatrix - unrecognized file type: ",
                       file), fatal = TRUE)
             }
             ## Stub DT if no metdata was defined:
-            if (!is.something(rv$metadata))
-                rv$metadata <- data.table( id = character(), key = "id" )
+            if (!CatMisc::is.something(rv$metadata))
+                rv$metadata <- data.table::data.table( id = character(), key = "id" )
             dateMessage(paste("Serializing matrix to file",
                               colorize(objFile,"white")), prefix = "  ")
             saveRDS(rv, objFile)
@@ -145,9 +167,9 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         matrixMD   <<- rv$metadata
         if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
         if (!is.null(rv$colChanges)) colChanges <<- rv$colChanges
-        if (is.def(rv$levels)) levels <<- rv$levels
+        if (CatMisc::is.def(rv$levels)) levels <<- rv$levels
         ## Set default parameters, without clobbering any already set
-        if (is.def(rv$params)) .setParamList(rv$params, clobber = FALSE)
+        if (CatMisc::is.def(rv$params)) setParamList(rv$params, clobber = FALSE)
 
         ## Numeric conversion to prevent integer overflow on product
         cnum       <- as.numeric(ncol(matrixRaw))
@@ -223,7 +245,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             if (line == "") next # Blank line
             if (grepl('^#', line)) {
                 ## Comment line
-                nameDat <- .parenRE("^#\\s+LIST\\s+-\\s+(.+?)\\s*$", line)
+                nameDat <- CatMisc::parenRegExp("^#\\s+LIST\\s+-\\s+(.+?)\\s*$", line)
                 nm <- nameDat[1]
                 if (!is.na(nm)) {
                     ## New list name
@@ -291,7 +313,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         fh <- file(file, open = "r")
         if (header) {
             listname <- readLines(fh, n = 1, warn = FALSE)
-        } else if (!is.something(listname)) {
+        } else if (!CatMisc::is.something(listname)) {
             listname <- "MyList" # Eh, need something better
         }
         names <- character()
@@ -352,7 +374,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             err(c("Multiple separators defined in matrix file",
                   file, sep), fatal = TRUE)
         } else {
-            sep <- .parenRE("Separator\\s+\\'([^\\']+)\\'", allCom[sep])
+            sep <- CatMisc::parenRegExp("Separator\\s+\\'([^\\']+)\\'", allCom[sep])
         }
         fac    <- grep("^LEVELS\\s+\\[.+\\]", allCom)
         if (length(fac) == 0) {
@@ -363,7 +385,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         } else {
             ## Not sure why "[^]]" works - I should have to escape the
             ## internal bracket (eg "[^\\]]" but that does NOT work.
-            facDat <- .parenRE("LEVELS\\s+\\[([^]]+)\\]\\[([^]]+)\\]",
+            facDat <- CatMisc::parenRegExp("LEVELS\\s+\\[([^]]+)\\]\\[([^]]+)\\]",
                                allCom[fac])
             rv$levels <- unlist(base::strsplit(facDat[2], facDat[1]))
         }
@@ -375,7 +397,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         def <- grep("^DEFAULT\\s+", allCom)
         params <- list()
         for (defl in def) {
-            kv <- .parenRE("DEFAULT\\s+(\\S+)\\s+(\\S.*?)\\s*$", allCom[defl])
+            kv <- CatMisc::parenRegExp("DEFAULT\\s+(\\S+)\\s+(\\S.*?)\\s*$", allCom[defl])
             params[[ tolower(kv[1]) ]] <- kv[2]
         }
         rv$params <- params
@@ -383,9 +405,9 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             ## strsplit() on spaces discards trailing spaces, which
             ## causes problems for a space-containing metadata token
             ## (eg the default ' :: ')when the last metadata column is
-            ## empty. So use .parenRE to get the index number instead:
+            ## empty. So use CatMisc::parenRegExp to get the index number instead:
 
-            indDat <- .parenRE("^(\\d+)\\s+(.+)", x)
+            indDat <- CatMisc::parenRegExp("^(\\d+)\\s+(.+)", x)
             if (is.na(sep)) {
                 ## No metadata separator defined
                 indDat
@@ -414,12 +436,12 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         }
         rChng <- NULL
         cChng <- NULL
-        metadata <- data.table( id = character(), key = "id" )
+        metadata <- data.table::data.table( id = character(), key = "id" )
         dimNames <- list( Row = NULL, Col = NULL )
         dimChngs <- list( Row = NULL, Col = NULL )
         for (i in seq_len(rcLen)) {
             ## Is this specifying Row or Col, and what are the headers?
-            targDat <- .parenRE("^(\\S+)\\s+(.+?)\\s*$", allCom[rcPos[i]])
+            targDat <- CatMisc::parenRegExp("^(\\S+)\\s+(.+?)\\s*$", allCom[rcPos[i]])
             what    <- targDat[1] # Row / Col
             dateMessage(sprintf("Parsing %s names", what), prefix="  ")
             meta <- targDat[2]
@@ -460,18 +482,20 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
 
                 ## https://stackoverflow.com/a/10235618
                 ## Convert the matrix to a DT, leaving out the index column
-                tmp <- as.data.table( cmat[, -1, drop = FALSE], key = "id")
+                tmp <- data.table::as.data.table( cmat[, -1, drop = FALSE],
+                                                 key = "id")
                 rownames(tmp) <- .unique.names(cmat[, "id" ])$names
                 ## I never did find a way to add *ROWS* by reference in DTs...
-                metadata <- rbindlist(list(metadata, tmp), fill = TRUE)
-                setkey(metadata, "id") ## Merged DTs don't carry over key
+                metadata <- data.table::rbindlist(list(metadata, tmp),
+                                                  fill = TRUE)
+                data.table::setkey(metadata, "id") ## Merged DTs don't carry over key
             }
         }
         ## Set the dimension names
         rdn <- params$rowdim
-        names(dimNames)[1] <- ifelse(is.something(rdn), rdn, "")
+        names(dimNames)[1] <- ifelse(CatMisc::is.something(rdn), rdn, "")
         cdn <- params$coldim
-        names(dimNames)[2] <- ifelse(is.something(cdn), cdn, "")
+        names(dimNames)[2] <- ifelse(CatMisc::is.something(cdn), cdn, "")
         dimnames(mat) <- dimNames
 
         ## Now check if there are also sidecar metadata files. We will
@@ -487,7 +511,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             ## Read in as temporary data.table
             dateMessage(c("Reading metadata file -", colorize(mf,"white")),
                         prefix="  " )
-            scDT <- fread(mf)
+            scDT <- data.table::fread(mf)
             ## Find the "id" column, or the first one
             scNm <- names(scDT)
             scIdCol <- which(scNm == "id")
@@ -496,11 +520,11 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                 ## one and rename it.
                 setnames(scDT, scNm[1], "id")
             }
-            setkey(scDT, "id")
+            data.table::setkey(scDT, "id")
             ## Set the key to "id", and then merge into metadata
-            metadata <- rbindlist(list(metadata, scDT), fill = TRUE,
+            metadata <- data.table::rbindlist(list(metadata, scDT), fill = TRUE,
                                   use.names = TRUE)
-            setkey(metadata, "id")
+            data.table::setkey(metadata, "id")
         }
         rv$matrix     <- mat
         rv$metadata   <- metadata
@@ -509,15 +533,15 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         rv
      },
     
-    metadata = function ( id = NULL, key = NULL) {
-        if (!is.something(key)) {
+     metadata = function ( id = NULL, key = NULL) {
+        if (!CatMisc::is.something(key)) {
             ## No column specified
-            if (!is.something(id)) return( NULL )
+            if (!CatMisc::is.something(id)) return( NULL )
             ## Return a subset of the data table:
             rv <- matrixMD[ id, ]
-            setkey(rv, "id")
+            data.table::setkey(rv, "id")
             return( rv )
-        } else if (!is.something(id)) {
+        } else if (!CatMisc::is.something(id)) {
             ## Return a named vector for the metadata column
             allIds <- as.character(matrixMD[,("id"),with=FALSE][[1]])
             return(setNames( matrixMD[allIds,key,with=FALSE][[1]], allIds))
@@ -597,7 +621,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                        msg, doCol(file, "white"),
                        ifelse(fromRDS, doCol('.rds', "purple"),""),
                        doCol(age,"red"))
-        if (is.something(levels) && !compact) {
+        if (CatMisc::is.something(levels) && !compact) {
             ## Report the factor levels
             indent <- "\n      ";
             lvl <- paste(doCol(strwrap(paste(levels, collapse = ', '),
@@ -608,29 +632,29 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         }
         mNm <- attr(matrixRaw, "matrixName")
         name <- param("name")
-        if (is.something(name))
+        if (CatMisc::is.something(name))
             msg <- sprintf("%s    Name: \"%s\"\n", msg, doCol(name, "white"))
         desc <- param("description")
-        if (is.something(desc) && !compact)
+        if (CatMisc::is.something(desc) && !compact)
             msg <- sprintf("%s    Desc: %s\n", msg, doCol(desc, "white"))
         
         ## If an external "used" matrix is not provided, use internal field:
-        if (!is.def(useObj)) useObj <- matrixUse
+        if (!CatMisc::is.def(useObj)) useObj <- matrixUse
         dimNames <- names(dimnames(matrixRaw))
         mat <- if (is.null(useObj)) { matrixRaw } else { useObj }
         nr  <- nrow(mat)
         nc  <- ncol(mat)
         nz  <- nnzero(mat)
-        msg <- sprintf("%s  %8d %s", msg, nr, ifelse(is.something(
+        msg <- sprintf("%s  %8d %s", msg, nr, ifelse(CatMisc::is.something(
             dimNames[1]),dimNames[1],"rows"))
         rN  <- rownames(mat)
-        if (is.def(rN))
+        if (CatMisc::is.def(rN))
             msg <- sprintf("%s eg: %s", msg, doCol(substr(paste(rN[1:pmin(3,length(rN))], collapse = ', '), 1, 60), "cyan"))
         
-        msg <- sprintf("%s\n  %8d %s", msg, nc, ifelse(is.something(
+        msg <- sprintf("%s\n  %8d %s", msg, nc, ifelse(CatMisc::is.something(
             dimNames[2]),dimNames[2],"cols"))
         cN  <- colnames(mat)
-        if (is.def(cN))
+        if (CatMisc::is.def(cN))
         msg <- sprintf("%s eg: %s", msg, doCol(substr(paste(cN[1:pmin(3,length(cN))], collapse = ', '), 1, 60), "cyan"))
 
         perPop <- sprintf("%.3g%%", 100 * nz / (nr * nc))
@@ -639,9 +663,9 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         msg <- sprintf("%s\n", msg)
         ## Note if we had to remap one or more R/C names
         changed <- character()
-        if (is.def(rowChanges)) changed <- c(changed, doCol(
+        if (CatMisc::is.def(rowChanges)) changed <- c(changed, doCol(
             paste(length(rowChanges), "Rows ($rowChanges)"), "yellow"))
-        if (is.def(colChanges)) changed <- c(changed, doCol(
+        if (CatMisc::is.def(colChanges)) changed <- c(changed, doCol(
             paste(length(colChanges), "Cols ($colChanges)"), "yellow"))
 
         if (length(changed) != 0) msg <- sprintf(
@@ -682,7 +706,7 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             }
         }
         ## Left pad if requested
-        if (is.def(pad)) msg <-
+        if (CatMisc::is.def(pad)) msg <-
             paste(c(sprintf("%s%s", pad, unlist(base::strsplit(msg, "\n"))),
                     "\n"), collapse = "\n")
         ## Ending up with extraneous newlines at end
@@ -690,3 +714,80 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
     }
     
 )
+
+
+#' Files to MatrixMarket
+#'
+#' Converts a collection of files to a single MatrixMarket file
+#'
+#' @param files Required, a vector of file paths
+#' @param output Default "SparseMatrix.mtx", the filename of the
+#'     MatrixMarket file being generated
+#' @param filter Optional function used to filter set elements. It
+#'     should take as input a character vector and return a character
+#'     vector representing the desired (kept) elements.
+#' @param rename Optional function used to generate list names. It
+#'     should take as input the file path (single string) and return a
+#'     single string that will be used as a name for that list
+#'
+#' @examples
+#' 
+#' \dontrun{
+#'   # Find all files names "geneList#.txt" and extact Ensembl Gene IDs
+#'   # from them into a single MTX file
+#'   filesToMTX(files=list.files(pattern='geneList[0-9]+.txt'),
+#'              filter=function(x) x[ grepl("^ENSG\\d+$", x) ],
+#'              output="myEnsemblLists.mtx")
+#' }
+#' 
+#' @export
+
+filesToMTX <- function(files, output="SparseMatrix.mtx",
+                       filter=NULL, rename=NULL) {
+    ## Convert a set of text files to a MatrixMarket file
+    cn <- character()
+    data <- list()
+    for (file in files) {
+        n <- if (is.null(rename)) { file } else { rename(file) }
+        if (n %in% cn) {
+            message("File ", n, " requested multiple times")
+            next
+        }
+        cn <- c(cn, n)
+        l  <- utils::read.table(file, stringsAsFactors=F)
+        dl <- length(data)
+        data[[ dl+1 ]] <- if (is.null(filter)) { l[[1]] } else {filter(l[[1]])}
+    }
+    allEntries <- unlist(data)
+    allIds     <- unique(allEntries)
+    tot        <- length(allEntries)
+    nr         <- length(allIds)
+    nc         <- length(cn)
+    
+    fh <- file(output, "w")
+    writeLines(c("%%MatrixMarket matrix coordinate real general",
+                 "% Row Name",
+                 sprintf("%% %d %s",seq_len(nr),allIds),
+                 "% Col Name",
+                 sprintf("%% %d %s",seq_len(nc),cn),
+                 "% Matrix triples : Row Col Score",
+                 sprintf("  %d %d %d", nr, nc, tot)),fh)
+    for (col in seq_len(nc)) {
+        rows <- match(data[[col]], allIds)
+        numNA <- sum(is.na(rows))
+        if (numNA > 0) {
+            message(c(cn[col], "Some entries could not be match to full set",
+                     "MatrixMarket file will likely fail to load"))
+            rows <- rows[ !is.na(rows) ]
+        }
+        ## The 'score' will be the order the ID appeared in the original list
+        score <- match(allIds[rows], data[[col]])
+        if (length(score) != length(rows)) {
+            message("Somehow managed to mess up query rank calculation")
+        }
+        writeLines(sprintf("%d %d %d", rows, col, score), fh)
+    }
+    message("MatrixMarket file written to ", output)
+    close(fh)
+    invisible(output)
+}
