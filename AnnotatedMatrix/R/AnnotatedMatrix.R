@@ -63,7 +63,8 @@ AnnotatedMatrix <-
 AnnotatedMatrix$methods(
     
     initialize = function(file=NA, params=NA, ... ) {
-        "\\preformatted{Create a new object using AnnotatedMatrix():
+        "\\preformatted{
+Create a new object using AnnotatedMatrix():
        file - Required, a path to the file that stores the matrix. See
               .readMatrix() for details on supported formats
      params - Optional list of key/value pairs that will be passed to
@@ -74,9 +75,8 @@ AnnotatedMatrix$methods(
         callSuper(...)
         if (!CatMisc::is.def(file))
             err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
-        file <<- file
-        base::message("Above is early init: AnnotatedMatrix v=", packageVersion("AnnotatedMatrix"))
-        fromRDS   <<- FALSE
+        file    <<- file
+        fromRDS <<- FALSE
         defineParameters("
 Name        [character] Optional name assigned to the matrix
 Description [character] Optional description for the matrix
@@ -91,7 +91,8 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
     },
     
     matrix = function( raw=FALSE) {
-        "\\preformatted{Retrieves the underlying Matrix for this object. Parameters:
+        "\\preformatted{
+Retrieves the underlying Matrix for this object. Parameters:
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be returned, if it is available. If not available,
             or if raw is TRUE, then the raw (as loaded from file) Matrix
@@ -107,7 +108,16 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         invisible(NA)
     },
 
-    filterByScore = function( min=NA, max=NA, filterEmpty=TRUE, reason=NA ) {
+    filterByScore = function( min=NA, max=NA, filterEmpty=FALSE, reason=NA ) {
+        "\\preformatted{
+Apply filters to the current matrix to zero-out cells failing thresholds.
+        min - Minimum allowed cell value. Cells below this will be set to zero
+        max - Maximum allowed cell value. Cells above it will be set to zero
+ filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
+              remove rows and columns that are only zeros
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}"
         obj <- matrix()
         rv  <- 0
         if (filterEmpty) removeEmpty("Empty rows and cols before score filter")
@@ -157,25 +167,13 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         invisible(rv)
     },
 
-    removeEmpty = function(reason=NA) {
-        toss <- removeEmptyRows(reason)
-        toss <- c(toss, removeEmptyColumns(reason))
-        invisible(toss)
-    },
-
-    removeEmptyColumns = function(reason=NA) {
-        obj     <- matrix()
-        isEmpty <- Matrix::colSums(obj != 0) == 0
-        toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) {
-            ## Some columns have been removed
-            filterDetails(id=toss, type="Col", metric="AllZero", reason=reason)
-            matrixUse <<- obj[ , !isEmpty]
-        }
-        invisible(toss)
-    },
-
     removeEmptyRows = function(reason=NA) {
+        "\\preformatted{
+Remove all empty rows (those that only contain zeros). Invisibly returns a
+vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}"
         obj     <- matrix()
         isEmpty <- Matrix::rowSums(obj != 0) == 0
         toss    <- names(isEmpty)[ isEmpty ]
@@ -187,10 +185,93 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         invisible(toss)
     },
 
-    map = function(input, via=NULL, ignore.case=TRUE, keep.best=FALSE,
-                   collapse=NULL, collapse.token=',', collapse.func=mean,
-                   preserve.input=TRUE, column.func=max
+    removeEmptyColumns = function(reason=NA) {
+        "\\preformatted{
+Remove all empty columns (those that only contain zeros). Invisibly returns a
+vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}"
+        obj     <- matrix()
+        isEmpty <- Matrix::colSums(obj != 0) == 0
+        toss    <- names(isEmpty)[ isEmpty ]
+        if (length(toss) != 0) {
+            ## Some columns have been removed
+            filterDetails(id=toss, type="Col", metric="AllZero", reason=reason)
+            matrixUse <<- obj[ , !isEmpty]
+        }
+        invisible(toss)
+    },
+
+    removeEmpty = function(reason=NA) {
+        "\\preformatted{
+Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}"
+        toss <- removeEmptyRows(reason)
+        toss <- c(toss, removeEmptyColumns(reason))
+        invisible(toss)
+    },
+
+    map = function(input, via=NULL, ignore.case=TRUE, column.func=max,
+                   keep.best=FALSE,
+                   collapse=NULL, collapse.name=NULL, collapse.token=',',
+                   collapse.func=mean,
+                   collapse.factor=NULL, integer.factor=FALSE,
+                   add.metadata=TRUE, warn=TRUE
                    ) {
+        "\\preformatted{
+Provide a list of IDs, and map/pivot it from one dimension of the matrix to the
+other, following 'connections' defined by non-zero cells. Returns a data.frame
+with Input and Output columns, plus Score and/or Factor columns.
+      input - Required, a vector of IDs
+        via - Specify if the input matches the 'rows' or 'columns' of the
+              matrix. If NULL (default) then your input will be compared to the
+              row and column names, and the one with the most matches will be
+              chosen (defaulting to 'row' in the event of equal matches)
+ ignore.case - Default TRUE, which ignores the capitilazation of IDs
+ column.func - Default max. If ignore.case is true, it is possible that an
+              input ID can match multiple matrix IDs. In this case, multiple
+              matching rows will be returned for one ID. column.func is
+              applied to reduce this to a single row.
+  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
+              be kept
+   collapse - Default FALSE, which will cause every pairwise connection to be
+              reported. If 'in', then the Input column of the data.frame will be
+              unique - any input value that results in multiple output values
+              will result in the Output IDs and Score being 'collapsed' to a
+              single value (see the collapse.* options below). A value of 'out'
+              will do the same, but causes the Output column to be unique, and
+              Input and Score are collapsed.
+ collapse.name - Default NULL, which will cause multiple names to be
+              concatenated into a single value using paste(). Alternatively,
+              a user function can be provided. This package also includes the
+              crude utility function takeLowestThing() (see documentation).
+ collapse.token - Default ',', a string used to concatenate collapsed IDs
+              when using paste (collapse.name=NULL)
+ collapse.func - A function, defaulting to mean, used to collapse scores to
+              a single value. Can be any other function, including user-supplied
+ collapse.factor - A function  that will be used after collapse.func if the
+              matrix is a factor (levels have been set). The default is NULL,
+              which will result in $.autoLevel() being used to generate new
+              'hybrid' factors as needed, but can be a user-supplied function.
+              The function should presumably generate an integer value that
+              will correspond to a level.
+ integer.factor - Default FALSE, which will cause the Score column to be absent
+              and a Factor column (with level values as characters) to be
+              present instead. If TRUE then ONLY a Score column (representing
+              integer values, perhaps including new likely-meaningless hybrid
+              values from $.autoLevel()) will be added. If NULL, then both
+              Score and Factor columns are present.
+ add.metadata - Default TRUE, which will add all metadata columns that have
+              at least some information. FALSE will prevent adding metadata,
+              and a character vector will add those specific columns (which
+              is up to the user to confirm they exist in the metadata store)
+       warn - Default TRUE, which will show warning text if matches failed to
+              be made for the input. This information is also always captured
+              in attributes attached to the returned data.frame
+}"
         if (!is.vector(input) || !is.character(input[1])) {
             err("mapToCol() must be provided with a character vector as input")
             return(NA)
@@ -210,18 +291,26 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
             names(cn)  <- cn
             names(inp) <- input
         }
-        dups   <- duplicated(inp)
-        if (sum(dups) == 0) {
-            dups <- character()
+
+        ## Is the input unique, or duplicated?
+        dupIn <- duplicated(inp)
+        if (sum(dupIn) == 0) {
+            dupIn <- character()
         } else {
             ## Some of the input is duplicated
-            dups <- unique( inp[duplicated(inp)] )
+            dupIn <- unique( inp[dupIn] )
+            dupIn <- vapply(dupIn, function(x) {
+                paste(names(rn)[which(rn == x)], collapse=collapse.token)
+            }, "")
             inp  <- inp[ !duplicated(inp) ]
         }
+
+        ## Work out if we're collapsing anything
         colIn  <- FALSE
         colOut <- FALSE
         if (!is.null(collapse)) {
-            colTok <- colTok[1] # Assure it's just a single string
+            ## Assure the collapse token is a single string:
+            collapse.token <- collapse.token[1]
             if (grepl('in', collapse[1], ignore.case=TRUE)) {
                 colIn  <- TRUE
             } else if (grepl('out', collapse[1], ignore.case=TRUE)) {
@@ -230,6 +319,8 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                 err("mapToCol() collapse parameter must be 'in' or 'out'")
             }
         }
+
+        ## Determine which dimension of the matrix we're matching to
         if (is.null(via)) {
             ## Automatically determine if we are starting with rows/cols
             rCnt <- sum(is.element(inp, rn))
@@ -249,32 +340,63 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                   "Should be 'row' or 'col', or NULL for automatic"))
             return(NA)
         }
-        matNm <- if (via == 'col') {
-                     ## We're entering the matrix from columns,
-                     ## transpose for simplicity
-                     obj <- Matrix::t(obj)
-                     cn
-                 } else {
-                     rn
-                 }
+
+        ## What are the relavent IDs we will be comparing to?
+        matIds <- if (via == 'col') {
+            ## We're entering the matrix from columns
+            obj <- Matrix::t(obj) # transpose for simplicity below
+            cn
+        } else {
+            rn # Matching against rows
+        }
+        ## What are the original names (prior to any to.lower() operations):
+        matNms <- names(matIds)
+        inpNms <- names(inp)
+        
         ## Determine any unknown IDs
-        unk <- base:setdiff(inp, matNm)
+        unk <- base::setdiff(inp, matIds)
         ids <- if (length(unk) > 0) {
             ## Some user IDs do not have a match in the matrix.
-            unk <- inp[ unk ] # Restore user's case:
-            base::intersect(inp, matNm)
+            unk <- inpNms[ match(unk, inp) ] # Restore user's case:
+            base::intersect(inp, matIds)
         } else {
             inp
         }
-        unMap  <- character()
-        vecStp <- 100
-        inpNm  <- character(vecStp)
-        outNm  <- character(vecStp)
-        outSc  <- numeric(vecStp)
-        rcnt   <- 0
+        
+        unMap   <- character() # Unmapped IDs (known, but no path to target)
+        dupMat  <- character() # Matrix IDs in two or more rows (after to.lower)
+        multIn  <- character() # Input terms that have multiple Outputs
+        isFac   <- is.factor() # Just a handy boolean
+
+        ## Build the data.frame by columns
+        vecStp <- 1000              # Vector chunking amount
+        inpCol <- character(vecStp) #   Vector of input IDs
+        outCol <- character(vecStp) #   Vector of output IDs
+        scrCol <- numeric(vecStp)   #   Vector of scores
+        rcnt   <- 0                 #   Number of rows in vectors so far
+
+        ## Wrap up function used to collapse scores here - puts all
+        ## the tests in one place and pre-chooses the function to use
+        valColFunc <- if (isFac) {
+            ## Factor-based functions
+            if (is.null(collapse.factor)) {
+                ## Default method to handle factors by making
+                ## new 'hybrid' ones
+                function (vec) .autoLevel( vec, sep=collapse.token )
+            } else {
+                ## User-supplied factor handling function
+                function (vec) collapse.factor(vec)
+            }
+        } else {
+            ## Basic method to generate a single numeric value
+            function (vec) collapse.func(vec)
+        }
+
+        ## Cycle through each input id, building columns as we go:
         for (id in ids) {
+            idNm <- inpNms[ match(id, inp) ] # User's name (before to.lower)
             # Select the indices for matrix row(s) matching the id:
-            ind <- which(id == matNm)
+            ind  <- which(id == matIds)
             rows <- obj[ ind, , drop=FALSE]
             ## Select the columns that are non-zero
             cSum <- Matrix::colSums( rows )
@@ -283,8 +405,9 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                 ## No mappings! The input ID existed in the matrix,
                 ## but there are no non-zero mappings to the other
                 ## edge.
-                unMap <- c(unMap, id)
-                next
+                rows  <- base::matrix(0L, 1, 1, dimnames=list(r=NA, c=NA))
+                unMap <- c(unMap, idNm)
+                ## next
             }
             ## Move from a subset of the matrix to a single vector
             vec <- if (nrow(rows) > 1) {
@@ -292,58 +415,201 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                 ## ID. This can happen when there are multiple cases
                 ## for the same rowname (eg gene symbols "p40" and
                 ## "P40")
+                dupMat <- c(dupMat,paste(rownames(rows),
+                                         collapse=collapse.token))
                 apply(rows, 2, column.func)
             } else {
-                ## Just use drop to take care of the extra dimension
-                rows[1, , drop=TRUE]
+                ## The '[' opperator is not honoring column names in
+                ## Matrix objects so I need to explicitly setNames:
+                setNames(rows[1, , drop=TRUE], colnames(rows))
+                ## This is maybe because dimensions in dgTMatrix
+                ## objects are stored in slots, not attributes?
             }
 
             if (keep.best) {
                 ## Only keep the top-scored result(s)
                 mx  <- max(vec)
-                vec <- vec[ vec == max ]
+                vec <- vec[ vec == mx ]
             }
 
-
-### WORK HERE. need to integerize the collapse.func()'ed value if the
-### matrix is representing factors.
-
-            
-            if (colIn && length(vec) != 1) {
-                ## Request to collapse by input ID
-                nms <- paste(names(vec), collapse=collapse.token)
-                vec <- setNames(collapse.func(vec), nms)
+            ## Do we end up with more than one output term?
+            if (length(vec) != 1) {
+                multIn <- c(multIn, idNm)
+                if (colIn) {
+                    ## Request to collapse by input ID
+                    if (is.null(collapse.name)) {
+                        nms <- paste(names(vec), collapse=collapse.token)
+                    } else {
+                        nms <- collapse.name(names(vec))
+                    }
+                    colVal <- valColFunc(vec)
+                    vec    <- setNames(colVal, nms)
+                }
             }
-            vl <- length(vec)
-            need <- rcnt + vl - length(inpNm)
+            vl <- length(vec) # How many results we have
+            need <- rcnt + vl - length(inpCol) # Do we have enough space?
             if (need > 0) {
-                ## Need to grow our results vectors
-                inpNm  <- c(inpNm, character(need + vecStp))
-                outNm  <- c(outNm, character(need + vecStp))
-                outSc  <- c(outSc, numeric(need + vecStp))
+                ## No, we need to grow our results vectors
+                inpCol  <- c(inpCol, character(need + vecStp))
+                outCol  <- c(outCol, character(need + vecStp))
+                scrCol  <- c(scrCol, numeric(need + vecStp))
             }
-            newInds <- seq(rcnt+1, length.out=vl)
-            inpNm[ newInds ] <- rep(input[id], vl)
-            outNm[ newInds ] <- matNm[names(vec)]
-            outSc[ newInds ] <- vec
-            rcnt <- rcnt + vl
+            newInds <- seq(rcnt+1, length.out=vl) # Indices to 'inject' into
+            inpCol[ newInds ] <- rep(idNm, vl)    #   Input Id, replicated
+            outCol[ newInds ] <- names(vec)       #   Output IDs
+            scrCol[ newInds ] <- vec              #   Scores
+            rcnt <- rcnt + vl                     #   Current number of rows
+        }
+        if (length(unk) > 0) {
+            ## Push the unknown IDs onto the end
+            vl <- length(unk)
+            need <- rcnt + vl - length(inpCol) # Do we have enough space?
+            if (need > 0) {
+                ## No, we need to grow our results vectors
+                inpCol  <- c(inpCol, character(need))
+                outCol  <- c(outCol, character(need))
+                scrCol  <- c(scrCol, numeric(need))
+            }
+            newInds <- seq(rcnt+1, length.out=vl) # Indices to 'inject' into
+            inpCol[ newInds ] <- unk         # Each unknown ID
+            outCol[ newInds ] <- rep(NA, vl) #   Output IDs = NA
+            scrCol[ newInds ] <- rep(NA, vl) #   Scores = NA
+            rcnt <- rcnt + vl                #   Current number of rows
         }
         sl <- seq_len(rcnt)
-        rv <- data.frame(input  = inpNm[sl],
-                         output = outNm[sl],
-                         score  = outSc[sl])
+        rv <- data.frame(Input  = inpCol[sl],
+                         Output = outCol[sl],
+                         Score  = scrCol[sl],
+                         stringsAsFactors=FALSE)
+        if (!isFac || all(integer.factor)) {
+            ## Add a numeric score column
+            if (isFac) {
+                rv$Score <- as.integer(scrCol[sl])
+            } else {
+                rv$Score <- scrCol[sl]
+            }
+        }
+
+        multOut <- duplicated(rv$Output)
+        if (sum(multOut) == 0) {
+            multOut <- character()
+        } else {
+            ## Some of the output terms come from multiple inputs
+            inds    <- which(multOut)
+            multOut <- unique( rv$Output[multOut] )
+            if (colOut) {
+                ## Request to collapse by input ID
+                for (nm in multOut) {
+                    ## Get all rows for this Output name:
+                    nInds <- which(rv$Output == nm)
+                    ## We will keep the first row:
+                    keep  <- nInds[1]
+                    ## Aggregate the scores:
+                    rv[keep, "Score"] <- valColFunc(scrCol[ nInds ])
+
+
+### WORK HERE -> Need to aggregate $Input
+
+                    
+                    err("STILL WORKING ON collapse FOR OUTPUT")
+                    rv[keep,"Input"] <- stop("NEED TO SET AGGREGATE INPUT")
+                }
+                ## Delete the "extra" rows
+                rv <- rv[ -inds, ]
+            }
+        }
+        
+        if (isFac && !any(integer.factor)) {
+            ## Add factor text column
+            inds <- as.integer(scrCol[sl])
+            ## If we recognized the input but failed to find a map,
+            ## the score is zero. This will evaluate as character(0)
+            ## inside lvlVal[], so map these values to NA instead:
+            inds[ inds == 0 ] <- NA
+            if (all(is.na(inds))) {
+                ## A single NA can be a bit of a pain, manually set:
+                rv$Factor <- as.character( rep(NA, length(inds)) )
+            } else {
+                rv$Factor <- lvlVal[ inds ]
+            }
+        }
+
+        if (is.something(add.metadata)) {
+            ## Request to include metadata columns
+            ## Map our output IDs to the Metadata data.table :
+            md  <- matrixMD[.(rv$Output), -"id"]
+            mdc <- colnames(md)
+            ## If the param is not a character vector, take all
+            ## available columns:
+            if (!is.character(add.metadata)) add.metadata <- mdc
+            for (col in add.metadata) {
+                if (is.element(col, mdc)) {
+                    ## This is a known metadata column. Include it,
+                    ## unless it's all NAs
+                    if (!all(is.na(md[[ col ]]))) rv[[col]] <- md[[ col ]]
+                } else {
+                    ## Column does not exist, put a blank text column in
+                    rv[[col]] <- character(rcnt)
+                }
+            }
+        }
+
         attr(rv, "Unmapped")   <- unMap
         attr(rv, "Unknown")    <- unk
         attr(rv, "Via")        <- via
-        attr(rv, "Duplicated") <- dups
+        attr(rv, "Dup.In")     <- dupIn
+        attr(rv, "Dup.Mat")    <- dupMat
+        attr(rv, "Mult.In")    <- multIn
+        attr(rv, "Mult.Out")   <- multOut
+        if (isFac) attr(rv, "Levels") <- lvlVal
         attr(rv, "Notes")      <-
             list(Via = "Whether your input was matched to rows or columns of the matrix",
-                 Duplicated = "IDs that were present twice or more (possibly after case removal)",
-                 Unmapped = "Your ID is in the matrix, but does not have a target with non-zero score",
-                 Unknown = "Your ID could not be matched to one in the matrix")
+                 'Dup.In' = "IDs that were present twice or more in input (possibly after case removal)",
+                 'Dup.Mat' = "IDs that were present twice or more in matrix (after case removal)",
+                 'Mult.In' = "Input IDs that generated multiple output values",
+                 'Mult.Out' = "Output IDs that were generated from multiple inputs",
+                 Unmapped = "Input ID is also in the matrix, but does not have a target with non-zero score",
+                 Unknown = "Input ID could not be matched to any in the matrix")
+        if (warn) {
+            msg <- character()
+            cm  <- function(w,x,cl) colorize(paste(w,":",length(x)), cl)
+            if (length(unk) != 0)   msg <- c(msg,cm("Unknown",unk,"magenta"))
+            if (length(unMap) != 0) msg <- c(msg,cm("Unmapped",unMap,"red"))
+            if (length(dupIn) != 0)  msg <- c(msg,cm("Dup.In",dupIn,"blue"))
+            if (length(dupMat) != 0) msg <- c(msg,cm("Dup.Mat",dupMat,"cyan"))
+            if (length(multIn) != 0) msg <- c(msg,cm("Mult.In",multIn,"yellow"))
+            if (length(multOut) != 0) msg <- c(msg,cm("Mult.Out",multOut,"green"))
+            if (length(msg) !=0) base::message("Non-unique events: ",
+                                               paste(msg, collapse=', '))
+        }
         rv
     },
 
+    .autoLevel = function (vals, sep=',', decreasing=TRUE) {
+        "\\preformatted{
+Designed to be used when map() collapses factorized scores. If two or more
+factor values are being collapsed, the function will collapse the levels into
+a new token-separated level
+       vals - Required, a vector of integer factor values
+        sep - Default ',', the token used to separate levels
+ decreasing - Default TRUE, which will sort factor values from largest to
+              smallest (in order to put the 'best'-scored factor at the
+              front of the list)
+}"
+        if (!is.factor()) return(NA)
+        if (is.numeric(vals)) {
+            vals <- as.integer(vals)
+        } else if (!is.integer(vals)) {
+            return(NA)
+        }
+        lvl <- paste(lvlVal[unique(sort(vals, decreasing=decreasing))],
+                     collapse=sep)
+        ## If this is the first time seeing a hybrid value, add it to the
+        ## factor levels:
+        if (!is.element(lvl, lvlVal)) lvlVal <<- c(lvlVal, lvl)
+        ## Return the index:
+        which(lvl == lvlVal)
+    },
 
     filterDetails = function ( id=NA, type=NA,  metric=NA, reason=NA) {
         if (is.null(metric)) return(NA)
@@ -371,25 +637,28 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
                                       reason=reason, key="id")
         ## Do not add any entries that are already recorded as
         ## filtered (only note the first exclusion)
-        newR <- data.table::fsetdiff(row[["id"]], filterLog[["id"]])
+        newR <- setdiff(row[["id"]], filterLog[["id"]])
         filterLog <<- data.table::rbindlist(list(filterLog, row[newR]),
                                             fill = TRUE)
         data.table::setkeyv(filterLog, "id")
         filterLog
     },
 
-levels = function( asFactor=FALSE ) {
+    is.factor = function () {
+        "TRUE if the matrix is a pseudo-factor (levels have been defined), otherwise FALSE"
+        CatMisc::is.something(lvlVal)
+    },
+
+    levels = function( asFactor=FALSE ) {
         "\\preformatted{Returns factor levels, if appropriate. If not, returns NULL
  asFactor - Default FALSE, which will return an ordered character vector of the
             level values (names). If true, a factor will be returned with
             appropriate levels assigned
 }"
-        if (!CatMisc::is.something(lvlVal)) {
-            NULL
-        } else if (asFactor) {
-            factor(lvlVal)
+        if (is.factor()) {
+            if (asFactor) { factor(lvlVal) } else { lvlVal }
         } else {
-            lvlVal
+            NULL
         }
     },
 
@@ -918,7 +1187,7 @@ levels = function( asFactor=FALSE ) {
                        msg, doCol(file, "white"),
                        ifelse(fromRDS, doCol('.rds', "purple"),""),
                        doCol(age,"red"))
-        if (CatMisc::is.something(lvlVal) && !compact) {
+        if (is.factor() && !compact) {
             ## Report the factor levels
             indent <- "\n      ";
             lvl <- paste(doCol(strwrap(paste(lvlVal, collapse = ', '),
@@ -1087,4 +1356,41 @@ filesToMTX <- function(files, output="SparseMatrix.mtx",
     message("MatrixMarket file written to ", output)
     close(fh)
     invisible(output)
+}
+
+#' Take Lowest Thing
+#'
+#' From a list of strings, take the lowest/smallest thing
+#'
+#' @details
+#'
+#' This is a desperation function and should only be used when you
+#' have a character vector and absolutely must reduce it to
+#' "one thing" but you have no real mechanism to do so. It was
+#' designed to address requests to reduce a list of gene accessions
+#' (eg LOC13992, LOC93) to "one gene", but without any other guiding
+#' context. The function will extract the left-most uninterupted
+#' integer that it can find, and pick the smallest. The rationale is
+#' that "LOC93" was probably annotated earlier (longer ago) than
+#' "LOC13200423", and as such is probably the "more common" /
+#' "better annotated" / "more popular" of the two.
+#'
+#' @param x A character vector of strings to pick from
+#'
+#' @return A single string
+#'
+#' @examples
+#'
+#' x <- c("LOC828221", "LOC1234", "LOC39", "HUH?", "LOC39-BETA", "LOC99.243-X")
+#' takeLowestThing(x)
+#' 
+#' @export
+
+takeLowestThing <- function (x) {
+    ## Grab the 'first' full integer out of each string:
+    nums <- as.integer(gsub('[^0-9].*', '', gsub('^[^0-9]+', '', x)))
+    ## Which one(s) are the smallest?
+    inds <- which(nums == min(nums, na.rm=TRUE))
+    ## Sort (alphabetically) and return the 'smallest'
+    sort(x[inds])[1]
 }

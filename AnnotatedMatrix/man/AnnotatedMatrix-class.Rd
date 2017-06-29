@@ -43,17 +43,105 @@ make.unique() if (valid = FALSE)}
 \section{Methods}{
 
 \describe{
+\item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA)}}{\preformatted{
+Apply filters to the current matrix to zero-out cells failing thresholds.
+        min - Minimum allowed cell value. Cells below this will be set to zero
+        max - Maximum allowed cell value. Cells above it will be set to zero
+ filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
+              remove rows and columns that are only zeros
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}}
+
+\item{\code{is.factor()}}{TRUE if the matrix is a pseudo-factor (levels have been defined), otherwise FALSE}
+
 \item{\code{levels(asFactor = FALSE)}}{\preformatted{Returns factor levels, if appropriate. If not, returns NULL
  asFactor - Default FALSE, which will return an ordered character vector of the
             level values (names). If true, a factor will be returned with
             appropriate levels assigned
 }}
 
-\item{\code{matrix(raw = FALSE)}}{\preformatted{Retrieves the underlying Matrix for this object. Parameters:
+\item{\code{map(input, via = NULL, ignore.case = TRUE, column.func = max,
+  keep.best = FALSE, collapse = NULL, collapse.name = NULL,
+  collapse.token = ",", collapse.func = mean, collapse.factor = NULL,
+  integer.factor = FALSE, add.metadata = TRUE, warn = TRUE)}}{\preformatted{
+Provide a list of IDs, and map/pivot it from one dimension of the matrix to the
+other, following 'connections' defined by non-zero cells. Returns a data.frame
+with Input and Output columns, plus Score and/or Factor columns.
+      input - Required, a vector of IDs
+        via - Specify if the input matches the 'rows' or 'columns' of the
+              matrix. If NULL (default) then your input will be compared to the
+              row and column names, and the one with the most matches will be
+              chosen (defaulting to 'row' in the event of equal matches)
+ ignore.case - Default TRUE, which ignores the capitilazation of IDs
+ column.func - Default max. If ignore.case is true, it is possible that an
+              input ID can match multiple matrix IDs. In this case, multiple
+              matching rows will be returned for one ID. column.func is
+              applied to reduce this to a single row.
+  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
+              be kept
+   collapse - Default FALSE, which will cause every pairwise connection to be
+              reported. If 'in', then the Input column of the data.frame will be
+              unique - any input value that results in multiple output values
+              will result in the Output IDs and Score being 'collapsed' to a
+              single value (see the collapse.* options below). A value of 'out'
+              will do the same, but causes the Output column to be unique, and
+              Input and Score are collapsed.
+ collapse.name - Default NULL, which will cause multiple names to be
+              concatenated into a single value using paste(). Alternatively,
+              a user function can be provided. This package also includes the
+              crude utility function takeLowestThing() (see documentation).
+ collapse.token - Default ',', a string used to concatenate collapsed IDs
+              when using paste (collapse.name=NULL)
+ collapse.func - A function, defaulting to mean, used to collapse scores to
+              a single value. Can be any other function, including user-supplied
+ collapse.factor - A function  that will be used after collapse.func if the
+              matrix is a factor (levels have been set). The default is NULL,
+              which will result in $.autoLevel() being used to generate new
+              'hybrid' factors as needed, but can be a user-supplied function.
+              The function should presumably generate an integer value that
+              will correspond to a level.
+ integer.factor - Default FALSE, which will cause the Score column to be absent
+              and a Factor column (with level values as characters) to be
+              present instead. If TRUE then ONLY a Score column (representing
+              integer values, perhaps including new likely-meaningless hybrid
+              values from $.autoLevel()) will be added. If NULL, then both
+              Score and Factor columns are present.
+ add.metadata - Default TRUE, which will add all metadata columns that have
+              at least some information. FALSE will prevent adding metadata,
+              and a character vector will add those specific columns (which
+              is up to the user to confirm they exist in the metadata store)
+       warn - Default TRUE, which will show warning text if matches failed to
+              be made for the input. This information is also always captured
+              in attributes attached to the returned data.frame
+}}
+
+\item{\code{matrix(raw = FALSE)}}{\preformatted{
+Retrieves the underlying Matrix for this object. Parameters:
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be returned, if it is available. If not available,
             or if raw is TRUE, then the raw (as loaded from file) Matrix
             will be returned.
+}}
+
+\item{\code{removeEmpty(reason = NA)}}{\preformatted{
+Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}}
+
+\item{\code{removeEmptyColumns(reason = NA)}}{\preformatted{
+Remove all empty columns (those that only contain zeros). Invisibly returns a
+vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}}
+
+\item{\code{removeEmptyRows(reason = NA)}}{\preformatted{
+Remove all empty rows (those that only contain zeros). Invisibly returns a
+vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
 }}
 
 \item{\code{reset(asFactor = FALSE)}}{Reset any filters that were applied - the 'used' matrix will be the original 'raw' one}

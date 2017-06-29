@@ -2,6 +2,7 @@
 
 export(AnnotatedMatrix)
 export(filesToMTX)
+export(takeLowestThing)
 exportClasses(AnnotatedMatrix)
 import(Matrix)
 import(ParamSetI)
