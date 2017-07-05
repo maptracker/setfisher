@@ -43,6 +43,16 @@ make.unique() if (valid = FALSE)}
 \section{Methods}{
 
 \describe{
+\item{\code{as.gmt(obj = NULL, transpose = FALSE, file = NULL, ...)}}{\preformatted{
+Converts matrix into a block of GMT-formatted text
+        obj - Default NULL, which will recover the matrix from matrix(),
+              passing ... as well. Alternatively a Matrix can be provided.
+  transpose - Default FALSE, which will presume that the rows are sets. If TRUE,
+              then columns will be taken as sets
+       file - Default NULL, if defined then the output will be written to that
+              path
+}}
+
 \item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA)}}{\preformatted{
 Apply filters to the current matrix to zero-out cells failing thresholds.
         min - Minimum allowed cell value. Cells below this will be set to zero
@@ -116,12 +126,26 @@ with Input and Output columns, plus Score and/or Factor columns.
               in attributes attached to the returned data.frame
 }}
 
-\item{\code{matrix(raw = FALSE)}}{\preformatted{
+\item{\code{matrix(raw = FALSE, transpose = FALSE)}}{\preformatted{
 Retrieves the underlying Matrix for this object. Parameters:
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be returned, if it is available. If not available,
             or if raw is TRUE, then the raw (as loaded from file) Matrix
             will be returned.
+ transpose - Default FALSE. If true, the matrix will be transposed and names
+            will be transfered to the appropriate dimensions
+}}
+
+\item{\code{populatedColumns(obj = NULL, ...)}}{\preformatted{
+Return a logical vector indicating which columns have at least one non-zero cell
+        obj - Default NULL, which will recover the matrix from matrix(),
+              passing ... as well (so you can select the raw matrix if desired)
+}}
+
+\item{\code{populatedRows(obj = NULL, ...)}}{\preformatted{
+Return a logical vector indicating which rows have at least one non-zero cell
+        obj - Default NULL, which will recover the matrix from matrix(),
+              passing ... as well (so you can select the raw matrix if desired)
 }}
 
 \item{\code{removeEmpty(reason = NA)}}{\preformatted{
@@ -158,5 +182,7 @@ object is evaluated in the shell
 ## some genes to Entrez Gene IDs
 demo("geneSymbolMapping", package="AnnotatedMatrix", ask=FALSE)
 
+## Work with different file formats
+demo("fileFormats", package="AnnotatedMatrix", ask=FALSE)
 
 }
