@@ -37,6 +37,8 @@ crayon functions}
 \item{\code{actionMessage(msg = "No message provided!!", prefix = "[+]",
   color = "red", ...)}}{Calls message with a '[+]' prefix and red coloring}
 
+\item{\code{colNameToFunc()}}{Internal utility, generates list-of-lists that maps color names to crayon functions}
+
 \item{\code{colorize(msg = "", color = NULL, bgcolor = NULL)}}{\preformatted{Colorize a string with crayon. Parameters:
       msg - The string to colorize
     color - The color (eg 'red') to assign to the text
@@ -69,6 +71,17 @@ crayon functions}
               object
 }}
 
+\item{\code{logText(width = 0.7 * getOption("width"), relative = TRUE, pad = 11,
+  n = 0)}}{\preformatted{Format the log data to show events and elapsed times
+    width - Default 70% of the 'widht' option. The length to be used when
+            strwrap()ing the event text
+ relative - Default TRUE, will show the time elapsed between events. If
+            FALSE will show absolute time stamps
+      pad - Default 11, character padding
+        n - Default 0, if greater will only show that number of most
+            recent events
+}}
+
 \item{\code{message(msg = "No message provided!", prefix = NULL, color = NULL,
   bgcolor = NULL, datestamp = FALSE, fatal = FALSE, collapse = " ")}}{\preformatted{Display an optionally colorized message, and store
 it in the log table. Parameters:
@@ -84,7 +97,10 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
  collapse - Default '', text to use when collapsing msg vector.
 }}
 
-\item{\code{tidyTime(x = NULL, pad = 0)}}{Reports a time interval with unit management and colorization based on overall elapsed time}
+\item{\code{tidyTime(x = NULL, pad = 0)}}{\preformatted{Reports a time interval with unit management and colorization based on overall elapsed time
+        x - The time unit to be tidied, in seconds
+      pad - Default 0, a minimum width that the final string should occupy
+}}
 
 \item{\code{useColor(newval = NULL)}}{\preformatted{Get/Set flag to use color or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
@@ -115,7 +131,6 @@ myEL
 myEL$log
 
 ## Demo with inheritance of the class:
-
 demo("objectInheritance", package="EventLogger", ask=FALSE)
 
 

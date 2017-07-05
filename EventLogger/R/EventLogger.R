@@ -310,10 +310,10 @@ object is evaluated in the shell
         msg <- unlist(lapply(apply(as.matrix(msgs),
                                    1, strwrap, width = width),
                              paste, collapse = wrapCol))
-        lines <- apply(matrix(c(HMS,msg), ncol = 2),
+        lines <- apply(base::matrix(c(HMS,msg), ncol = 2),
                        1,function(x) { (sprintf("%s | %s", x[1],x[2])) })
         lines <- c(lines, sprintf("  Total: %s", tidyTime(tot)))
-        paste(head, lines, sep = "\n")
+        paste(c(head, lines, ""), collapse = "\n")
     },
 
     colNameToFunc = function( ) {
