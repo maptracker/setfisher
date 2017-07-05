@@ -150,9 +150,15 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
 }"
         
         if (!useColor() || ! CatMisc::is.def(color)) return(NA)
-        if (is.function(color)) return( color )
-        key    <- ifelse(bg, "BG", "FG")
-        colNameToFunc()[[ key ]][[ tolower(color) ]]
+        if (is.function(color[1])) return( color[1] )
+        key   <- "FG"
+        color <- tolower(color[1])
+        if (bg) {
+            key <- "BG"
+            if (!grepl('^bg', color, ignore.case=TRUE))
+                color <- paste('bg', color, sep='')
+        }
+        colNameToFunc()[[ key ]][[ color ]]
     },
 
     colorize = function(msg = "", color = NULL, bgcolor = NULL) {
@@ -354,7 +360,7 @@ object is evaluated in the shell
             cf[[typ]] <- list()
             for (nm in cm[[typ]]) {
                 ## eval() in R: https://stackoverflow.com/a/1743796
-                cf[[typ]][[nm]] <-
+                cf[[typ]][[tolower(nm)]] <-
                     eval(parse(text=paste("crayon::", nm, sep="")))
             }
         }
