@@ -1,2 +1,3 @@
 geneSymbolMapping   Load an annotated MatrixMarket file to map gene symbols to Entrez Gene IDs
 fileFormats   Examples loading different matrix/set file formats
+managingMultiplicity   Strategies for dealing with mappings that are not 1:1

@@ -1,30 +1,33 @@
-## Work from a copy of a sample file provided in inst/
 library("AnnotatedMatrix")
-srcDir <- path.package("AnnotatedMatrix")
-## (for developing - files will still be in inst/ subdirectory):
-if (file.exists(file.path(srcDir, "inst"))) srcDir <- file.path(srcDir, "inst")
-srcDir <- file.path(srcDir, "extdata")
-tmpDir <- tempdir()
-tmpFile <- function(name) {
-    src    <- file.path(srcDir, name)
-    trg    <- file.path(tmpDir, name)
-    file.copy(src,trg)
-    sfx    <- gsub('.+\\.', '', name)
-    message("Working with ", sfx, " file:\n      copy: ",
-            trg, "\n    source: ",src)
-    trg
-}
 
-rcpFile <- tmpFile("Recipes.gmt")
+## Load a small silly GMT file that relates some foods to their ingredients
+## ( .makeTempFile() is a utility method that's only of use in these demos.
+##   Normally you would be providing your own static path to the file. )
+
+
+### ---------------------------------------------------- ###
+rcpFile <- AnnotatedMatrix:::.makeTempFile("Recipes.gmt")
 rcp     <- AnnotatedMatrix(rcpFile)
+rcp$message("Loaded GMT sample file", bgcolor='cyan')
 
-rcp$message("Recipes using potato:", color='red')
-print(rcp$map("Potato")$Output)
+rcp$message("Recipes using potato:", color='yellow')
+print(rcp$map("Potato", warn=FALSE)$Output)
 
-rcp$message("Potato recipes, DF collapsed to unique inputs:", color='red')
+rcp$message("Potato recipes, DF collapsed to unique inputs:", color='yellow')
 print(rcp$map("Potato", collapse='Input'))
 
-rcp$message("Ingredients in Baklava:", color='red')
-print(rcp$map("baklava")$Output)
+rcp$message("Ingredients in Baklava:", color='yellow')
+print(rcp$map("baklava", warn=FALSE)$Output)
 
+
+### ---------------------------------------------------- ###
+lolFile <- AnnotatedMatrix:::.makeTempFile("ListOfLists.inp")
+lol     <- AnnotatedMatrix(lolFile)
+lol$message("Loaded List-of-list sample file", bgcolor='cyan')
+
+lol$message("People who are both chefs and managers:", color='yellow')
+print(lol$map(c("Chefs", "Managers"), collapse='out'))
+
+lol$message("Things Henry can do:", color='yellow')
+print(lol$map("Henry"))
 

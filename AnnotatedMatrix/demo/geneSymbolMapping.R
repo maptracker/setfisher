@@ -1,21 +1,10 @@
-## Work from a copy of a sample file provided in inst/
 library("AnnotatedMatrix")
-srcDir <- path.package("AnnotatedMatrix")
-## (for developing - files will still be in inst/ subdirectory):
-if (file.exists(file.path(srcDir, "inst"))) srcDir <- file.path(srcDir, "inst")
-srcDir <- file.path(srcDir, "extdata")
-tmpDir <- tempdir()
-tmpFile <- function(name) {
-    src    <- file.path(srcDir, name)
-    trg    <- file.path(tmpDir, name)
-    file.copy(src,trg)
-    sfx    <- gsub('.+\\.', '', name)
-    message("Working with ", sfx, " file:\n      copy: ",
-            trg, "\n    source: ",src)
-    trg
-}
 
-symFile <- tmpFile("Symbol-To-Gene.mtx")
+## Load a small matrix that provides a lookup of gene symbols to their
+## Entrez Gene accessions.
+## ( .makeTempFile() is a utility method that's only of use in these demos.
+##   Normally you would be providing your own static path to the file. )
+symFile <- AnnotatedMatrix:::.makeTempFile("Symbol-To-Gene.mtx")
 s2e <- AnnotatedMatrix(symFile)
 
 mySyms <- unlist(strsplit("AIRE GITR-D p40 p75 SHREW-1 NSGPx BorkBork AOP2 PRX", ' '))

@@ -71,10 +71,11 @@ Apply filters to the current matrix to zero-out cells failing thresholds.
             appropriate levels assigned
 }}
 
-\item{\code{map(input, via = NULL, ignore.case = TRUE, column.func = max,
-  keep.best = FALSE, collapse = NULL, collapse.name = NULL,
-  collapse.token = ",", collapse.func = mean, collapse.factor = NULL,
-  integer.factor = FALSE, add.metadata = TRUE, warn = TRUE)}}{\preformatted{
+\item{\code{map(input, via = NULL, format = "data.frame", ignore.case = TRUE,
+  keep.best = FALSE, column.func = max, collapse = NULL,
+  collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
+  collapse.factor = NULL, integer.factor = FALSE, add.metadata = TRUE,
+  warn = TRUE)}}{\preformatted{
 Provide a list of IDs, and map/pivot it from one dimension of the matrix to the
 other, following 'connections' defined by non-zero cells. Returns a data.frame
 with Input and Output columns, plus Score and/or Factor columns.
@@ -83,13 +84,16 @@ with Input and Output columns, plus Score and/or Factor columns.
               matrix. If NULL (default) then your input will be compared to the
               row and column names, and the one with the most matches will be
               chosen (defaulting to 'row' in the event of equal matches)
+     format - Default 'data.frame', specifies the output format. Can also be:
+                 Vector: Will return a named character vector, with values
+                         corresponding to $Output and names as $Input
  ignore.case - Default TRUE, which ignores the capitilazation of IDs
+  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
+              be kept
  column.func - Default max. If ignore.case is true, it is possible that an
               input ID can match multiple matrix IDs. In this case, multiple
               matching rows will be returned for one ID. column.func is
               applied to reduce this to a single row.
-  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
-              be kept
    collapse - Default FALSE, which will cause every pairwise connection to be
               reported. If 'in', then the Input column of the data.frame will be
               unique - any input value that results in multiple output values
@@ -103,14 +107,14 @@ with Input and Output columns, plus Score and/or Factor columns.
               crude utility function takeLowestThing() (see documentation).
  collapse.token - Default ',', a string used to concatenate collapsed IDs
               when using paste (collapse.name=NULL)
- collapse.func - A function, defaulting to mean, used to collapse scores to
-              a single value. Can be any other function, including user-supplied
- collapse.factor - A function  that will be used after collapse.func if the
-              matrix is a factor (levels have been set). The default is NULL,
-              which will result in $.autoLevel() being used to generate new
-              'hybrid' factors as needed, but can be a user-supplied function.
-              The function should presumably generate an integer value that
-              will correspond to a level.
+ collapse.score - Default NULL. Optional function to apply to the $Score
+              column when two or more rows are being collapsed into one. The
+              function should take a numeric vector as input and return a
+              single numeric value. If NULL, the function will be mean(),
+              unless the matrix is a pseudo-factor, in which case the object
+              method $.autoLevel() will be used. This will generate new
+              'hybrid' factors as needed. collapse.token will be used as the
+              string to join factors into a new level name.
  integer.factor - Default FALSE, which will cause the Score column to be absent
               and a Factor column (with level values as characters) to be
               present instead. If TRUE then ONLY a Score column (representing
@@ -134,6 +138,10 @@ Retrieves the underlying Matrix for this object. Parameters:
             will be returned.
  transpose - Default FALSE. If true, the matrix will be transposed and names
             will be transfered to the appropriate dimensions
+}}
+
+\item{\code{metadata_keys(id = NULL, key = NULL)}}{\preformatted{
+Returns a character vector of metadata key names (eg 'Description')
 }}
 
 \item{\code{populatedColumns(obj = NULL, ...)}}{\preformatted{
@@ -184,5 +192,8 @@ demo("geneSymbolMapping", package="AnnotatedMatrix", ask=FALSE)
 
 ## Work with different file formats
 demo("fileFormats", package="AnnotatedMatrix", ask=FALSE)
+
+## Different approaches to handling non-unique mappings:
+demo("managingMultiplicity", package="AnnotatedMatrix", ask=FALSE)
 
 }

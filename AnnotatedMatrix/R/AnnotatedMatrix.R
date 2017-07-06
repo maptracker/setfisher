@@ -24,7 +24,7 @@
 #' @importFrom methods new setRefClass
 #' @importFrom utils read.table
 #' @importFrom data.table data.table rbindlist as.data.table fread
-#'     setkey setkeyv fsetdiff
+#'      setkeyv fsetdiff
 #' @import Matrix
 #' @importFrom CatMisc is.def is.something
 #' @import ParamSetI
@@ -38,6 +38,9 @@
 #'
 #' ## Work with different file formats
 #' demo("fileFormats", package="AnnotatedMatrix", ask=FALSE)
+#'
+#' ## Different approaches to handling non-unique mappings:
+#' demo("managingMultiplicity", package="AnnotatedMatrix", ask=FALSE)
 #' 
 #' @export AnnotatedMatrix
 #' @exportClass AnnotatedMatrix
@@ -262,10 +265,11 @@ Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
         invisible(toss)
     },
 
-    map = function(input, via=NULL, ignore.case=TRUE, column.func=max,
-                   keep.best=FALSE,
+    map = function(input, via=NULL, format="data.frame",
+                   ignore.case=TRUE, keep.best=FALSE,
+                   column.func=max,
                    collapse=NULL, collapse.name=NULL, collapse.token=',',
-                   collapse.func=mean,
+                   collapse.score=NULL,
                    collapse.factor=NULL, integer.factor=FALSE,
                    add.metadata=TRUE, warn=TRUE
                    ) {
@@ -278,13 +282,16 @@ with Input and Output columns, plus Score and/or Factor columns.
               matrix. If NULL (default) then your input will be compared to the
               row and column names, and the one with the most matches will be
               chosen (defaulting to 'row' in the event of equal matches)
+     format - Default 'data.frame', specifies the output format. Can also be:
+                 Vector: Will return a named character vector, with values
+                         corresponding to $Output and names as $Input
  ignore.case - Default TRUE, which ignores the capitilazation of IDs
+  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
+              be kept
  column.func - Default max. If ignore.case is true, it is possible that an
               input ID can match multiple matrix IDs. In this case, multiple
               matching rows will be returned for one ID. column.func is
               applied to reduce this to a single row.
-  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
-              be kept
    collapse - Default FALSE, which will cause every pairwise connection to be
               reported. If 'in', then the Input column of the data.frame will be
               unique - any input value that results in multiple output values
@@ -298,14 +305,14 @@ with Input and Output columns, plus Score and/or Factor columns.
               crude utility function takeLowestThing() (see documentation).
  collapse.token - Default ',', a string used to concatenate collapsed IDs
               when using paste (collapse.name=NULL)
- collapse.func - A function, defaulting to mean, used to collapse scores to
-              a single value. Can be any other function, including user-supplied
- collapse.factor - A function  that will be used after collapse.func if the
-              matrix is a factor (levels have been set). The default is NULL,
-              which will result in $.autoLevel() being used to generate new
-              'hybrid' factors as needed, but can be a user-supplied function.
-              The function should presumably generate an integer value that
-              will correspond to a level.
+ collapse.score - Default NULL. Optional function to apply to the $Score
+              column when two or more rows are being collapsed into one. The
+              function should take a numeric vector as input and return a
+              single numeric value. If NULL, the function will be mean(),
+              unless the matrix is a pseudo-factor, in which case the object
+              method $.autoLevel() will be used. This will generate new
+              'hybrid' factors as needed. collapse.token will be used as the
+              string to join factors into a new level name.
  integer.factor - Default FALSE, which will cause the Score column to be absent
               and a Factor column (with level values as characters) to be
               present instead. If TRUE then ONLY a Score column (representing
@@ -321,7 +328,7 @@ with Input and Output columns, plus Score and/or Factor columns.
               in attributes attached to the returned data.frame
 }"
         if (!is.vector(input) || !is.character(input[1])) {
-            err("mapToCol() must be provided with a character vector as input")
+            err("$map() must be provided with a character vector as input")
             return(NA)
         }
         obj   <- matrix()
@@ -427,20 +434,17 @@ with Input and Output columns, plus Score and/or Factor columns.
         ## to collect all the tests in one place and pre-choose which
         ## function to use. Each function will take a single vector of
         ## numeric values
-        valueCollapseFunction <- if (isFac) {
-            ## Factor-based functions
-            if (is.null(collapse.factor)) {
-                ## Default method to handle factors by making
-                ## new 'hybrid' ones
-                function (vec) .autoLevel( vec, sep=collapse.token )
-            } else {
-                ## User-supplied factor handling function
-                collapse.factor
-            }
+        valueCollapseFunction <-
+        if (!is.null(collapse.score)) {
+            ## The user is supplying their own function to handle
+            ## value (score) collapse
+            collapse.score
+        } else if (isFac) {
+            ## Default method to handle factors by making
+            ## new 'hybrid' ones
+            function (vec) .autoLevel( vec, sep=collapse.token )
         } else {
-            ## Basic method to generate a single numeric value -
-            ## default is mean()
-            collapse.func
+            mean
         }
         ## Likewise, the function used to collapse names/IDs when two
         ## or more rows need to be stuffed into one. Also takes a
@@ -501,8 +505,8 @@ with Input and Output columns, plus Score and/or Factor columns.
                 if (colIn) {
                     ## Request to collapse by input ID. We can do that
                     ## here, since ids represents all unique input IDs
-                    colVal <- valueCollapseFunction(vec)
                     nmVal  <- nameCollapseFunction( names(vec) )
+                    colVal <- valueCollapseFunction(vec)
                     vec    <- setNames(colVal, nmVal)
                 }
             }
@@ -618,6 +622,11 @@ with Input and Output columns, plus Score and/or Factor columns.
                     rv[[col]] <- character(rcnt)
                 }
             }
+        }
+
+        if (grepl('vec', format[1], ignore.case=TRUE)) {
+            ## Vector format
+            rv <- setNames(rv$Output, rv$Input)
         }
 
         ## Attach some summary attributes:
@@ -819,7 +828,9 @@ Converts matrix into a block of GMT-formatted text
                 rv <- .readMatrixTXT( ... )
             } else if (grepl('(lol)', format, ignore.case = TRUE) ||
                        grepl('\\.(inp)', file, ignore.case = TRUE)) {
-                rv <- .readMatrixLOL( ... )
+                dateMessage(paste("Reading List-of-Lists",
+                                  colorize(file,"white")))
+                rv <- parse_ListOfLists_file( file )
             } else if (grepl('(gmt)', format, ignore.case = TRUE) ||
                        grepl('\\.(gmt)', file, ignore.case = TRUE)) {
                 rv <- .readMatrixGMT( ... )
@@ -828,8 +839,8 @@ Converts matrix into a block of GMT-formatted text
                       file), fatal = TRUE)
             }
             ## Stub DT if no metdata was defined:
-            if (!CatMisc::is.something(rv$metadata))
-                rv$metadata <- data.table::data.table( id = character(), key = "id" )
+            if (!CatMisc::is.something(rv$metadata)) rv$metadata <-
+                    data.table::data.table( id = character(), key = "id" )
             dateMessage(paste("Serializing matrix to file",
                               colorize(objFile,"white")), prefix = "  ")
             saveRDS(rv, objFile)
@@ -838,7 +849,7 @@ Converts matrix into a block of GMT-formatted text
         matrixMD   <<- rv$metadata
         if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
         if (!is.null(rv$colChanges)) colChanges <<- rv$colChanges
-        if (CatMisc::is.def(rv$levels)) lvlVal <<- rv$levels
+        if (CatMisc::is.def(rv$levels)) lvlVal  <<- rv$levels
         ## Set default parameters, without clobbering any already set
         if (CatMisc::is.def(rv$params)) setParamList(rv$params, clobber = FALSE)
 
@@ -850,101 +861,6 @@ Converts matrix into a block of GMT-formatted text
                               rnum, cnum, 100 * nnz / (cnum * rnum)),
                       prefix = "  ")
         rv
-    },
-
-    .readMatrixLOL = function () {
-        ## Supporting an in-house flat file format for ragged list
-        ## storage. This is really, really slow compared to reading
-        ## from a .mtx file. For a 777 ID x 1335 list matrix, the
-        ## times were:
-        
-        ## .mtx file : 910 msec (includes 240 msec of metadata parsing)
-        ##  LOL file : 13.5 min, using SetFisherGrowableTriple (~ 900x slower)
-        ##  LOL file : 20 sec, using identical SFGT code ripped out and
-        ##             pasted inline with code (current state of function)
-        
-        ## The included Perl script listOfList_to_MatrixMarket.pl will
-        ## convert the same file to MatrixMarket format in ~ 2 seconds
-        
-        dateMessage(paste("Reading List-of-Lists", colorize(file,"white")))
-        fh     <- file(file, open = "r")
-        block  <- 1000           # R Inferno trick - pre-expand vectors
-        icnt   <- 0L             # Number of distinct rows
-        inames <- integer(block) # Lookup for iName -> row number
-        ivals  <- integer(block) # Triple component, i values
-        jcnt   <- 0L             # Number of distinct columns
-        jnames <- integer(block) # Lookup for iName -> col number
-        jvals  <- integer(block) # Triple component, j values
-        xvals  <- integer(block) # Triple component, x values
-        xcnt   <- 0L             # Number of triples recorded
-
-        jv <- 0 # Current list name index
-        x  <- 0 # Current order in current list
-        while (length(line <- readLines(fh, n = 1, warn = FALSE)) > 0) {
-            if (line == "") next # Blank line
-            if (grepl('^#', line)) {
-                ## Comment line
-                nameDat <- CatMisc::parenRegExp("^#\\s+LIST\\s+-\\s+(.+?)\\s*$", line)
-                nm <- nameDat[1]
-                if (!is.na(nm)) {
-                    ## New list name
-                    jv <- jnames[nm]
-                    if (!is.na(jv)) {
-                        ## Every LIST entry should be unique
-                        err("List-of-List has multiple LIST entries with same name", nm, fatal = TRUE)
-                    }
-
-                    jcnt <- jcnt + 1L
-                    ## Expand the vector if we have filled it up
-                    if (jcnt > length(jnames))
-                        jnames <- c(jnames, integer(block))
-                    jnames[jcnt]        <- jcnt
-                    names(jnames)[jcnt] <- nm
-                    jv <- jcnt
-                    x  <- 0
-                }
-                next
-            }
-            if (!grepl('^\\S', line)) next;
-            ## Presume to be an id; Get the index value for this name
-            iv <- inames[line]
-            if (is.na(iv)) {
-                ## We have not seen this entry yet, add it to the lookup
-                icnt <- icnt + 1L
-                ## Expand the vector if we have filled it up
-                if (icnt > length(inames)) inames <- c(inames, integer(block))
-                inames[icnt]        <- icnt
-                names(inames)[icnt] <- line
-                iv <- icnt
-            }
-            xcnt <- xcnt + 1L 
-            if (xcnt > length(xvals)) {
-                ## Need to expand the three triple vectors
-                ivals <- c(ivals, integer(block))
-                jvals <- c(jvals, integer(block))
-                xvals <- c(xvals, integer(block))
-            }
-            ## Store the i,j,x triples
-            ivals[ xcnt ] <- iv
-            jvals[ xcnt ] <- jv
-            xvals[ xcnt ] <- x  <- x + 1
-        }
-        close(fh)
-        ## !!! Matrix wants zero-indexed columns!
-        mat  <- new("dgTMatrix",
-                    i   = ivals[1:xcnt] - 1L,
-                    j   = jvals[1:xcnt] - 1L,
-                    x   = as.numeric(xvals[1:xcnt]),
-                    Dim = c(icnt,jcnt))
-        rnDat         <- uniqueNames(names(inames[1:icnt]),
-                                             "Row Names")
-        cnDat         <- uniqueNames(names(jnames[1:jcnt]),
-                                             "Col Names")
-        rownames(mat) <- rnDat$names
-        colnames(mat) <- cnDat$names
-
-        list( matrix = mat,
-             colChanges = cnDat$changes, rowChanges = cnDat$changes )
     },
     
     .readMatrixTXT = function ( listname = NA, header = FALSE ) {
@@ -1146,7 +1062,8 @@ Converts matrix into a block of GMT-formatted text
                 ## I never did find a way to add *ROWS* by reference in DTs...
                 metadata <- data.table::rbindlist(list(metadata, tmp),
                                                   fill = TRUE)
-                data.table::setkey(metadata, "id") ## Merged DTs don't carry over key
+                ## Merged DTs don't carry over key:
+                data.table::setkeyv(metadata, "id") 
             }
         }
         ## Set the dimension names
@@ -1178,11 +1095,11 @@ Converts matrix into a block of GMT-formatted text
                 ## one and rename it.
                 setnames(scDT, scNm[1], "id")
             }
-            data.table::setkey(scDT, "id")
+            data.table::setkeyv(scDT, "id")
             ## Set the key to "id", and then merge into metadata
             metadata <- data.table::rbindlist(list(metadata, scDT), fill = TRUE,
                                   use.names = TRUE)
-            data.table::setkey(metadata, "id")
+            data.table::setkeyv(metadata, "id")
         }
         rv$matrix     <- mat
         rv$metadata   <- metadata
@@ -1191,18 +1108,25 @@ Converts matrix into a block of GMT-formatted text
         rv
      },
     
+     metadata_keys = function ( id = NULL, key = NULL) {
+        "\\preformatted{
+Returns a character vector of metadata key names (eg 'Description')
+}"
+        ## Exclude the id column
+        setdiff(names(matrixMD), "id")
+     },
+
      metadata = function ( id = NULL, key = NULL) {
         if (!CatMisc::is.something(key)) {
             ## No column specified
             if (!CatMisc::is.something(id)) return( NULL )
             ## Return a subset of the data table:
             rv <- matrixMD[ id, ]
-            data.table::setkey(rv, "id")
+            data.table::setkeyv(rv, "id")
             return( rv )
         } else if (!CatMisc::is.something(id)) {
             ## Return a named vector for the metadata column
-            allIds <- as.character(matrixMD[,("id"),with=FALSE][[1]])
-            return(setNames( matrixMD[allIds,key,with=FALSE][[1]], allIds))
+            return( setNames( matrixMD[[key]], matrixMD[["id"]] ) )
         }
         ## Else we are asking for specific metadata for specific IDs
         matrixMD[ id, key, with = FALSE ]
@@ -1217,7 +1141,7 @@ Converts matrix into a block of GMT-formatted text
         if (!is.na(min)) rv[ rv < min ] <- 0
         if (!is.na(max)) rv[ rv > max ] <- 0
         ## Eliminate all zero cols: https://stackoverflow.com/a/6632287
-        rv  <- rv[ , colSums(abs(rv)) != 0, drop = FALSE ]
+        rv  <- rv[ , Matrix::colSums(abs(rv)) != 0, drop = FALSE ]
         
         
         fmt <- tolower(substr(format, 1, 1))
@@ -1245,7 +1169,7 @@ Converts matrix into a block of GMT-formatted text
         if (!is.na(min)) rv[ rv < min ] <- 0
         if (!is.na(max)) rv[ rv > max ] <- 0
         ## Eliminate rows of all zeros: https://stackoverflow.com/a/6632287
-        rv  <- rv[ rowSums(abs(rv)) != 0, , drop = FALSE ]
+        rv  <- rv[ Matrix::rowSums(abs(rv)) != 0, , drop = FALSE ]
         
         fmt <- tolower(substr(format, 1, 1))
         if (fmt == "v") {
@@ -1348,13 +1272,14 @@ Converts matrix into a block of GMT-formatted text
         }
         mdRow <- ifelse(is.null(matrixMD), 0, nrow(matrixMD))
         if (mdRow != 0 && !compact) {
-            mcols <- names(matrixMD)[-1]
+            mcols <- metadata_keys()
             msg   <- paste(c(msg, doCol(sprintf("  %d IDs have metadata assigned in up to %d keys, eg:\n", mdRow, length(mcols)), "blue"), collapse = ""))
             for (mcol in mcols) {
                 ## Get a non-NA sample ID with this annotation
                 notNA <- !is.na(matrixMD[[ mcol]])
+                rowNum <- which(notNA)[1]
                 ## OMG ITS SO PAINFUL JUST TO GET A VECTOR
-                exid  <- as.character(matrixMD[ notNA,1,with = FALSE ][[1]][1])
+                exid  <- as.character(matrixMD[ rowNum, "id", with=FALSE][[1]])
                 exval <- matrixMD[ exid, mcol, with = FALSE][[1]]
                 mline <- sprintf('    %s$metadata(key="%s", id="%s") > "%s"\n',
                                  doCol(objName, "white"),
@@ -1654,7 +1579,7 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL, val=1) {
     colnames(mat) <- cnDat$names
 
     metadata <- NULL
-    if (!is.null(meta)) {
+    if (!is.null(meta) && length(meta) > 0) {
         ## Get all the unique IDs for which there is metadata
         ids   <- unique(unlist(lapply(meta, names)))
         ## Make columns
@@ -1668,3 +1593,113 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL, val=1) {
          colChanges = cnDat$changes, rowChanges = cnDat$changes )
 }
 
+#' Parse List-of-Lists File
+#'
+#' Parses a List-of-Lists file so it can be read by AnnotatedMatrix
+#'
+#' @details
+#'
+#' This method is somewhat slow; For many files, you may wish to use
+#' the Perl script "listOfList_to_MatrixMarket.pl" script in the perl/
+#' subdirectory of the AnnotatedMatrix installation.
+#'
+#' Once the file is parsed, an RDS version will be written "next to"
+#' it (same path, plus ".rds"), which will load rapidly, unless a
+#' change to the original file triggers an automatic reparsing.
+#'
+#' @param file Required - the path to the LOL file
+#'
+#' @importFrom CatMisc parenRegExp
+#'
+#' @export
+
+parse_ListOfLists_file <- function( file ) {
+
+    data       <- list() # List of character vectors
+    nowParsing <- NA     # Name of list currently being parsed
+    listLen    <- 0      # Lenght of list currently being parsed
+    meta       <- list() # List metadata
+    
+    fh         <- file(file, open = "r")
+    while (length(line <- readLines(fh, n = 1, warn = FALSE)) > 0) {
+        if (line == "") next # Blank line
+        if (grepl('^#', line)) {
+            ## Comment line
+            nameDat <- CatMisc::parenRegExp("^#\\s+LIST\\s+-\\s+(.+?)\\s*$", line)
+            nm <- nameDat[1]
+            if (!is.na(nm)) {
+                ## New list name
+                ## Trim up the previous list:
+                if (listLen > 0)
+                    data[[nowParsing]] <- data[[nowParsing]][ seq_len(listLen) ]
+                nowParsing <- nm
+                if (is.null( data[[ nowParsing ]] )) {
+                    ## First time seen, good
+                    data[[ nowParsing ]] <- character(1000)
+                    listLen <- 0L
+                } else {
+                    ## Every LIST entry should be unique
+                    stop("List-of-List file: ", file,
+                         "\n   has multiple LIST entries with name: ", nm)
+                }
+            } else {
+                ## Check for other metadata, which applies to list only
+                metDat <- CatMisc::parenRegExp("^#\\s+([^=]+?)\\s*=\\s*(.+?)\\s*$", line)
+                k <- metDat[1]
+                if (!is.na(k)) {
+                    if (is.null( meta[[ k ]] )) meta[[ k ]] <- character()
+                    meta[[ k ]][ nowParsing ] <- metDat[2]
+                }
+            }
+            next # Nothing else to do with comments
+        }
+        if (grepl('^\\S', line)) {
+            ## Presume to be an ID. Extend the character vector if needed:
+            if (length( data[[ nowParsing ]] ) == listLen)
+                data[[ nowParsing ]] <- c(data[[ nowParsing ]], character(1000))
+            listLen <- listLen + 1L
+            data[[ nowParsing ]][ listLen ] <- line
+        }
+    }
+    close(fh)
+    ## Trim up the last list
+    if (listLen > 0) data[[nowParsing]] <- data[[nowParsing]][seq_len(listLen)]
+    matrixFromLists(data, meta=meta)
+}
+
+#' Make Temp File
+#'
+#' Internal method to help manage example files in extdata/
+#'
+#' @details
+#'
+#' When matrix files are loaded, a .rds version is generated to aid in
+#' rapid loading in the future. These files are made alongside the
+#' original flat file. This could cause problems if the file is from
+#' inst/extdata, so this method takes a requested file and copies it
+#' to a temporary location before loading.
+#'
+#' @param name Required, the basename of the file
+#'
+#' @examples
+#'
+#' tmpFile <- AnnotatedMatrix::.makeTempFile("Symbol-To-Gene.mtx")
+#'
+
+.makeTempFile <- function(name) {
+    srcDir <- path.package("AnnotatedMatrix")
+    ## When developing with the uncompressed R package, extdata is
+    ## still inside inst/ - detect this scenario and accomodate it:
+    if (file.exists(file.path(srcDir, "inst")))
+        srcDir <- file.path(srcDir, "inst")
+    srcDir <- file.path(srcDir, "extdata")
+    tmpDir <- tempdir()
+    src    <- file.path(srcDir, name)
+    if (!file.exists(src)) stop("Failed to identify source file: ", src)
+    trg    <- file.path(tmpDir, name)
+    file.copy(src,trg)
+    sfx    <- gsub('.+\\.', '', name)
+    message("Working with ", sfx, " file:\n      copy: ",
+            trg, "\n    source: ",src)
+    trg
+}

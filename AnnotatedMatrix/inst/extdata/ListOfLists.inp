@@ -1,0 +1,44 @@
+# Sample List-of-lists file
+
+# LIST - Scouts
+
+# Description=Team suitable for search and rescue
+# Skills=Perception,Stealth
+
+Lucy
+Henry
+Reginald
+Mary
+
+# LIST - Chefs
+
+# Description=People allowed to cook
+# Skills=Cooking
+
+Reginald
+Patsy
+
+# LIST - Lumberjacks
+
+# Description=Qualified to down trees over 3m tall
+# Clothing=Plaid
+
+Mary
+Castor
+Lucius
+
+# LIST - Managers
+
+# Description=Generates the least objections when put in leadership roles
+# Clothing=Suits
+# Skills=Leveraging,Optimizing
+
+Henry
+Patsy
+
+# LIST - Programmers
+
+# Description=For some reason we need this role broken out on this camping trip
+# Skills=R
+
+Scott
