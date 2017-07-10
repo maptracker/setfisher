@@ -24,7 +24,7 @@
 #' @importFrom methods new setRefClass
 #' @importFrom utils read.table
 #' @importFrom data.table data.table rbindlist as.data.table fread
-#'      setkeyv fsetdiff
+#'      setkeyv setdiff
 #' @import Matrix
 #' @importFrom CatMisc is.def is.something
 #' @import ParamSetI

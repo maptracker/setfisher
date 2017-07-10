@@ -5,16 +5,19 @@ my $scriptDir;
 our $defTmp = "/tmp/entrezGeneSets";
 my $defFtp = "ftp.ncbi.nih.gov";
 my $defEC  = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
+my $defSym = "Unknown,Unofficial,UnofficialPreferred,Interim,Official";
 
 ## RefSeq Status codes:
 ## https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
 my $defRsStat = "SUPPRESSED,NA,WGS,MODEL,INFERRED,PREDICTED,PROVISIONAL,REVIEWED,VALIDATED";
 
+
 our $defaultArgs = {
-    ftp      => $defFtp,
-    eclevels => $defEC,
-    rslevels => $defRsStat,
-    dir      => ".",
+    ftp       => $defFtp,
+    eclevels  => $defEC,
+    rslevels  => $defRsStat,
+    symlevels => $defSym,
+    dir       => ".",
 };
 
 BEGIN {
@@ -23,12 +26,14 @@ BEGIN {
 }
 use lib "$scriptDir";
 require Utils;
-our ($args, $clobber, $ftp, $tmpDir);
+our ($args, $clobber, $ftp, $tmpDir, $maxAbst);
+my ($dbh, $getPMID, $bfdbh, $bfClear, $bfSet);
 
 use DBI;
 use DBD::SQLite;
 use Archive::Tar;
 use IO::Uncompress::Gunzip;
+use XML::Twig;
 
 my $geneIdUrl  = 'https://www.ncbi.nlm.nih.gov/gene/%s'; # For integer IDs
 my $symUrl     = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D';
@@ -36,25 +41,11 @@ my $locLinkUrl = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s'; # For LOC###
 my $bar        = "- " x 20;
 my $mtxSep     = " :: ";
 
-=head2 SSL Issues with NCBI
-
-At time of writing (9 May 2017) there was an issue with a mismatch
-between the FTP site and the certificate:
-
-   ERROR: certificate common name “*.ncbi.nlm.nih.gov” doesn’t match requested host name “ftp.ncbi.nih.gov”.
-
-This will cause LWP to fail unless verify_hostname is set to false,
-which is the current default. When NCBI supplies a certificate with
-matching common name this option should be removed.
-
-=cut
-
 my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
-&backfill_pubmed(21413195);
 
 &mkpath([$outDir]);
 
-my $taxDat   = &extract_taxa_info( $args->{species} );
+my $taxDat   = &extract_taxa_info( $args->{species} || $args->{taxa} );
 
 if ($taxDat->{error} || $args->{h} || $args->{help}) {
     warn "
@@ -64,6 +55,10 @@ This program will generate gene sets for the SetFisher enrichment
 package. It will recover information from the Entrez FTP site based on
 a species identifier you provide.
 
+Required Argument:
+
+  -species The species name you wish to extract
+
 Optional Arguments:
 
       -ftp Default '$defFtp'. URL to Entrez's FTP site
@@ -71,7 +66,7 @@ Optional Arguments:
    -tmpdir Default '$defTmp'. Directory holding downloaded files
 
       -dir Default '.'.  Output directory that will contain generated
-           matrix files
+           matrix and metadata files
 
   -clobber Default 0, which will preserve any already-generated
            files. Set to 1 to regenerate matrix files, and any value
@@ -92,6 +87,9 @@ Optional Arguments:
            Like -eclevels, but maps RefSeq status codes to an integer
            score. Small values are considered 'lower confidence'.
 
+-symlevels Default '$defSym'.
+           Factor levels for symbol nomenclature status.
+
            See: https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
 
  -pubmeddb A path to a SQLite database that holds PubMed (Medline)
@@ -104,6 +102,10 @@ Optional Arguments:
 
                  pubMedExtractor.pl
 
+           If not provided, the file 'simplePubMed.sqlite' (the
+           default name used by the above script) will be used if
+           found in the directory specified by -dir.
+
 ";
     warn "\n[!!] Failed to find target species:\n     $taxDat->{error}\n\n"
         if ($taxDat->{error});
@@ -112,10 +114,14 @@ Optional Arguments:
 my ($geneMeta);
 
 my $taxid = $taxDat->{taxid};
+my $dbf   = $args->{pubmeddb};
+$dbf      = "$outDir/simplePubMed.sqlite"
+    if (!$dbf && -s "$outDir/simplePubMed.sqlite");
 
 
 &msg("Working directory:", $tmpDir);
 &msg("Output directory:", $outDir);
+# &backfill_pubmed(21413195);
 
 ## Summarize the species we are going to parse
 my @taxBits = ("TaxID: $taxid");
@@ -143,15 +149,18 @@ push @taxBits, "File token: $specID";
 
 &msg("Target species:", @taxBits);
 
+&make_metadata_file();
+&ontology_pubmed();
 &map_symbol();
 &map_locuslink();
 &map_refseq();
 &ontology_go();
-&ontology_pubmed();
 
 sub make_metadata_file {
+    my $src  = "gene/DATA/gene_info.gz";
+    my $vers = &_datestamp_for_file(&fetch_url($src));
     # Simple TSV file of species-specific metadata
-    my $trg = sprintf("%s/Metadata-%s_Entrez.tsv", $outDir, $specID);
+    my $trg = sprintf("%s/Metadata-%s_Entrez-v%s.tsv", $outDir, $specID, $vers);
 
     unless (&output_needs_creation($trg)) {
         &msg("Using existing Metadata file:", $trg);
@@ -176,9 +185,9 @@ sub make_metadata_file {
         Description => 'description',
     };
     my @colOut = qw(GeneID Symbol Type Description Aliases);
-    print METAF join("\t", @colOut, "SymScore") ."\n";
+    print METAF join("\t", @colOut, "SymStatus") ."\n";
 
-    my ($fh)  = &gzfh("gene/DATA/gene_info.gz", "gene_info.gz", $cols);
+    my ($fh)  = &gzfh($src, undef, $cols);
     my @getInds = map { $cols->{$_} } @colOut;
     my $tInd = $cols->{TaxID};   # Taxid, eg 9606
     my $lInd = $cols->{GeneID};  # GeneID, eg 859
@@ -241,7 +250,8 @@ sub make_metadata_file {
         # The 'main' "Symbol" column:
         my $sym      = $row[ $sInd ] || "";
         my $stat     = $row[ $oInd ] || "";
-        my $priScore = $stat eq "O" ? "1.0" : $stat eq "I" ? "0.5" : "0.4";
+        my $priScore = $stat eq "O" ? "Official" : 
+            $stat eq "I" ? "Interim" : "Unofficial";
 
         if (my $nas = $row[ $nInd ]) {
             ## Nomenclature Authority (eg HGNC) symbol is present
@@ -263,7 +273,7 @@ sub make_metadata_file {
             if (my $usym = $aliases[0]) {
                 ## There are aliases - take the first one as "the" symbol:
                 $sym      = $usym;
-                $priScore = 0.4;
+                $priScore = "UnofficialPreferred";
                 delete $uAli{$sym};
             }
         }
@@ -314,8 +324,9 @@ sub capture_gene_meta {
 }
 
 sub map_locuslink {
-    my $trg = sprintf("%s/Map-%s_LocusLink-to-Entrez.mtx", 
-                      $outDir, $specID);
+    my $vers = &_datestamp_for_file( &make_metadata_file() );
+    my $trg = sprintf("%s/Map-%s_LocusLink-to-Entrez-v%s.mtx", 
+                      $outDir, $specID, $vers);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing LocusLink map:", $trg);
         return $trg;
@@ -372,21 +383,19 @@ sub map_locuslink {
 }
 
 sub map_refseq {
-    &make_refseq_file();
-    
+    my $rsf = &make_refseq_file();
+    die "WORKING";
 }
 
 sub make_refseq_file {
-    my $trg = sprintf("%s/Metadata-%s_Refseq.tsv", $outDir, $specID);
+    my $src  = "gene/DATA/gene2refseq.gz";
+    my $vers = &_datestamp_for_file(&fetch_url($src));
+    my $trg = sprintf("%s/Metadata-%s_RefSeq-v%s.tsv", $outDir, $specID, $vers);
     unless (&output_needs_creation($trg)) {
         &msg("Using existing RefSeq file:", $trg);
         return $trg;
     }
-    my $tmp = "$trg.tmp";
-    open (TSV, ">$tmp") || &death("Failed to write RefSeq file",
-                                    $tmp, $!);
-
-     my $cols = { 
+    my $cols = { 
         taxid  => 'tax_id',
         gene   => 'GeneID',
         status => 'status',
@@ -403,30 +412,82 @@ sub make_refseq_file {
         pgi    => 'protein_gi',
         mgi    => 'mature_peptide_gi',
     };
-    my ($fh)  = &gzfh("gene/DATA/gene2refseq.gz", "gene2refseq.gz", $cols);
 
-    die "WORKING HERE: Need to decide how to structure these IDs.
-Try to also generalize for Ensembl?";
+    my %loci;
+    my ($nrow, $orow) = (0,0);
 
-    my @colOut = qw(SET COLUMNS HERE);
-    print TSV join("\t", @colOut) ."\n";
-
+    my ($fh)  = &gzfh($src, undef, $cols);
+    my $tInd = $cols->{taxid}; # Taxid, eg 9606
+    my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
+    my $sInd = $cols->{status};# Status, ege REVIEWED
+    my @idInds = map { $cols->{$_} } qw(rid pid mid);
     while (<$fh>) {
         s/[\n\r]+$//;
         my @row = split("\t");
+        unless ($row[$tInd] == $taxid) {
+            ## Stop parsing if we have already found some hits. THIS
+            ## MAY BE A BAD IDEA. It should speed up parsing (neglects
+            ## need to scan whole file) but there is no guarantee that
+            ## taxa won't end up scattered through file in future
+            ## versions:
+            last if ($nrow);
+            next; # Otherwise, keep scanning for taxid
+        }
+        map { s/^\-$// } @row; # Turn '-' cells to empty string
+        my $lid  = $row[$lInd];
+        my $stat = $row[$sInd];
+        next unless ($lid);
+        my @ids = map { $row[$_] } @idInds;
+        # Remove versioning
+        map { s/\.\d+$// } @ids;
+        # Some species lack RNA entries (at least historically, like
+        # yeast - hopefully this will eventually change). Set an empty
+        # token if no RNA is seen:
+        my $rid = $ids[0] || "";
+        $nrow++;
+        for my $p (1..2) {
+            # We will collapse both "plain" and mature peptides into a
+            # simple protein field.
+            if (my $pid = $ids[$p]) {
+                # I do not have a good sense for how the status
+                # applies to RNA/Protein. Can an RNA have a different
+                # status than its translated protein? We will just
+                # grab the first status we encounter
+                $loci{$lid}{$rid}{$pid} ||= $stat;
+            }
+        }
+        if ($rid && !$ids[1] && !$ids[2]) {
+            # RNA only, no translation
+            $loci{$lid}{$rid}{""} ||= $stat;
+        }
     }
     close $fh;
+    my $tmp = "$trg.tmp";
+    open (TSV, ">$tmp") || &death("Failed to write RefSeq file",
+                                    $tmp, $!);
+    my @colOut = qw(GeneID RNA Protein Status);
+    print TSV join("\t", @colOut) ."\n";
+    foreach my $lid (sort {$a <=> $b} keys %loci) {
+        my $ldat = $loci{$lid};
+        foreach my $rid (sort keys %{$ldat}) {
+            my $rdat = $ldat->{$rid};
+            foreach my $pid (sort keys %{$rdat}) {
+                print TSV join("\t", $lid, $rid, $pid, $rdat->{$pid})."\n";
+                $orow++;
+            }
+        }
+    }
     close TSV;
     rename($tmp, $trg);
-    &msg("Generated RefSeq assignments file", $trg);
+    &msg("Generated RefSeq assignments file, $orow rows from $nrow input",$trg);
     return $trg;
-    
 }
 
 
 sub map_symbol {
-    my $trg = sprintf("%s/Map-%s_Symbol-to-Entrez.mtx", 
-                      $outDir, $specID);
+    my $vers = &_datestamp_for_file( &make_metadata_file() );
+    my $trg = sprintf("%s/Map-%s_Symbol-to-Entrez-v%s.mtx", 
+                      $outDir, $specID, $vers);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing Gene Symbol map:", $trg);
         return $trg;
@@ -434,11 +495,7 @@ sub map_symbol {
     &capture_gene_meta();
     my (%symbols, %genes);
     my ($gnum, $nznum) = (0, 0);
-    my $scoreTags = {
-        Official => "1.0",
-        Interim  => "0.5",
-        Unofficial => "0.4 (preferred) or 0.3",
-    };
+    my ($lvls, $scH) = &_factorize_levels('symlevels');
 
     # Symbols should all be the same case - but I'm not certain of
     # that. They will be collected under an upper-case key, but
@@ -451,14 +508,18 @@ sub map_symbol {
         my $gn;
         if ($pri) {
             # "Main" / "primary" symbol
-            my $pSc  = ($meta->{SymScore}  || 0.4) + 0;
+            my $pLvl = $meta->{SymStatus} || "Unknown";
+            my $pSc  = $scH->{uc($pLvl)};
+            unless ($pSc) {
+                $pLvl = "Unknown";
+
+            }
             my $targ = $symbols{uc($pri)} ||= {
                 name => $pri,
                 hits => [],
             };
             $gn ||= $genes{$gid} ||= ++$gnum;
-            $statuses{ $pSc == 1 ? "Official" :
-                         $pSc == 0.5 ? "Interim" : "Unofficial" }++;
+            $statuses{ $pLvl }++;
             push @{$targ->{hits}}, ($gn, $pSc);
             $nznum++;
             $ns++;
@@ -506,29 +567,24 @@ sub map_symbol {
     open(MTX, ">$tmp") || &death("Failed to write Symbol map", $tmp, $!);
     print MTX &_initial_mtx_block
         ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
-          "1.0=Official Symbol, 0.5=Interim, 0.4=Preferred unofficial, 0.3=Unofficial",
+          "Scores are factor levels representing the nomenclature status of the assignment",
           "Gene Symbol", $symUrl,
           "Entrez ID", $geneIdUrl);
 
-    print MTX "%
-% CAUTION: Some symbols have case/capitalization subtleties. While
-% there are often historical reasons for these case decisions,
-% attempting to extract information from a gene symbol's case is about
-% as reliable as determining the contents of a wrapped present by
-% listening to the noises it makes when shaken. If you are pivoting
-% data from symbols (rather than accessions) you're already working at
-% a significant disadvantage:
-%             PLEASE MATCH SYMBOLS CASE-INSENSITIVELY
-% Case is preserved to aid in 'pretty' display of the symbols.
-%
-% $bar
-% Symbol statuses:
-";
+    print MTX &_factor_map_block( $lvls, $scH, "Nomenclature Status");
+    print MTX &_mtx_comment_block("", "'UnofficialPreferred' is simply the first Unofficial symbol listed when no Official symbols are available. It holds no special significance and is provided to allow for one symbol to be recovered consistently for loci that lack an Official symbol. Total status counts for this file:","");
+
     # Basic statistics commentary
     foreach my $stat (sort { $statuses{$b} <=> $statuses{$a} } keys %statuses) {
-        printf(MTX "%% %15s : %d : score %s\n", $stat, $statuses{$stat},
-               $scoreTags->{$stat} || "??");
+        printf(MTX "%% %15s : %d (score %s)\n", $stat, $statuses{$stat},
+               $scH->{uc($stat)} || "??");
     }
+
+    print MTX &_mtx_comment_block("", $bar, "",
+"CAUTION: Some symbols have case/capitalization subtleties. While there are often historical reasons for these case decisions, attempting to extract information from a gene symbol's case is about as reliable as determining the contents of a wrapped present by listening to the noises it makes when shaken. If you are pivoting data from symbols (rather than accessions) you're already working at a significant disadvantage:",
+">PLEASE MATCH SYMBOLS CASE-INSENSITIVELY<",
+"Case is preserved to aid in 'pretty' display of the symbols.");
+
     print MTX "%
 % Number of genes refererenced by symbol := Number of symbols
 ";
@@ -592,13 +648,14 @@ sub mtx_entrez {
 }
 
 sub ontology_pubmed {
-    my $trg = sprintf("%s/Ontology-%s_Entrez-to-PubMed.mtx", 
-                      $outDir, $specID);
+    my $src  = "gene/DATA/gene2pubmed.gz";
+    my $vers = &_datestamp_for_file(&fetch_url($src));
+    my $trg = sprintf("%s/Ontology-%s_Entrez-to-PubMed-v%s.mtx", 
+                      $outDir, $specID, $vers);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing PubMed file:", $trg);
         return $trg;
     }
-    my $dbf = $args->{pubmeddb};
     unless ($dbf) {
         &err("Can not create PubMed ontology",
              "Please provide SQLite DB path with -pubmeddb",
@@ -617,7 +674,7 @@ sub ontology_pubmed {
         gene   => 'GeneID',
         pmid   => 'PubMed_ID',
     };
-    my ($fh) = &gzfh("gene/DATA/gene2pubmed.gz", "gene2pubmed.gz", $cols);
+    my ($fh) = &gzfh($src, undef, $cols);
     my $tInd = $cols->{taxid}; # Taxid, eg 9606
     my $oInd = $cols->{pmid};  # PubMed ID, eg 9873079
     my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
@@ -680,26 +737,16 @@ sub ontology_pubmed {
     ## Column metadata
     
     &msg("Extracting PubMed metadata", $dbf);
-    ## Read-only connection: https://stackoverflow.com/a/34360995
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$dbf",'','', {
-        sqlite_open_flags => DBD::SQLite::OPEN_READONLY,
-        AutoCommit => 1,
-        RaiseError => 1,
-        PrintError => 0 });
-    my $get = $dbh->prepare
-        ("SELECT vers, pubdate, title FROM pmid WHERE pmid = ?");
+    &_sqlite_tools();
 
     my @meta = qw(Date Description);
     printf(MTX "%% Col %s\n", join($mtxSep, "Name", @meta));
     for my $i (0..$#ontIds) {
         my $oId = $ontIds[$i];
-        $get->execute( $oId );
-        my $dat = $get->fetchall_arrayref();
+        my ($vers, $dt, $desc) = &_pmid_from_db( $oId );
         ## Not all PMIDs are in the XML files (eg Book entries)
         ## Use NCBI EFetch to recover these:
-        $dat = &backfill_pubmed( $oId) if ($#{$dat} == -1);
-        my ($newest) = sort { $b->[0] <=> $a->[0] } @{$dat};
-        my ($vers, $dt, $desc) = @{$newest || [0, '','']};
+        ($vers, $dt, $desc) = &backfill_pubmed( $oId) unless ($desc);
         printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $oId, $dt, $desc));
     }
 
@@ -718,8 +765,10 @@ sub ontology_pubmed {
 }
 
 sub ontology_go {
-    my $trg = sprintf("%s/Ontology-%s_Entrez-to-GeneOntology.mtx", 
-                      $outDir, $specID);
+    my $src  = "gene/DATA/gene2go.gz";
+    my $vers = &_datestamp_for_file(&fetch_url($src));
+    my $trg = sprintf("%s/Ontology-%s_Entrez-to-GeneOntology-v%s.mtx", 
+                      $outDir, $specID, $vers);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing GeneOntology file:", $trg);
         return $trg;
@@ -739,13 +788,9 @@ sub ontology_go {
         cat    => 'Category',
     };
 
-    ## Set up EvidenceCode -> 'score' map
-    my $ecTxt = uc($args->{eclevels} || "");
-    $ecTxt =~ s/^\s+//; $ecTxt =~ s/\s+$//; # leading/trailing whitespace
-    my @ecl = split(/\s*,\s*/, $args->{eclevels});
-    my %ecSc = map { $ecl[$_] => $_ + 1 } (0..$#ecl);
+    my ($lvls, $scH) = &_factorize_levels('eclevels', 'upper');
 
-    my ($fh) = &gzfh("gene/DATA/gene2go.gz", "gene2go.gz", $cols);
+    my ($fh) = &gzfh($src, undef, $cols);
     my $tInd = $cols->{taxid}; # Taxid, eg 9606
     my $gInd = $cols->{goid};  # GO ID, eg GO:0005886
     my $eInd = $cols->{ec};    # Evidence code, eg TAS
@@ -773,12 +818,12 @@ sub ontology_go {
             Category    => $row[ $cols->{cat}  ],
             order       => ++$nont,
         };
-        my $sc = $ecSc{ $row[ $eInd ] };
+        my $sc = $scH->{ uc($row[ $eInd ]) };
         unless ($sc) {
             unless (defined $sc) {
                 &err("Unknown Evidence code '$row[ $eInd ]'",
                      "This code was not in -eclevels, it will be ignored");
-                $ecSc{ $row[ $eInd ] } = 0;
+                $scH->{ uc($row[ $eInd ]) } = 0;
             }
             next;
         }
@@ -806,7 +851,7 @@ sub ontology_go {
     print MTX &_max_set_mtx_block( 5, "Catalytic process" );
     print MTX &_min_onto_mtx_block( 2 );
     print MTX &_factor_map_block
-        ( \@ecl, \%ecSc, "Evidence Codes",
+        ( $lvls, $scH, "Evidence Codes",
           ["Lower factor values should represent lower confidence evidence",
            "http://geneontology.org/page/guide-go-evidence-codes"]);
     print MTX &_rowcol_meta_comment_block();
@@ -841,7 +886,7 @@ sub ontology_go {
 
 sub gzfh {
     my ($urlDir, $locFile, $expectCols) = @_;
-    my $src = &fetch_url($urlDir, $locFile);
+    my $src = &fetch_url($urlDir);
     my $fh  = IO::Uncompress::Gunzip->new( $src ) ||
         &death("Failed to gunzip file", $src);
     if ($expectCols) {
@@ -877,7 +922,7 @@ sub extract_taxa_info {
     return { error => "No taxa request specified" }  unless ($req);
     my $srcFile = "$tmpDir/names.dmp";
     if (&source_needs_recovery($srcFile)) {
-        my $tgz = &fetch_url("pub/taxonomy/taxdump.tar.gz", "taxdump.tar.gz");
+        my $tgz = &fetch_url("pub/taxonomy/taxdump.tar.gz");
         my $tar = Archive::Tar->new($tgz);
         $tar->extract_file("names.dmp", $srcFile);
         die join("\n  ", "Failed to extract taxa names",
@@ -1005,41 +1050,103 @@ sub _rowcol_meta_comment_block {
 ";
 }
 
-sub _triple_header_block {
-    my ($rnum, $cnum, $nznum) = @_;
-return "% $bar
-% Matrix triples : Row Col Score
-% $bar
-". sprintf("  %d %d %d\n", $rnum, $cnum, $nznum);
-}
-
-sub _factor_map_block {
-    my ($factorNames, $valueMap, $what, $comments) = @_;
-    my $rv = "%
-%% $bar
-%% Values should be treated as factors representing $what:
-";
-
-    my $top = "%% ------     ";
-    my $bot = "%% LEVELS [,][";
-    for my $li (0..$#{$factorNames}) {
-        my $l = $factorNames->[$li];
-        my $v = $valueMap->{$l};
-        $l .= ',' unless ($li == $#{$factorNames});
-        $bot .= $l;
-        $top .= sprintf('%-'.CORE::length($l).'s', $v);
-    }
-    $rv .= "$top\n";
-    $rv .= "$bot]\n";
-    map { $rv .= "%% $_\n" } @{$comments} if ($comments);
-    return $rv;
-}
-
 sub backfill_pubmed {
     my $pmid = shift;
     # my $url  = "https://www.ncbi.nlm.nih.gov/pubmed/?report=xml&format=json&term=$pmid";
     # my $url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/ecitmatch.cgi?db=pubmed&retmode=json&id=$pmid";
     my $url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=$pmid";
     my $file = &get_url($url, "BackFill-$pmid.xml");
-    die "WORKING HERE: Need to parse information out of XML and load into SQLite (file = $file )";
+    unless (-s $file) {
+        &err("Failed to recover XML data for PubMed", $url);
+        return ( -2, "", "-Error recovering XML from PubMed-" );
+    }
+
+    my $twig = XML::Twig->new();
+    $twig->parsefile( $file );
+    my $doc  = $twig->root();
+    unless ($doc) {
+        &err("PubMed XML document is ... odd", $file);
+        return ( -2, "", "-Error parsing XML from PubMed-" );
+    }
+    $doc = $doc->first_child();
+    $doc = $doc->first_child() if ($doc);
+    unless ($doc) {
+        &err("PubMed does not appear to have information on PMID:$pmid", $file);
+        my $dat = [-2, "", "-This article is apparently no longer at PubMed-" ];
+        &msg("PubMed ID $pmid appears to have no information in PubMed");
+        &_backfill_tools();
+        $bfClear->execute( $pmid );
+        $bfSet->execute( $pmid, $dat->[1], $dat->[2]);
+        return @{$dat};
+    }
+    my @chk  = $doc->get_xpath('PMID');
+    my $dat  = [0,'',''];
+    if ($#chk == 0 && $chk[0]->text() == $pmid) {
+        ## Double-check that we got the right XML snippet
+        my @dts = $doc->get_xpath('//PubDate');
+        if ($#dts > -1) {
+            # Found a date block
+            my $y = [ map { $_->text() } $dts[0]->get_xpath('Year') ];
+            my $m = [ map { $_->text() } $dts[0]->get_xpath('Month') ];
+            my $d = [ map { $_->text() } $dts[0]->get_xpath('Day') ];
+            $dat->[1] = &parse_pubmed_date($pmid, $y, $m, $d);
+        }
+        foreach my $di (qw(ArticleTitle VernacularTitle BookTitle Abstract)) {
+            my @nodes = $doc->get_xpath("//$di");
+            if (my $found = $nodes[0]) {
+                if (my $txt = $found->text()) {
+                     $txt = substr($txt, 0, $maxAbst).'...' 
+                         if (length($txt) > $maxAbst && $di eq 'Abstract');
+                     $dat->[2] = $txt;
+                     last;
+                }
+            }
+        }
+        ## Add the data to the database
+        unless ($dat->[2]) {
+            $dat->[2] = "-Title not identified in XML-";
+            &msg("Failed to surgically recover title for PMID $pmid");
+        }
+        &_backfill_tools();
+        $bfClear->execute( $pmid );
+        $bfSet->execute( $pmid, $dat->[1], $dat->[2]);
+    } else {
+        $dat = [-1, '', 'Error recovering XML information from PubMed'];
+    }
+    return @{$dat};
+}
+
+sub _sqlite_tools {
+    return $dbh if ($dbh);
+    ## Read-only connection: https://stackoverflow.com/a/34360995
+    $dbh = DBI->connect("dbi:SQLite:dbname=$dbf",'','', {
+        sqlite_open_flags => DBD::SQLite::OPEN_READONLY,
+        AutoCommit => 1,
+        RaiseError => 1,
+        PrintError => 0 });
+    $getPMID = $dbh->prepare
+        ("SELECT vers, pubdate, title FROM pmid WHERE pmid = ?");
+    return $dbh;
+}
+
+sub _pmid_from_db {
+    my $oId = shift || 0;
+    $getPMID->execute( $oId );
+    my $dat = $getPMID->fetchall_arrayref();
+    my ($newest) = sort { $b->[0] <=> $a->[0] } @{$dat};
+    return @{$newest || [0, '','']};
+}
+
+sub _backfill_tools {
+    &_sqlite_tools( @_ );
+    return $bfdbh if ($bfdbh);
+    $bfdbh = DBI->connect("dbi:SQLite:dbname=$dbf",'','', {
+        AutoCommit => 1,
+        RaiseError => 1,
+        PrintError => 0 });
+    $bfClear = $bfdbh->prepare("DELETE FROM pmid WHERE pmid = ? AND vers = 0");
+    $bfSet   = $bfdbh->prepare
+        ("INSERT INTO pmid (pmid, vers, xsid, pubdate, title)".
+         " VALUES (?, 0, 0, ?, ?)");
+    return $bfdbh;
 }
