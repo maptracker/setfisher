@@ -4,7 +4,8 @@
 \alias{uniqueNames}
 \title{Unique Names}
 \usage{
-uniqueNames(names = character(), rpt = NULL, valid = FALSE)
+uniqueNames(names = character(), rpt = NULL, valid = FALSE,
+  verbose = TRUE)
 }
 \arguments{
 \item{names}{Required, a character vector of the names to process}
@@ -16,6 +17,9 @@ the form "6 genes required alteration: "...)}
 
 \item{valid}{Default FALSE, whch will utilize make.unique. If TRUE,
 then make.names( unique=TRUE) will be used instead}
+
+\item{verbose}{Default TRUE, which will emit a warning if any names
+needed to be changed}
 }
 \value{
 A list with two components: "names", the vector of (possibly)

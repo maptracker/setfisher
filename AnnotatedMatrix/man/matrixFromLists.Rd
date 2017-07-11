@@ -4,7 +4,8 @@
 \alias{matrixFromLists}
 \title{Matrix from Lists}
 \usage{
-matrixFromLists(data, meta = NULL, listNames = NULL, val = 1)
+matrixFromLists(data, meta = NULL, listNames = NULL, file = NULL,
+  val = 1)
 }
 \arguments{
 \item{data}{Required, a list of vectors. Each list element is
@@ -23,6 +24,9 @@ tables for columns and rows.}
 (rownames) will be taken as names(data). The option to provide
 the names independently is included in case some names are not
 unique. They will still be made so in the final matrix}
+
+\item{file}{Default NULL. If non-null, will be used to look for
+sidecar metadata files.}
 
 \item{val}{Default 1. The value to be assigned to non-zero cells in
 the matrix.}

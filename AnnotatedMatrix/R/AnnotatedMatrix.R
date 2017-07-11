@@ -23,8 +23,8 @@
 #'
 #' @importFrom methods new setRefClass
 #' @importFrom utils read.table
-#' @importFrom data.table data.table rbindlist as.data.table fread
-#'      setkeyv setdiff
+#' @importFrom data.table data.table as.data.table
+#'      setkeyv
 #' @import Matrix
 #' @importFrom CatMisc is.def is.something
 #' @import ParamSetI
@@ -41,6 +41,9 @@
 #'
 #' ## Different approaches to handling non-unique mappings:
 #' demo("managingMultiplicity", package="AnnotatedMatrix", ask=FALSE)
+#'
+#' ## Working with metadata
+#' demo("workingWithMetadata", package="AnnotatedMatrix", ask=FALSE)
 #' 
 #' @export AnnotatedMatrix
 #' @exportClass AnnotatedMatrix
@@ -99,9 +102,9 @@ ColUrl [character] Optional base URL for column names (%s placeholder for name)
         "\\preformatted{
 Retrieves the underlying Matrix for this object. Parameters:
       raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be returned, if it is available. If not available,
-            or if raw is TRUE, then the raw (as loaded from file) Matrix
-            will be returned.
+            'matrixUse') will be returned, if it is available. If not
+            available, or if raw is TRUE, then the raw (as loaded from file)
+            Matrix will be returned.
  transpose - Default FALSE. If true, the matrix will be transposed and names
             will be transfered to the appropriate dimensions
 }"
@@ -132,8 +135,31 @@ Retrieves the underlying Matrix for this object. Parameters:
         rv
     },
 
+    rownames = function( raw=FALSE ) {
+        "\\preformatted{
+Returns the row names of the Matrix
+      raw - Default FALSE, in which case the filtered Matrix (held in field
+            'matrixUse') will be used, if available - otherwise the original
+            raw matrix will be used.
+}"
+        base::rownames(matrix(raw))
+    },
+
+    colnames = function( raw=FALSE ) {
+        "\\preformatted{
+Returns the column names of the Matrix
+      raw - Default FALSE, in which case the filtered Matrix (held in field
+            'matrixUse') will be used, if available - otherwise the original
+            raw matrix will be used.
+}"
+        base::colnames(matrix(raw))
+    },
+
     reset = function( asFactor=FALSE ) {
-        "Reset any filters that were applied - the 'used' matrix will be the original 'raw' one"
+        "\\preformatted{
+Reset any filters that were applied - the 'used' matrix will be the
+original 'raw' one
+}"
         matrixUse <<- NULL
         filterLog <<- data.table(id = character(), key = "id")
         invisible(NA)
@@ -142,8 +168,8 @@ Retrieves the underlying Matrix for this object. Parameters:
     filterByScore = function( min=NA, max=NA, filterEmpty=FALSE, reason=NA ) {
         "\\preformatted{
 Apply filters to the current matrix to zero-out cells failing thresholds.
-        min - Minimum allowed cell value. Cells below this will be set to zero
-        max - Maximum allowed cell value. Cells above it will be set to zero
+        min - Minimum allowed value. Cells below this will be set to zero
+        max - Maximum allowed value. Cells above it will be set to zero
  filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
               remove rows and columns that are only zeros
      reason - Default NA; If specified, a text value that will be added to
@@ -200,9 +226,11 @@ Apply filters to the current matrix to zero-out cells failing thresholds.
 
     populatedRows = function(obj=NULL, ...) {
         "\\preformatted{
-Return a logical vector indicating which rows have at least one non-zero cell
+Return a logical vector indicating which rows have at least one non-zero
+cell
         obj - Default NULL, which will recover the matrix from matrix(),
-              passing ... as well (so you can select the raw matrix if desired)
+              passing ... as well (so you can select the raw matrix if
+              desired)
 }"
         if (is.null(obj)) obj <- matrix(...)
         Matrix::rowSums(obj != 0) != 0
@@ -228,9 +256,11 @@ vector of removed IDs.
 
     populatedColumns = function(obj=NULL, ...) {
         "\\preformatted{
-Return a logical vector indicating which columns have at least one non-zero cell
+Return a logical vector indicating which columns have at least one non-zero
+ cell
         obj - Default NULL, which will recover the matrix from matrix(),
-              passing ... as well (so you can select the raw matrix if desired)
+              passing ... as well (so you can select the raw matrix if
+              desired)
 }"
         if (is.null(obj)) obj <- matrix(...)
         Matrix::colSums(obj != 0) != 0
@@ -238,10 +268,10 @@ Return a logical vector indicating which columns have at least one non-zero cell
 
     removeEmptyColumns = function(reason=NA) {
         "\\preformatted{
-Remove all empty columns (those that only contain zeros). Invisibly returns a
-vector of removed IDs.
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
+Remove all empty columns (those that only contain zeros). Invisibly
+returns a vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added
+              to the $filterLog under the 'reason' column
 }"
         obj     <- matrix()
         isEmpty <- !populatedColumns()
@@ -334,8 +364,8 @@ with Input and Output columns, plus Score and/or Factor columns.
         obj   <- matrix()
         ## Build some named vectors to generalize mapping IDs between
         ## input and the matrix
-        rn    <- rownames(obj)
-        cn    <- colnames(obj)
+        rn    <- base::rownames(obj)
+        cn    <- base::colnames(obj)
         inp   <- input
         if (ignore.case) {
             rn  <- setNames(tolower(rn), rn)
@@ -482,13 +512,13 @@ with Input and Output columns, plus Score and/or Factor columns.
                 ## ID. This can happen when there are multiple cases
                 ## for the same rowname (eg gene symbols "p40" and
                 ## "P40")
-                dupMat <- c(dupMat,paste(rownames(rows),
+                dupMat <- c(dupMat,paste(base::rownames(rows),
                                          collapse=collapse.token))
                 apply(rows, 2, column.func)
             } else {
                 ## The '[' opperator is not honoring column names in
                 ## Matrix objects so I need to explicitly setNames:
-                setNames(rows[1, , drop=TRUE], colnames(rows))
+                setNames(rows[1, , drop=TRUE], base::colnames(rows))
                 ## This is maybe because dimensions in dgTMatrix
                 ## objects are stored in slots, not attributes?
             }
@@ -608,7 +638,7 @@ with Input and Output columns, plus Score and/or Factor columns.
             ## Request to include metadata columns
             ## Map our output IDs to the Metadata data.table :
             md  <- matrixMD[.(rv$Output), -"id"]
-            mdc <- colnames(md) # All available metadata columns
+            mdc <- base::colnames(md) # All available metadata columns
             ## If the param is not a character vector, take all
             if (!is.character(add.metadata)) add.metadata <- mdc
             for (col in add.metadata) {
@@ -713,13 +743,12 @@ a new token-separated level
                 prefix = "[CodeError]")
             return(NA)
         }
-        row <- data.table::data.table(id=id, metric=metric, type=type,
-                                      reason=reason, key="id")
+        row <- data.table::data.table(id=as.character(id), metric=metric,
+                                      type=type, reason=reason, key="id")
         ## Do not add any entries that are already recorded as
         ## filtered (only note the first exclusion)
-        newR <- setdiff(row[["id"]], filterLog[["id"]])
-        filterLog <<- data.table::rbindlist(list(filterLog, row[newR]),
-                                            fill = TRUE)
+        newR <- base::setdiff(row[["id"]], filterLog[["id"]])
+        filterLog <<- extendDataTable(filterLog, row[newR])
         data.table::setkeyv(filterLog, "id")
         filterLog
     },
@@ -757,8 +786,8 @@ Converts matrix into a block of GMT-formatted text
         ## Only keep rows (sets) with at least one object:
         hasData  <- populatedRows(obj)
         obj      <- obj[hasData, ]
-        setNames <- rownames(obj) # Rows are sets
-        memNames <- colnames(obj) # Columns are the potential members
+        setNames <- base::rownames(obj) # Rows are sets
+        memNames <- base::colnames(obj) # Columns are the potential members
         descr    <- matrixMD[.(setNames), "Description"]
         ns       <- length(setNames)
         out      <- character(ns)
@@ -819,20 +848,23 @@ Converts matrix into a block of GMT-formatted text
             if (!file.exists(file)) err(c("Can not make AnnotatedMatrix",
                                           "File does not exist : ", file),
                                         fatal = TRUE)
-
+            fname <- file
+            is.gz <- CatMisc::parenRegExp('(.+)\\.gz$', fname)
+            if (!is.na(is.gz[1])) fname <- is.gz[1]
+            
             if (grepl('(mtx|matrixmarket)', format, ignore.case = TRUE) ||
-                grepl('\\.mtx', file, ignore.case = TRUE)) {
+                grepl('\\.mtx', fname, ignore.case = TRUE)) {
                 rv <- .readMatrixMTX( ... )
             } else if (grepl('(txt|text)', format, ignore.case = TRUE) ||
-                       grepl('\\.(txt|text|list)', file, ignore.case = TRUE)) {
+                       grepl('\\.(txt|text|list)$', fname, ignore.case = TRUE)) {
                 rv <- .readMatrixTXT( ... )
             } else if (grepl('(lol)', format, ignore.case = TRUE) ||
-                       grepl('\\.(inp)', file, ignore.case = TRUE)) {
+                       grepl('\\.(inp)$', fname, ignore.case = TRUE)) {
                 dateMessage(paste("Reading List-of-Lists",
                                   colorize(file,"white")))
                 rv <- parse_ListOfLists_file( file )
             } else if (grepl('(gmt)', format, ignore.case = TRUE) ||
-                       grepl('\\.(gmt)', file, ignore.case = TRUE)) {
+                       grepl('\\.(gmt)$', fname, ignore.case = TRUE)) {
                 rv <- .readMatrixGMT( ... )
             } else {
                 err(c("Can not make AnnotatedMatrix - unrecognized file type: ",
@@ -891,8 +923,8 @@ Converts matrix into a block of GMT-formatted text
         
         rnDat         <- uniqueNames(names, "Row Names")
         cnDat         <- uniqueNames(listname, "List Name")
-        rownames(mat) <- rnDat$names
-        colnames(mat) <- cnDat$names
+        base::rownames(mat) <- rnDat$names
+        base::colnames(mat) <- cnDat$names
         list( matrix = mat,
              colChanges = cnDat$changes, rowChanges = cnDat$changes )
     },
@@ -912,7 +944,7 @@ Converts matrix into a block of GMT-formatted text
             data[[lnum]] <- row[ -(1:2) ]
         }
         close(fh)
-        matrixFromLists(data, listNames=names,
+        matrixFromLists(data, listNames=names, file=file,
                         meta=list(Description=setNames(descr,names)) )
     },
 
@@ -1036,9 +1068,9 @@ Converts matrix into a block of GMT-formatted text
             cmat    <- base::matrix(unlist(lapply(ragged, padRow, maxCol)),
                                     ncol = maxCol, byrow = TRUE)
             tmpIndName     <- ".index."
-            colnames(cmat) <- uniqueNames(
+            base::colnames(cmat) <- uniqueNames(
                 c(tmpIndName, meta), paste("Metadata headers for",what))$names
-            rownames(cmat) <- uniqueNames(cmat[, "id" ])$names
+            base::rownames(cmat) <- uniqueNames(cmat[, "id" ])$names
             ## The first column are indices in the sparse matrix
             inds    <- as.integer(cmat[, 1])
             ## The second column holds the names
@@ -1058,10 +1090,8 @@ Converts matrix into a block of GMT-formatted text
                 ## Convert the matrix to a DT, leaving out the index column
                 tmp <- data.table::as.data.table( cmat[, -1, drop = FALSE],
                                                  key = "id")
-                rownames(tmp) <- uniqueNames(cmat[, "id" ])$names
-                ## I never did find a way to add *ROWS* by reference in DTs...
-                metadata <- data.table::rbindlist(list(metadata, tmp),
-                                                  fill = TRUE)
+                base::rownames(tmp) <- uniqueNames(cmat[, "id" ])$names
+                metadata <- extendDataTable(metadata, tmp)
                 ## Merged DTs don't carry over key:
                 data.table::setkeyv(metadata, "id") 
             }
@@ -1077,30 +1107,8 @@ Converts matrix into a block of GMT-formatted text
         ## expect them to have the same name as the MatrixMarket file,
         ## but be additionally suffixed with
         ## "-metadata<any-other-characters>"
-        fileDir   <- dirname(file)
-        baseFile  <- basename(file)
-        metafiles <- list.files(fileDir, ignore.case=T,
-                                pattern = sprintf("^%s-metadata", baseFile))
-        for (mf in metafiles) {
-            ## Explicit "sidecar" metadata are present
-            ## Read in as temporary data.table
-            dateMessage(c("Reading metadata file -", colorize(mf,"white")),
-                        prefix="  " )
-            scDT <- data.table::fread(mf)
-            ## Find the "id" column, or the first one
-            scNm <- names(scDT)
-            scIdCol <- which(scNm == "id")
-            if (length(scIdCol) == 0) {
-                ## No column named 'id'. *Presume* it is the first
-                ## one and rename it.
-                setnames(scDT, scNm[1], "id")
-            }
-            data.table::setkeyv(scDT, "id")
-            ## Set the key to "id", and then merge into metadata
-            metadata <- data.table::rbindlist(list(metadata, scDT), fill = TRUE,
-                                  use.names = TRUE)
-            data.table::setkeyv(metadata, "id")
-        }
+
+        metadata      <- parseMetadataSidecar( file, metadata )
         rv$matrix     <- mat
         rv$metadata   <- metadata
         rv$colChanges <- dimChngs$Col
@@ -1113,23 +1121,88 @@ Converts matrix into a block of GMT-formatted text
 Returns a character vector of metadata key names (eg 'Description')
 }"
         ## Exclude the id column
-        setdiff(names(matrixMD), "id")
+        base::setdiff(names(matrixMD), "id")
      },
 
-     metadata = function ( id = NULL, key = NULL) {
-        if (!CatMisc::is.something(key)) {
-            ## No column specified
-            if (!CatMisc::is.something(id)) return( NULL )
-            ## Return a subset of the data table:
-            rv <- matrixMD[ id, ]
-            data.table::setkeyv(rv, "id")
-            return( rv )
-        } else if (!CatMisc::is.something(id)) {
-            ## Return a named vector for the metadata column
-            return( setNames( matrixMD[[key]], matrixMD[["id"]] ) )
+     metadata = function ( id=NULL, key=NULL, na.rm=TRUE, drop=TRUE,
+                          verbose=TRUE) {
+        "\\preformatted{
+Select metadata by id, key or both
+         id - Optional vector of IDs to query. If not provided, all IDs
+              will be returned. Bear in mind that the metadata holds both
+              row and column IDs mixed together
+        key - Optional vector of key/tag names, if not provided then all
+              available ones will be returned.
+      na.rm - Default TRUE, which will remove NA values from returned
+              results. Does not apply when both id and key are specified.
+       drop - Default TRUE. If FALSE, the return value will be a data.table
+              If TRUE, and zero or one metadata columns are present, then
+              a named vector is returned.
+    verbose - Default TRUE, which will warn about certain issues
+}"
+        rv <- NULL
+        ## All metadata if neither key nor id is specified
+        if (is.null(id) && is.null(key)) return( matrixMD )
+        if (!is.null(key)) {
+            ## data.table is unhappy if asked for non-existent columns
+            unknown <- setdiff(key, metadata_keys())
+            if (length(unknown) > 0) {
+                key <- intersect(key, metadata_keys())
+                if (verbose) err(c("Request for unknown metadata key(s):",
+                                   unknown))
+                if (length(key) == 0) {
+                    key <- NULL
+                    if (is.null(id)) return( rv )
+                }
+            }
+            ## Make sure the id column is included
+            useKey <- c("id", key)
         }
-        ## Else we are asking for specific metadata for specific IDs
-        matrixMD[ id, key, with = FALSE ]
+        ## data.table does *not* like numeric keys...
+        if (!is.null(id)) id <- as.character(id)
+
+        if (is.null(id)) {
+            ## Key request only
+            rv <- matrixMD[ , useKey, with = FALSE ]
+            if (na.rm) {
+                ## Remove null rows. Find NA values in columns:
+                naCol <- sapply(key, function(x) is.na( rv[[ x ]] ) )
+                ## And now find rows that are all() NAs:
+                naRow <- apply(naCol, 1, all)
+                ## ... and remove them:
+                rv <- rv[ naRow, ]
+            }
+        } else if (is.null(key)) {
+            ## ID request only
+            rv <- matrixMD[ id, , with = FALSE ]
+            if (na.rm) {
+                ## Remove null columns. Find NA values in columns:
+                cols   <- base::colnames(rv)
+                naCol1 <- sapply(cols, function(x) is.na( rv[[ x ]] ) )
+                ## And then columns that are all null:
+                naCol2 <- apply(naCol1, 2, all)
+                ## ... and remove them:
+                rv <- rv[ , naCol2 ]
+            }
+        } else {
+            ## Both
+            rv <- matrixMD[ id, useKey, with = FALSE ]
+            ## We will not remove either rows or columns, since both
+            ## were explicitly requested
+        }
+
+        cns <- base::colnames(rv)
+        if (drop && length(cns) <= 2) {
+            names <- rv[[ "id" ]]
+            if (length(cns) == 1) {
+                ## Big batch of nothing
+                rv <- setNames(rep(NA, length(names)), names)
+            } else {
+                ## What metadata column do we have?
+                mCol <- setdiff(cns, "id")
+                rv   <- setNames(rv[[ mCol[1] ]], names)
+            }
+        }
     },
 
     getRow = function ( x = NA, format = "vector", sort = NA,
@@ -1148,11 +1221,11 @@ Returns a character vector of metadata key names (eg 'Description')
         if (fmt == "v") {
             ## vector
             ## Just return a vector of matching column names
-            colnames(rv)
+            base::colnames(rv)
         } else if (fmt == "d") {
             ## data.frame
             df <- as.data.frame(t(as.matrix(rv)))
-            df$colName = colnames(rv)
+            df$colName = base::colnames(rv)
             df
         } else {
             ## Just return the matrix
@@ -1175,11 +1248,11 @@ Returns a character vector of metadata key names (eg 'Description')
         if (fmt == "v") {
             ## vector
             ## Just return a vector of matching column names
-            rownames(rv)
+            base::rownames(rv)
         } else if (fmt == "d") {
             ## data.frame
             df <- as.data.frame(as.matrix(rv))
-            df$colName = rownames(rv)
+            df$colName = base::rownames(rv)
             df
         } else {
             ## Just return the matrix
@@ -1230,13 +1303,13 @@ Returns a character vector of metadata key names (eg 'Description')
         nz  <- nnzero(mat)
         msg <- sprintf("%s  %8d %s", msg, nr, ifelse(CatMisc::is.something(
             dimNames[1]),dimNames[1],"rows"))
-        rN  <- rownames(mat)
+        rN  <- base::rownames(mat)
         if (CatMisc::is.def(rN))
             msg <- sprintf("%s eg: %s", msg, doCol(substr(paste(rN[1:pmin(3,length(rN))], collapse = ', '), 1, 60), "cyan"))
         
         msg <- sprintf("%s\n  %8d %s", msg, nc, ifelse(CatMisc::is.something(
             dimNames[2]),dimNames[2],"cols"))
-        cN  <- colnames(mat)
+        cN  <- base::colnames(mat)
         if (CatMisc::is.def(cN))
         msg <- sprintf("%s eg: %s", msg, doCol(substr(paste(cN[1:pmin(3,length(cN))], collapse = ', '), 1, 60), "cyan"))
 
@@ -1424,6 +1497,8 @@ takeLowestThing <- function (x) {
 #'     the form "6 genes required alteration: "...)
 #' @param valid Default FALSE, whch will utilize make.unique. If TRUE,
 #'     then make.names( unique=TRUE) will be used instead
+#' @param verbose Default TRUE, which will emit a warning if any names
+#'     needed to be changed
 #'
 #' @return
 #'
@@ -1442,7 +1517,7 @@ takeLowestThing <- function (x) {
 #' @export
 
 uniqueNames <- function(names = character(), rpt = NULL,
-                         valid = FALSE ) {
+                         valid = FALSE, verbose=TRUE ) {
     ## Normalize names for rows/columns, and also record (and
     ## optionally report) any differences
     goodNames <- NULL
@@ -1457,7 +1532,7 @@ uniqueNames <- function(names = character(), rpt = NULL,
         ## Some changes were made. Note them as a (good)named subset
         diff    <- goodNames != names
         changes <- setNames(names[diff], goodNames[diff])
-        if (!is.null(rpt)) {
+        if (!is.null(rpt) && verbose) {
             ## Note the changes to STDERR
             num <- sum(diff)
             msg <- crayon::bgCyan(paste(num,rpt,"required alteration"))
@@ -1470,6 +1545,87 @@ uniqueNames <- function(names = character(), rpt = NULL,
         }
     }
     list( names = goodNames, changes = changes )
+}
+
+#' Parse Metadata Sidecar
+#'
+#' Loads metadata from files accompanying the 'main' data
+#'
+#' @details
+#'
+#' This package primarily expects matrices to be encoded in
+#' MatrixMarket files that include extensive 'in-line' information
+#' embedded in comments. In some cases it may be desirable to manage
+#' metadata in other files, or you may have file formats other than
+#' MTX that can't hold metadata internally.
+#'
+#' In those cases, one or more 'sidecar' files can be included. This
+#' function will expect those files to be named
+#' \code{<BASENAME>-metadata<SOMETHING>}, where <BASENAME> is the full
+#' path of the 'main' data file, and <SOMETHING> is any other text
+#' (including no text).
+#'
+#' The metadata files should be TSV tabular and include a header
+#' row. The function will look for an 'id' column - if not found, it
+#' will rename the first column 'id' and use it
+#'
+#' @param file Required, the path to the primary data file (NOT to the
+#'     metadata file)
+#' @param metadata Default NULL. Optional data.table that already
+#'     contains metadata, presumably from another source. If not
+#'     provided, an empty data.table will be made.
+#' @param na.strings Default \code{c("NA",'-')}, strings that will be
+#'     parsed as NA. A dash is included as it is a common null token
+#'     in biological data sets.
+#' @param verbose Default TRUE, which will report each found file to
+#'     the terminal.
+#' 
+#' @importFrom crayon white
+#' @importFrom data.table data.table fread setkeyv setnames
+#'
+#' @examples
+#'
+#' ## .makeTempFile() is an internal helper function; Don't use normally!
+#' lolFile <- AnnotatedMatrix:::.makeTempFile("ListOfLists.inp")
+#'
+#' ## There are two sidecars associated with this file
+#' parseMetadataSidecar( lolFile )
+#' 
+#' 
+#' @export
+
+parseMetadataSidecar <- function (file, metadata=NULL,
+                                  na.strings=c("NA",'-'), verbose=TRUE) {
+    fileDir   <- dirname(file)
+    baseFile  <- basename(file)
+    metafiles <- list.files(fileDir, ignore.case=TRUE,
+                            pattern = sprintf("^%s-metadata", baseFile))
+    if (is.null(metadata)) metadata <-
+          data.table::data.table( id = character(), key = "id" )
+    for (mf in metafiles) {
+        ## Explicit "sidecar" metadata are present
+        ## emacs temp files:
+        if (grepl('~$', mf)) next
+        ## Read in as temporary data.table
+        path <- file.path(fileDir, mf)
+        if (verbose) message("Reading metadata file - ", crayon::white(path))
+        scDT <- data.table::fread(path, na.strings=na.strings)
+        ## Find the "id" column, or the first one
+        scNm    <- names(scDT)
+        scIdCol <- which(scNm == "id")
+        if (length(scIdCol) == 0) {
+            ## No column named 'id'. *Presume* it is the first
+            ## one and rename it.
+            data.table::setnames(scDT, scNm[1], "id")
+        }
+        ## Assure that the id column is a character:
+        scDT[["id"]] <- as.character(scDT[["id"]])
+        data.table::setkeyv(scDT, "id")
+        ## Set the key to "id", and then merge into metadata
+        metadata <- extendDataTable(metadata, scDT)
+        data.table::setkeyv(metadata, "id")
+    }
+    metadata
 }
 
 #' Matrix from Lists
@@ -1499,6 +1655,8 @@ uniqueNames <- function(names = character(), rpt = NULL,
 #'     unique. They will still be made so in the final matrix
 #' @param val Default 1. The value to be assigned to non-zero cells in
 #'     the matrix.
+#' @param file Default NULL. If non-null, will be used to look for
+#'     sidecar metadata files.
 #'
 #' @return
 #'
@@ -1543,7 +1701,8 @@ uniqueNames <- function(names = character(), rpt = NULL,
 #' 
 #' @export
 
-matrixFromLists <- function(data, meta=NULL, listNames=NULL, val=1) {
+matrixFromLists <- function(data, meta=NULL, listNames=NULL,
+                            file=NULL, val=1) {
     ## Take list (row) names from data if not explicitly provided:
     if (is.null(listNames)) listNames <- names(data)
     rnDat  <- uniqueNames(listNames, "Row Names")
@@ -1575,8 +1734,8 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL, val=1) {
                 j   = jvals[1:xcnt] - 1L,
                 x   = rep(val, xcnt),
                 Dim = c(icnt,jcnt))
-    rownames(mat) <- rnDat$names
-    colnames(mat) <- cnDat$names
+    base::rownames(mat) <- rnDat$names
+    base::colnames(mat) <- cnDat$names
 
     metadata <- NULL
     if (!is.null(meta) && length(meta) > 0) {
@@ -1588,6 +1747,8 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL, val=1) {
         metadata <- data.table::as.data.table( mList,  key = "id")
         data.table::setkeyv(metadata, "id")
     }
+    ## Also load any sidecars:
+    if (!is.null(file)) metadata <- parseMetadataSidecar( file, metadata )
 
     list(matrix = mat, metadata=metadata,
          colChanges = cnDat$changes, rowChanges = cnDat$changes )
@@ -1664,7 +1825,7 @@ parse_ListOfLists_file <- function( file ) {
     close(fh)
     ## Trim up the last list
     if (listLen > 0) data[[nowParsing]] <- data[[nowParsing]][seq_len(listLen)]
-    matrixFromLists(data, meta=meta)
+    matrixFromLists(data, meta=meta, file=file)
 }
 
 #' Make Temp File
@@ -1701,5 +1862,87 @@ parse_ListOfLists_file <- function( file ) {
     sfx    <- gsub('.+\\.', '', name)
     message("Working with ", sfx, " file:\n      copy: ",
             trg, "\n    source: ",src)
+    ## Copy sidecars, too
+    metafiles <- list.files(srcDir, ignore.case=TRUE,
+                            pattern = sprintf("^%s-metadata", name))
+    for (mf in metafiles) {
+        file.copy(file.path(srcDir,mf), file.path(tmpDir, mf))
+    }
     trg
+}
+
+#' Extend Data Table
+#'
+#' Append both new rows and new columns from one data.table to another
+#'
+#' @details
+#'
+#' Designed to grow the metadata data.table as both new rows and
+#' columns are added, while keeping both rows and columns
+#' distinct. There may be a more elegant way to do this with native
+#' data.table methods, but I haven't found it, and not for want of
+#' trying.
+#'
+#' Bad things can happen with data.tables if the key column is an
+#' integer - when subsetting, these will generally be interpreted as
+#' row numbers, which will oftenot correlate to the rows holding the
+#' anticipated value, and are also fluid depending on the key(s) being
+#' set on the DT (and perhaps on prior operations?) For this reason,
+#' the key should be a column of type character.
+#'
+#' @param x Required, the 'target' data.table
+#' @param y Required, the 'source' data.table, which will be added to
+#'     or over-write the corresponding rows/columns in x
+#' @param key Default 'id', the column to merge on
+#'
+#' @return A new data.table with new rows and columns merged. Will not
+#'     alter input values.
+#'
+#' @examples
+#'
+#' library('data.table')
+#' ## Again, the key column should be character mode
+#' dt1 <- data.table(a = c("1","2","3"), b = c("apple","banana", "cherry"),
+#'                   key='a')
+#' dt2 <- data.table(a = c("2","4","5"), b = c("BLUEBERRY","DATE","EGGPLANT"),
+#'                   c = c("beep","ding","eek"), key='a')
+#' extendDataTable(dt1, dt2, key='a')
+#'
+#' @importFrom data.table rbindlist setkeyv copy
+#' @export
+
+extendDataTable <- function (x, y, key='id') {
+    ## Find IDs that are already represented
+    oldIds <- base::intersect( y[[key]], x[[key]] )
+    if (length(oldIds) != 0) {
+        ## Add in or update columns for rows that already exist
+
+        ## The update of the rows using rbindlist will generate a
+        ## derived object, but altering columns in the manner below
+        ## will alter the reference pointed to by x. So we will make a
+        ## copy of x to be consistent in behavior (leaving input
+        ## untouched):
+        x <- data.table::copy(x)
+        for (col in base::colnames(y)) {
+            if (col == key) next
+            newVals <- y[ oldIds, col, with=FALSE ]
+            ## DO WE WANT TO HANDLE NAs SPECIAL?
+            ## That is, do we want to NOT overwrite existing values in x
+            ## when the y value is NA?
+            ## I don't think so ... so fully slotting y into x for these rows
+            x[ oldIds, col ] <- newVals
+        }
+    }
+    ## Find any new IDs:
+    newIds <- base::setdiff( y[[key]], x[[key]] )
+    if (length(newIds) != 0) {
+        ## Append the new rows in bulk
+        x <- data.table::rbindlist(list(x, y[newIds, , on=key]),  
+                                   fill = TRUE, use.names = TRUE)
+        data.table::setkeyv(x, key)
+    }
+
+    ## The update of the columns (oldIds) should be "in place", but
+    ## the rows (newIds) will create a new data.table. Return the result
+    x
 }

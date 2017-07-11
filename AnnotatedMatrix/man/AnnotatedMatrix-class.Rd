@@ -53,10 +53,17 @@ Converts matrix into a block of GMT-formatted text
               path
 }}
 
+\item{\code{colnames(raw = FALSE)}}{\preformatted{
+Returns the column names of the Matrix
+      raw - Default FALSE, in which case the filtered Matrix (held in field
+            'matrixUse') will be used, if available - otherwise the original
+            raw matrix will be used.
+}}
+
 \item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA)}}{\preformatted{
 Apply filters to the current matrix to zero-out cells failing thresholds.
-        min - Minimum allowed cell value. Cells below this will be set to zero
-        max - Maximum allowed cell value. Cells above it will be set to zero
+        min - Minimum allowed value. Cells below this will be set to zero
+        max - Maximum allowed value. Cells above it will be set to zero
  filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
               remove rows and columns that are only zeros
      reason - Default NA; If specified, a text value that will be added to
@@ -133,11 +140,27 @@ with Input and Output columns, plus Score and/or Factor columns.
 \item{\code{matrix(raw = FALSE, transpose = FALSE)}}{\preformatted{
 Retrieves the underlying Matrix for this object. Parameters:
       raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be returned, if it is available. If not available,
-            or if raw is TRUE, then the raw (as loaded from file) Matrix
-            will be returned.
+            'matrixUse') will be returned, if it is available. If not
+            available, or if raw is TRUE, then the raw (as loaded from file)
+            Matrix will be returned.
  transpose - Default FALSE. If true, the matrix will be transposed and names
             will be transfered to the appropriate dimensions
+}}
+
+\item{\code{metadata(id = NULL, key = NULL, na.rm = TRUE, drop = TRUE,
+  verbose = TRUE)}}{\preformatted{
+Select metadata by id, key or both
+         id - Optional vector of IDs to query. If not provided, all IDs
+              will be returned. Bear in mind that the metadata holds both
+              row and column IDs mixed together
+        key - Optional vector of key/tag names, if not provided then all
+              available ones will be returned.
+      na.rm - Default TRUE, which will remove NA values from returned
+              results. Does not apply when both id and key are specified.
+       drop - Default TRUE. If FALSE, the return value will be a data.table
+              If TRUE, and zero or one metadata columns are present, then
+              a named vector is returned.
+    verbose - Default TRUE, which will warn about certain issues
 }}
 
 \item{\code{metadata_keys(id = NULL, key = NULL)}}{\preformatted{
@@ -145,15 +168,19 @@ Returns a character vector of metadata key names (eg 'Description')
 }}
 
 \item{\code{populatedColumns(obj = NULL, ...)}}{\preformatted{
-Return a logical vector indicating which columns have at least one non-zero cell
+Return a logical vector indicating which columns have at least one non-zero
+ cell
         obj - Default NULL, which will recover the matrix from matrix(),
-              passing ... as well (so you can select the raw matrix if desired)
+              passing ... as well (so you can select the raw matrix if
+              desired)
 }}
 
 \item{\code{populatedRows(obj = NULL, ...)}}{\preformatted{
-Return a logical vector indicating which rows have at least one non-zero cell
+Return a logical vector indicating which rows have at least one non-zero
+cell
         obj - Default NULL, which will recover the matrix from matrix(),
-              passing ... as well (so you can select the raw matrix if desired)
+              passing ... as well (so you can select the raw matrix if
+              desired)
 }}
 
 \item{\code{removeEmpty(reason = NA)}}{\preformatted{
@@ -163,10 +190,10 @@ Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
 }}
 
 \item{\code{removeEmptyColumns(reason = NA)}}{\preformatted{
-Remove all empty columns (those that only contain zeros). Invisibly returns a
-vector of removed IDs.
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
+Remove all empty columns (those that only contain zeros). Invisibly
+returns a vector of removed IDs.
+     reason - Default NA; If specified, a text value that will be added
+              to the $filterLog under the 'reason' column
 }}
 
 \item{\code{removeEmptyRows(reason = NA)}}{\preformatted{
@@ -176,7 +203,17 @@ vector of removed IDs.
               the $filterLog under the 'reason' column
 }}
 
-\item{\code{reset(asFactor = FALSE)}}{Reset any filters that were applied - the 'used' matrix will be the original 'raw' one}
+\item{\code{reset(asFactor = FALSE)}}{\preformatted{
+Reset any filters that were applied - the 'used' matrix will be the
+original 'raw' one
+}}
+
+\item{\code{rownames(raw = FALSE)}}{\preformatted{
+Returns the row names of the Matrix
+      raw - Default FALSE, in which case the filtered Matrix (held in field
+            'matrixUse') will be used, if available - otherwise the original
+            raw matrix will be used.
+}}
 
 \item{\code{show(...)}}{\preformatted{Pretty-prints the log, including total elapsed time
 A simple wrapper for logText(), and is auto-invoked if an EventLogger
@@ -195,5 +232,8 @@ demo("fileFormats", package="AnnotatedMatrix", ask=FALSE)
 
 ## Different approaches to handling non-unique mappings:
 demo("managingMultiplicity", package="AnnotatedMatrix", ask=FALSE)
+
+## Working with metadata
+demo("workingWithMetadata", package="AnnotatedMatrix", ask=FALSE)
 
 }
