@@ -3,10 +3,14 @@ use Data::Dumper;
 use File::Path 'mkpath';
 use POSIX 'strftime';
 use File::Listing 'parse_dir';
+use IO::Uncompress::Gunzip;
 use Net::FTP;
 use LWP::UserAgent;
 
 our ($defaultArgs, $defTmp, $ftp, $ua);
+our $bar        = "- " x 20;
+our $mtxSep     = " :: ";
+
 
 our $args = &parseargs({
     ## Tool-specific defaults:
@@ -259,8 +263,6 @@ sub parse_pubmed_date {
     return $date;
 }
 
-my $bar        = "- " x 20;
-
 sub _triple_header_block {
     ## A comment header used just before triples are recorded in an
     ## MTX file, plus the row / col / non-zero count row
@@ -295,6 +297,152 @@ sub _mtx_comment_block {
     return $rv;
 }
 
+sub _initial_mtx_block {
+    my ($what, $rnum, $cnum, $nznum, 
+        $name, $desc,
+        $rnm, $rlnk, $cnm, $clnk, $rowAdj) = @_;
+    ## Additional adjective describing row namespace (eg a species name)
+    $rowAdj = $rowAdj ? "$rowAdj " : "";
+    return "%%MatrixMarket matrix coordinate real general
+% $what relating ${rowAdj}${rnm}s to ${cnm}s
+% $rnum x $cnum sparse matrix with $nznum non-zero cells
+% -- The 'AnnotatedMatrix' package can parse these comments to decorate the matrix --
+% Separator '$mtxSep'
+%
+%% DEFAULT Name $name
+%% DEFAULT Description $desc
+%
+% Rows are ${rnm}s
+%% DEFAULT RowDim $rnm
+%% DEFAULT RowUrl $rlnk
+% Columns are ${cnm}s
+%% DEFAULT ColDim $cnm
+%% DEFAULT ColUrl $clnk
+";
+}
+
+sub _rowcol_meta_comment_block {
+    return "%% $bar
+% Comment blocks for [Row Name] and [Col Name] follow (defining row
+% and column names, plus metadata), followed finally by the triples
+% that store the actual mappings.
+%% $bar
+";
+}
+
+sub gene_symbol_stats_block {
+    my ($symbols, $ids, $lvls, $scH) = @_;
+    my $comText = &_factor_map_block( $lvls, $scH, "Nomenclature Status");
+
+    my (@counts, %statuses, %oddChar);
+    foreach my $sdat (values %{$symbols}) {
+        my $ngene = ($#{$sdat->{hits}} + 1) / 2;
+        $counts[$ngene < 10 ? $ngene : 10 ]++;
+    }
+    $comText .= &_mtx_comment_block("", "'UnofficialPreferred' is simply the first Unofficial symbol listed when no Official symbols are available. It holds no special significance and is provided to allow for one symbol to be recovered consistently for loci that lack an Official symbol. Total status counts for this file:","");
+
+    my $offSc    = $scH->{uc("Official")};
+    my $offAndUn = 0;
+    my $multiOff = 0;
+    for my $i (0..$#{$ids}) {
+        my $dat  = $symbols->{$ids->[$i]};
+        my $hits = $dat->{hits};
+        ## Tally number of official genes and unofficial genes
+        $dat->{o} = 0;
+        $dat->{u} = 0;
+        for (my $j = 1; $j <= $#{$hits}; $j += 2) {
+            my $sc = $hits->[$j];
+            $statuses{ $lvls->[ $sc - 1 ] }++;
+            if ($sc == $offSc) {
+                $dat->{o}++;
+            } else {
+                $dat->{u}++;
+            }
+        }
+        if (my $oNum = $dat->{o}) {
+            $offAndUn++ if ($dat->{u});
+            $multiOff++ if ($oNum > 1);
+        }
+        ## Tally odd characters. Mostly curiosity, but these may
+        ## cause issues in some workflows.
+        ## Allowed atypical characters:
+        ##   '_' eg C4B_2 -> https://www.ncbi.nlm.nih.gov/gene/100293534
+        ##   '@' eg HOXA@ -> https://www.ncbi.nlm.nih.gov/gene/3197
+        my $sym = $dat->{name};
+        $sym =~ s/[a-z0-9\.\-_@]//gi;
+        foreach my $char (split('', $sym)) {
+            if ($char) {
+                $oddChar{$char}{n}++;
+                $oddChar{$char}{ex} ||= $dat->{name};
+            }
+        }
+    }
+    # Basic statistics commentary
+    foreach my $stat (sort { $statuses{$b} <=> $statuses{$a} } keys %statuses) {
+       $comText .= sprintf("%% %20s : %6d (score %s)\n", $stat, $statuses{$stat},
+               $scH->{uc($stat)} || "??");
+    }
+   $comText .= sprintf("%% %20s : %6d (Both Official and something else)\n",
+           "Official + Not", $offAndUn) if ($offAndUn);
+   $comText .= sprintf("%% %20s : %6d ('Official' for 2+ genes! BAD!)\n",
+           "Multiple Official", $multiOff) if ($multiOff);
+
+    $comText .= &_mtx_comment_block("", $bar, "",
+"CAUTION: Some symbols have case/capitalization subtleties. While there are often historical reasons for these case decisions, attempting to extract information from a gene symbol's case is about as reliable as determining the contents of a wrapped present by listening to the noises it makes when shaken. If you are pivoting data from symbols (rather than accessions) you're already working at a significant disadvantage:",
+">PLEASE MATCH SYMBOLS CASE-INSENSITIVELY<",
+"The original case is being preserved to aid in 'pretty' display of the symbols.");
+
+    $comText .= "%
+% Number of genes refererenced by symbol := Number of symbols
+";
+    for my $i (1..$#counts) {
+       $comText .= sprintf("%%  %s := %d\n", $i == 10 ? ">9" : " $i", $counts[$i] || 0);
+    }
+    my @ocs = sort { $oddChar{$b}{n} <=> $oddChar{$a}{n} } keys %oddChar;
+    if ($#ocs != -1) {
+        $comText .= "%
+% Potentially troublesome character := Number of symbols (Example)
+";
+        foreach my $oc (@ocs) {
+            my $ocd = $oddChar{$oc};
+           $comText .= sprintf("%%  '%s' := %5d (%s)\n", $oc, $ocd->{n}, $ocd->{ex});
+        }
+    }
+    return $comText;
+}
+
+sub gene_symbol_meta {
+    my ($symbols, $ids, $rc) = @_;
+    ## Presumes that &gene_symbol_stats_block( $symbols) has been run
+    my @meta = qw(Official NotOfficial);
+    my $comText = sprintf("%% %s %s\n", $rc, join($mtxSep, "Name", @meta));
+    for my $i (0..$#{$ids}) {
+        my $dat  = $symbols->{$ids->[$i]};
+        my $hits = $dat->{hits};
+        $comText .= sprintf( "%% %d %s\n", $i+1, join($mtxSep, map {
+            $dat->{$_} || 0 } qw(name o u)));
+    }
+    return $comText;
+}
+
+sub _generic_meta_block {
+    my ($ids, $rc, $meta, $mcols) = @_;
+    if (!$meta || !$mcols) {
+        $mcols = [];
+        $meta  = {};
+    }
+    my $comText = sprintf( "%% %s %s\n", $rc, join($mtxSep, "Name", @{$mcols}));
+    for my $i (0..$#{$ids}) {
+        my $id = $ids->[$i];
+        my $m = $meta->{$id} || {};
+
+        my @line = ($id, map { defined $_ ? $_ : "" } 
+                    map { $m->{$_} } @{$mcols});
+        $comText .= sprintf("%% %d %s\n", $i+1, join($mtxSep, @line));
+    }
+    return $comText;
+}
+
 sub _factorize_levels {
     ## Used for GO evidence codes (eclevels) and RefSeq Status (rslevels)
     my $argKey = shift || "";
@@ -311,7 +459,8 @@ sub _factorize_levels {
 sub _factor_map_block {
     my ($factorNames, $valueMap, $what, $comments) = @_;
     my $rv = "%
-%% $bar
+% $bar
+%
 %% Values should be treated as factors representing $what:
 ";
 
@@ -339,5 +488,42 @@ sub _datestamp_for_file {
     # https://stackoverflow.com/a/1841160
     return POSIX::strftime( "%Y-%m-%d", localtime(  ( stat $file )[9] ) );
 }
+
+sub gzfh {
+    my ($urlDir, $expectCols) = @_;
+    my $src = &fetch_url($urlDir);
+    my $fh;
+    if ($src =~ /\.gz$/) {
+        $fh = IO::Uncompress::Gunzip->new( $src ) ||
+            &death("Failed to gunzip file", $src);
+    } else {
+        open($fh, "<$src") || &death("Failed to read file", $src, $!);
+    }
+    if ($expectCols) {
+        # We are expecting particular columns to be present
+        # Verify and set the column index when we find them
+        my $head = <$fh>;
+        $head =~ s/^#+//; # Initial number sign on most headers
+        $head =~ s/[\n\r]+$//;
+        my @found = split(/\t/, $head);
+        my %lu = map { $found[$_] => $_ } (0..$#found);
+        while (my ($tok, $col) = each %{$expectCols}) {
+            my $ind = $lu{$col};
+            if (defined $ind) {
+                $expectCols->{$tok} = $ind;
+            } else {
+               &death("Failed to find expected column: '$col'",
+                      "The file format may have changed. Please check it:",
+                      $src, "... and then scan this program for '\$cols'",
+                      "That variable defines expected columns after each '=>'",
+                      "Find the offending value, and replace it with the value observed in the .gz file",
+                      "Bear in mind there are several subroutines with '\$cols' - find the relevant one.");
+            }
+        }
+    }
+    return $fh;
+}
+
+
 
 1;
