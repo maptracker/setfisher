@@ -39,13 +39,15 @@ crayon functions}
 
 \item{\code{colNameToFunc()}}{Internal utility, generates list-of-lists that maps color names to crayon functions}
 
-\item{\code{colorize(msg = "", color = NULL, bgcolor = NULL)}}{\preformatted{Colorize a string with crayon. Parameters:
+\item{\code{colorize(msg = "", color = NULL, bgcolor = NULL)}}{\preformatted{
+Colorize a string with crayon. Parameters:
       msg - The string to colorize
     color - The color (eg 'red') to assign to the text
   bgcolor - The color to assign to the background
 }}
 
-\item{\code{colorMap(color, bg = FALSE)}}{\preformatted{Picks the appropriate crayon color for a color name
+\item{\code{colorMap(color, bg = FALSE)}}{\preformatted{
+Picks the appropriate crayon color for a color name
     color - The name (string) of the color, *or* a function reference
        bg - Default FALSE. If TRUE, then the method will return the relevant
             background color method
@@ -58,7 +60,8 @@ crayon functions}
 
 \item{\code{err(msg = "No message provided!!", prefix = "[ERROR]", ...)}}{Calls message with an '[ERROR]' prefix and red/yellow coloring}
 
-\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{Create a new object using EventLogger():
+\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{
+Create a new object using EventLogger():
         log - Optional EventLogger object. This is used if EventLogger is an
               inherited ('contains') class in another RefClass object, and you
               wish that object to share the event log from a previously created
@@ -72,7 +75,8 @@ crayon functions}
 }}
 
 \item{\code{logText(width = 0.7 * getOption("width"), relative = TRUE, pad = 11,
-  n = 0)}}{\preformatted{Format the log data to show events and elapsed times
+  n = 0)}}{\preformatted{
+Format the log data to show events and elapsed times
     width - Default 70% of the 'widht' option. The length to be used when
             strwrap()ing the event text
  relative - Default TRUE, will show the time elapsed between events. If
@@ -83,7 +87,8 @@ crayon functions}
 }}
 
 \item{\code{message(msg = "No message provided!", prefix = NULL, color = NULL,
-  bgcolor = NULL, datestamp = FALSE, fatal = FALSE, collapse = " ")}}{\preformatted{Display an optionally colorized message, and store
+  bgcolor = NULL, datestamp = FALSE, fatal = FALSE, collapse = " ")}}{\preformatted{
+Display an optionally colorized message, and store
 it in the log table. Parameters:
       msg - The text to display and show
    prefix - Optional text to display in front of message.
@@ -97,18 +102,27 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
  collapse - Default '', text to use when collapsing msg vector.
 }}
 
-\item{\code{tidyTime(x = NULL, pad = 0)}}{\preformatted{Reports a time interval with unit management and colorization based on overall elapsed time
+\item{\code{showLog(...)}}{\preformatted{
+Pretty-prints the log, including total elapsed time
+A simple wrapper for logText(), and is auto-invoked if an EventLogger
+object is evaluated in the shell
+}}
+
+\item{\code{tidyTime(x = NULL, pad = 0)}}{\preformatted{
+Reports a time interval with unit management and colorization based on overall elapsed time
         x - The time unit to be tidied, in seconds
       pad - Default 0, a minimum width that the final string should occupy
 }}
 
-\item{\code{useColor(newval = NULL)}}{\preformatted{Get/Set flag to use color or not. Parameters:
+\item{\code{useColor(newval = NULL)}}{\preformatted{
+Get/Set flag to use color or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
 
      Current value is returned invisibly
 }}
 
-\item{\code{verbose(newval = NULL)}}{\preformatted{Get/Set flag for messaging to be verbose or not. Parameters:
+\item{\code{verbose(newval = NULL)}}{\preformatted{
+Get/Set flag for messaging to be verbose or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
 
      Current value is returned invisibly

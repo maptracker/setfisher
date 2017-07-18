@@ -59,7 +59,8 @@ EventLogger <-
 EventLogger$methods(
     
     initialize = function(useColor=NULL, verbose=NULL, log=NULL, ...) {
-        "\\preformatted{Create a new object using EventLogger():
+        "\\preformatted{
+Create a new object using EventLogger():
         log - Optional EventLogger object. This is used if EventLogger is an
               inherited ('contains') class in another RefClass object, and you
               wish that object to share the event log from a previously created
@@ -96,7 +97,8 @@ EventLogger$methods(
     message = function(msg = "No message provided!", prefix = NULL,
                        color = NULL, bgcolor = NULL, datestamp = FALSE, fatal = FALSE,
                        collapse = " ") {
-        "\\preformatted{Display an optionally colorized message, and store
+        "\\preformatted{
+Display an optionally colorized message, and store
 it in the log table. Parameters:
       msg - The text to display and show
    prefix - Optional text to display in front of message.
@@ -143,7 +145,8 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     },
 
     colorMap = function(color, bg=FALSE) {
-        "\\preformatted{Picks the appropriate crayon color for a color name
+        "\\preformatted{
+Picks the appropriate crayon color for a color name
     color - The name (string) of the color, *or* a function reference
        bg - Default FALSE. If TRUE, then the method will return the relevant
             background color method
@@ -162,7 +165,8 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     },
 
     colorize = function(msg = "", color = NULL, bgcolor = NULL) {
-        "\\preformatted{Colorize a string with crayon. Parameters:
+        "\\preformatted{
+Colorize a string with crayon. Parameters:
       msg - The string to colorize
     color - The color (eg 'red') to assign to the text
   bgcolor - The color to assign to the background
@@ -177,7 +181,8 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     },
     
     useColor = function(newval=NULL) {
-        "\\preformatted{Get/Set flag to use color or not. Parameters:
+        "\\preformatted{
+Get/Set flag to use color or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
 
      Current value is returned invisibly
@@ -197,7 +202,8 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     },
 
     verbose = function(newval=NULL) {
-        "\\preformatted{Get/Set flag for messaging to be verbose or not. Parameters:
+        "\\preformatted{
+Get/Set flag for messaging to be verbose or not. Parameters:
    newval - Optional new value. Should be logical or as.logical()-able.
 
      Current value is returned invisibly
@@ -240,7 +246,8 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
     },
 
     tidyTime = function (x = NULL, pad = 0) {
-        "\\preformatted{Reports a time interval with unit management and colorization based on overall elapsed time
+        "\\preformatted{
+Reports a time interval with unit management and colorization based on overall elapsed time
         x - The time unit to be tidied, in seconds
       pad - Default 0, a minimum width that the final string should occupy
 }"
@@ -266,17 +273,29 @@ datestamp - If TRUE, then a datestamp will be displayed as well.
                          sprintf("%.3f %s", x, unit)), color)
     },
 
-    show = function (...) {
-        "\\preformatted{Pretty-prints the log, including total elapsed time
+    showLog = function (...) {
+        "\\preformatted{
+Pretty-prints the log, including total elapsed time
 A simple wrapper for logText(), and is auto-invoked if an EventLogger
 object is evaluated in the shell
 }"
         cat( .self$logText(...) )
     },
 
+    show = function (...) {
+        "\\preformatted{
+A wrapper for showText(). Will be auto-invoked if an EventLogger
+object is evaluated in the shell, UNLESS the object has a higher-
+precedence show() function of its own. In that case, use showLog()
+to display log contents.
+}"
+        showLog( ... )
+    },
+
     logText = function ( width = 0.7 * getOption("width"),
                         relative = TRUE, pad = 11, n = 0) {
-        "\\preformatted{Format the log data to show events and elapsed times
+        "\\preformatted{
+Format the log data to show events and elapsed times
     width - Default 70% of the 'widht' option. The length to be used when
             strwrap()ing the event text
  relative - Default TRUE, will show the time elapsed between events. If
