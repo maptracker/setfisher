@@ -32,14 +32,12 @@ my ($dbh, $getPMID, $bfdbh, $bfClear, $bfSet);
 use DBI;
 use DBD::SQLite;
 use Archive::Tar;
-use IO::Uncompress::Gunzip;
 use XML::Twig;
 
 my $geneIdUrl  = 'https://www.ncbi.nlm.nih.gov/gene/%s'; # For integer IDs
 my $symUrl     = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D';
 my $locLinkUrl = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s'; # For LOC###
 my $bar        = "- " x 20;
-my $mtxSep     = " :: ";
 
 my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
 
@@ -187,7 +185,7 @@ sub make_metadata_file {
     my @colOut = qw(GeneID Symbol Type Description Aliases);
     print METAF join("\t", @colOut, "SymStatus") ."\n";
 
-    my ($fh)  = &gzfh($src, undef, $cols);
+    my ($fh)  = &gzfh($src, $cols);
     my @getInds = map { $cols->{$_} } @colOut;
     my $tInd = $cols->{TaxID};   # Taxid, eg 9606
     my $lInd = $cols->{GeneID};  # GeneID, eg 859
@@ -251,7 +249,7 @@ sub make_metadata_file {
         my $sym      = $row[ $sInd ] || "";
         my $stat     = $row[ $oInd ] || "";
         my $priScore = $stat eq "O" ? "Official" : 
-            $stat eq "I" ? "Interim" : "Unofficial";
+            $stat eq "I" ? "Interim" : "UnofficialPreferred";
 
         if (my $nas = $row[ $nInd ]) {
             ## Nomenclature Authority (eg HGNC) symbol is present
@@ -342,18 +340,10 @@ sub map_locuslink {
         ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
           "Simple identity matrix directly mapping LocusLink to Entrez IDs",
           "LocusLink ID", "https://www.ncbi.nlm.nih.gov/gene/?term=%s",
-          "Entrez ID", $geneIdUrl);
-    print MTX "%
-% This is just a very simple identity matrix that maps a LocusLink
-% identifier to its numeric Entrez ID. Given an Entrez ID '#' the
-% LocusLink ID would be 'LOC#'. That is, 'LOC859' is Entrez ID '859'.
-%
-% This mapping can of course be done very efficiently in code by
-% simply adding or stripping 'LOC' as needed. If possible, you should
-% take that approach. However, this matrix is generated to aid in
-% automated analysis of diverse query inputs.
-%
-";
+          "Entrez ID", $geneIdUrl, $specID);
+
+    print MTX &_mtx_comment_block("", "This is just a very simple identity matrix that maps a LocusLink identifier to its numeric Entrez ID. Given an Entrez ID '#' the LocusLink ID would be 'LOC#'. That is, 'LOC859' is Entrez ID '859'.",
+                                  "", "This mapping can of course be done very efficiently in code by simply adding or stripping 'LOC' as needed. If possible, you should take that approach. However, this matrix is generated to aid in automated analysis of diverse query inputs.", "");
 
     print MTX &_rowcol_meta_comment_block();
 
@@ -416,7 +406,7 @@ sub make_refseq_file {
     my %loci;
     my ($nrow, $orow) = (0,0);
 
-    my ($fh)  = &gzfh($src, undef, $cols);
+    my ($fh)  = &gzfh($src, $cols);
     my $tInd = $cols->{taxid}; # Taxid, eg 9606
     my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
     my $sInd = $cols->{status};# Status, ege REVIEWED
@@ -496,11 +486,15 @@ sub map_symbol {
     my (%symbols, %genes);
     my ($gnum, $nznum) = (0, 0);
     my ($lvls, $scH) = &_factorize_levels('symlevels');
+    foreach my $chk (qw(Official Unofficial Unknown)) {
+        die "-symlevels must include '$chk' as a level"
+            unless ($scH->{uc($chk)});
+    }
+    my $unScore = $scH->{ uc("Unofficial") };
 
     # Symbols should all be the same case - but I'm not certain of
     # that. They will be collected under an upper-case key, but
     # preserve the first observed case for recording in the matrix
-    my (%statuses, %oddChar);
     foreach my $gid (sort { $a <=> $b } keys %{$geneMeta}) {
         my $meta = $geneMeta->{$gid};
         my $pri  = $meta->{Symbol} || "";
@@ -512,14 +506,13 @@ sub map_symbol {
             my $pSc  = $scH->{uc($pLvl)};
             unless ($pSc) {
                 $pLvl = "Unknown";
-
+                $pSc  = $scH->{uc($pLvl)}
             }
             my $targ = $symbols{uc($pri)} ||= {
                 name => $pri,
                 hits => [],
             };
             $gn ||= $genes{$gid} ||= ++$gnum;
-            $statuses{ $pLvl }++;
             push @{$targ->{hits}}, ($gn, $pSc);
             $nznum++;
             $ns++;
@@ -527,36 +520,18 @@ sub map_symbol {
         my @alis = @{$meta->{Aliases}};
         my $nUn  = $#alis + 1;
         $ns     += $nUn;
-        $statuses{"Unofficial"} += $nUn;
 
         for my $i (0..$#alis) {
-            ## All aliases will have a score of 0.3
+            ## All aliases will have a status of Unofficial
             my $sym = $alis[$i];
             my $targ = $symbols{uc($sym)} ||= {
                 name => $sym,
                 hits => [],
             };
             $gn ||= $genes{$gid} ||= ++$gnum;
-            push @{$targ->{hits}}, ($gn, 0.3);
+            push @{$targ->{hits}}, ($gn, $unScore);
             $nznum++;
-            ## Tally odd characters. Mostly curiosity, but these may
-            ## cause issues in some workflows.
-            ## Allowed atypical characters:
-            ##   '_' eg C4B_2 -> https://www.ncbi.nlm.nih.gov/gene/100293534
-            ##   '@' eg HOXA@ -> https://www.ncbi.nlm.nih.gov/gene/3197
-            $sym =~ s/[a-z0-9\.\-_@]//gi;
-            foreach my $char (split('', $sym)) {
-                if ($char) {
-                    $oddChar{$char}{n}++;
-                    $oddChar{$char}{ex} ||= $alis[$i];
-                }
-            }
         }
-    }
-    my @counts;
-    foreach my $sdat (values %symbols) {
-        my $ngene = ($#{$sdat->{hits}} + 1) / 2;
-        $counts[$ngene < 10 ? $ngene : 10 ]++;
     }
 
     my @rowIds  = sort keys %symbols;
@@ -569,56 +544,19 @@ sub map_symbol {
         ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
           "Scores are factor levels representing the nomenclature status of the assignment",
           "Gene Symbol", $symUrl,
-          "Entrez ID", $geneIdUrl);
+          "Entrez ID", $geneIdUrl, $specID);
 
-    print MTX &_factor_map_block( $lvls, $scH, "Nomenclature Status");
-    print MTX &_mtx_comment_block("", "'UnofficialPreferred' is simply the first Unofficial symbol listed when no Official symbols are available. It holds no special significance and is provided to allow for one symbol to be recovered consistently for loci that lack an Official symbol. Total status counts for this file:","");
 
-    # Basic statistics commentary
-    foreach my $stat (sort { $statuses{$b} <=> $statuses{$a} } keys %statuses) {
-        printf(MTX "%% %15s : %d (score %s)\n", $stat, $statuses{$stat},
-               $scH->{uc($stat)} || "??");
-    }
+    print MTX &gene_symbol_stats_block( \%symbols, \@rowIds, $lvls, $scH );
 
-    print MTX &_mtx_comment_block("", $bar, "",
-"CAUTION: Some symbols have case/capitalization subtleties. While there are often historical reasons for these case decisions, attempting to extract information from a gene symbol's case is about as reliable as determining the contents of a wrapped present by listening to the noises it makes when shaken. If you are pivoting data from symbols (rather than accessions) you're already working at a significant disadvantage:",
-">PLEASE MATCH SYMBOLS CASE-INSENSITIVELY<",
-"Case is preserved to aid in 'pretty' display of the symbols.");
-
-    print MTX "%
-% Number of genes refererenced by symbol := Number of symbols
-";
-    for my $i (1..$#counts) {
-        printf(MTX "%%  %s := %d\n", $i == 10 ? ">9" : " $i", $counts[$i] || 0);
-    }
-    my @ocs = sort { $oddChar{$b}{n} <=> $oddChar{$a}{n} } keys %oddChar;
-    if ($#ocs != -1) {
-        print MTX "%
-% Potentially troublesome character := Number of symbols (Example)
-";
-        foreach my $oc (@ocs) {
-            my $ocd = $oddChar{$oc};
-            printf(MTX "%%  '%s' := %5d (%s)\n", $oc, $ocd->{n}, $ocd->{ex});
-        }
-    }
     print MTX &_rowcol_meta_comment_block();
 
     ## Note row metadata
-    my @meta = qw(Official NotOfficial);
-    printf(MTX "%% Row %s\n", join($mtxSep, "Name", @meta));
-    for my $i (0..$#rowIds) {
-        my $dat  = $symbols{$rowIds[$i]};
-        my $hits = $dat->{hits};
-        my ($o, $u) = (0,0);
-        for (my $j = 1; $j <= $#{$hits}; $j += 2) {
-            if ($hits->[$j] < 1) { $u++ } else { $o++ }
-        }
-        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $dat->{name}, $o, $u));
-    }
+    print MTX &gene_symbol_meta( \%symbols, \@rowIds, 'Row');
 
     ## Column metadata
     print MTX "% $bar\n";
-    &mtx_entrez(\@gids, 'Col');
+    print MTX &mtx_entrez(\@gids, 'Col');
 
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
     for my $i (0..$#rowIds) {
@@ -636,15 +574,8 @@ sub map_symbol {
 sub mtx_entrez {
     my ($ids, $rc) = @_;
     &capture_gene_meta();
-    my @meta = qw(Symbol Type Description);
-    printf(MTX "%% %s %s\n", $rc, join($mtxSep, "Name", @meta));
-    for my $i (0..$#{$ids}) {
-        my $id = $ids->[$i];
-        my $m = $geneMeta->{$id} || {};
-
-        my @line = ($id, map { defined $_ ? $_ : "" } map { $m->{$_} } @meta);
-        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, @line));
-    }
+    return &_generic_meta_block($id, $rc, $geneMeta, 
+                                [qw(Symbol Type Description)]);
 }
 
 sub ontology_pubmed {
@@ -674,7 +605,7 @@ sub ontology_pubmed {
         gene   => 'GeneID',
         pmid   => 'PubMed_ID',
     };
-    my ($fh) = &gzfh($src, undef, $cols);
+    my ($fh) = &gzfh($src, $cols);
     my $tInd = $cols->{taxid}; # Taxid, eg 9606
     my $oInd = $cols->{pmid};  # PubMed ID, eg 9873079
     my $lInd = $cols->{gene};  # Entrez Gene ID, eg 859
@@ -716,7 +647,7 @@ sub ontology_pubmed {
         ( "Ontology", $rnum, $cnum, $nznum, "$specID Entrez PubMed",
           "PubMed assignments for $specID Entrez genes",
           "Entrez ID", $geneIdUrl,
-          "PubMed ID", "https://www.ncbi.nlm.nih.gov/pubmed/%s");
+          "PubMed ID", "https://www.ncbi.nlm.nih.gov/pubmed/%s", $specID);
     print MTX "%
 % These data were extracted from the NLM/NCBI FTP sites:
 %   https://ftp.ncbi.nih.gov/gene/DATA/gene2pubmed.gz
@@ -790,7 +721,7 @@ sub ontology_go {
 
     my ($lvls, $scH) = &_factorize_levels('eclevels', 'upper');
 
-    my ($fh) = &gzfh($src, undef, $cols);
+    my ($fh) = &gzfh($src, $cols);
     my $tInd = $cols->{taxid}; # Taxid, eg 9606
     my $gInd = $cols->{goid};  # GO ID, eg GO:0005886
     my $eInd = $cols->{ec};    # Evidence code, eg TAS
@@ -845,7 +776,7 @@ sub ontology_go {
         ( "Ontology", $rnum, $cnum, $nznum, "$specID Entrez GeneOntology",
           "GeneOntology assignments for $specID Entrez genes",
           "Entrez ID", $geneIdUrl,
-          "GO Term", "http://amigo.geneontology.org/amigo/term/%s");
+          "GO Term", "http://amigo.geneontology.org/amigo/term/%s", $specID);
     print MTX &_setfisher_comment_block();
     print MTX &_min_set_mtx_block( 7 );
     print MTX &_max_set_mtx_block( 5, "Catalytic process" );
@@ -884,36 +815,6 @@ sub ontology_go {
     return $trg;
 }
 
-sub gzfh {
-    my ($urlDir, $locFile, $expectCols) = @_;
-    my $src = &fetch_url($urlDir);
-    my $fh  = IO::Uncompress::Gunzip->new( $src ) ||
-        &death("Failed to gunzip file", $src);
-    if ($expectCols) {
-        # We are expecting particular columns to be present
-        # Verify and set the column index when we find them
-        my $head = <$fh>;
-        $head =~ s/^#+//; # Initial number sign on most headers
-        $head =~ s/[\n\r]+$//;
-        my @found = split(/\t/, $head);
-        my %lu = map { $found[$_] => $_ } (0..$#found);
-        while (my ($tok, $col) = each %{$expectCols}) {
-            my $ind = $lu{$col};
-            if (defined $ind) {
-                $expectCols->{$tok} = $ind;
-            } else {
-               &death("Failed to find expected column: '$col'",
-                      "The file format may have changed. Please check it:",
-                      $src, "... and then scan this program for '\$cols'",
-                      "That variable defines expected columns after each '=>'",
-                      "Find the offending value, and replace it with the value observed in the .gz file",
-                      "Bear in mind there are several subroutines with '\$cols' - find the relevant one.");
-            }
-        }
-    }
-    return $fh;
-}
-
 sub extract_taxa_info {
     ## Used to deconvolute user species request into a formal
     ## species. In particular, we'll need the taxid (eg 9606 for
@@ -950,28 +851,6 @@ sub extract_taxa_info {
     }
     close TAX;
     return { error => "No match for '$req' found in $srcFile" };
-}
-
-sub _initial_mtx_block {
-    my ($what, $rnum, $cnum, $nznum, 
-        $name, $desc,
-        $rnm, $rlnk, $cnm, $clnk) = @_;
-    return "%%MatrixMarket matrix coordinate real general
-% $what relating $specID ${rnm}s to ${cnm}s
-% $rnum x $cnum sparse matrix with $nznum non-zero cells
-% -- The 'setfisher' package can parse these comments to decorate the matrix --
-% Separator '$mtxSep'
-%
-%% DEFAULT Name $name
-%% DEFAULT Description $desc
-%
-% Rows are ${rnm}s
-%% DEFAULT RowDim $rnm
-%% DEFAULT RowUrl $rlnk
-% Columns are ${cnm}s
-%% DEFAULT ColDim $cnm
-%% DEFAULT ColUrl $clnk
-";
 }
 
 sub _setfisher_comment_block {
@@ -1038,15 +917,6 @@ sub _max_set_mtx_block {
 % reports, it brings a small multiple testing benefit.
 %
 %% DEFAULT maxSetPerc $def
-";
-}
-
-sub _rowcol_meta_comment_block {
-    return "%% $bar
-% Comment blocks for [Row Name] and [Col Name] follow (defining row
-% and column names, plus metadata), followed finally by the triples
-% that store the actual mappings.
-%% $bar
 ";
 }
 

@@ -45,7 +45,7 @@ make.unique() if (valid = FALSE)}
 \describe{
 \item{\code{as.gmt(obj = NULL, transpose = FALSE, file = NULL, ...)}}{\preformatted{
 Converts matrix into a block of GMT-formatted text
-        obj - Default NULL, which will recover the matrix from matrix(),
+        obj - Default NULL, which will recover the matrix from matObj(),
               passing ... as well. Alternatively a Matrix can be provided.
   transpose - Default FALSE, which will presume that the rows are sets. If TRUE,
               then columns will be taken as sets
@@ -53,15 +53,39 @@ Converts matrix into a block of GMT-formatted text
               path
 }}
 
-\item{\code{colnames(raw = FALSE)}}{\preformatted{
+\item{\code{cCounts(obj = NULL, ...)}}{\preformatted{
+Return an integer vector of non-zero rows for each column
+        obj - Default NULL, which will recover the matrix from matObj(),
+              passing ... as well (so you can select the raw matrix if
+              desired)
+}}
+
+\item{\code{cNames(raw = FALSE)}}{\preformatted{
 Returns the column names of the Matrix
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be used, if available - otherwise the original
             raw matrix will be used.
 }}
 
+\item{\code{filterByFactorLevel(x, keep = TRUE, ignore.case = TRUE,
+  filterEmpty = FALSE, reason = NA)}}{\preformatted{
+For factor matrices, filter out values by factor level.
+Returns the number of cells zeroed (filtered) out.
+          x - A vector of factor levels to remove, either integers or
+              character values
+       keep - Default TRUE, which will result in keeping only the values
+              that match x. If FALSE, the values in x are excluded.
+ ignore.case - Default TRUE, which allows factor levels to be match
+              while disregarding capitalization
+ filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
+              remove rows and columns that are only zeros
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}}
+
 \item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA)}}{\preformatted{
 Apply filters to the current matrix to zero-out cells failing thresholds.
+Returns the number of cells zeroed (filtered) out.
         min - Minimum allowed value. Cells below this will be set to zero
         max - Maximum allowed value. Cells above it will be set to zero
  filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
@@ -137,7 +161,7 @@ with Input and Output columns, plus Score and/or Factor columns.
               in attributes attached to the returned data.frame
 }}
 
-\item{\code{matrix(raw = FALSE, transpose = FALSE)}}{\preformatted{
+\item{\code{matObj(raw = FALSE, transpose = FALSE)}}{\preformatted{
 Retrieves the underlying Matrix for this object. Parameters:
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be returned, if it is available. If not
@@ -167,10 +191,19 @@ Select metadata by id, key or both
 Returns a character vector of metadata key names (eg 'Description')
 }}
 
+\item{\code{nnZero(obj = NULL, ...)}}{\preformatted{
+Return the count of non-zero elements in the matrix. This is essentially
+the number of 'live connections' currently stored.
+cell
+        obj - Default NULL, which will recover the matrix from matObj(),
+              passing ... as well (so you can select the raw matrix if
+              desired)
+}}
+
 \item{\code{populatedColumns(obj = NULL, ...)}}{\preformatted{
 Return a logical vector indicating which columns have at least one non-zero
  cell
-        obj - Default NULL, which will recover the matrix from matrix(),
+        obj - Default NULL, which will recover the matrix from matObj(),
               passing ... as well (so you can select the raw matrix if
               desired)
 }}
@@ -178,7 +211,14 @@ Return a logical vector indicating which columns have at least one non-zero
 \item{\code{populatedRows(obj = NULL, ...)}}{\preformatted{
 Return a logical vector indicating which rows have at least one non-zero
 cell
-        obj - Default NULL, which will recover the matrix from matrix(),
+        obj - Default NULL, which will recover the matrix from matObj(),
+              passing ... as well (so you can select the raw matrix if
+              desired)
+}}
+
+\item{\code{rCounts(obj = NULL, ...)}}{\preformatted{
+Return an integer vector of non-zero columns for each row
+        obj - Default NULL, which will recover the matrix from matObj(),
               passing ... as well (so you can select the raw matrix if
               desired)
 }}
@@ -208,16 +248,18 @@ Reset any filters that were applied - the 'used' matrix will be the
 original 'raw' one
 }}
 
-\item{\code{rownames(raw = FALSE)}}{\preformatted{
+\item{\code{rNames(raw = FALSE)}}{\preformatted{
 Returns the row names of the Matrix
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be used, if available - otherwise the original
             raw matrix will be used.
 }}
 
-\item{\code{show(...)}}{\preformatted{Pretty-prints the log, including total elapsed time
-A simple wrapper for logText(), and is auto-invoked if an EventLogger
-object is evaluated in the shell
+\item{\code{show(...)}}{\preformatted{
+A wrapper for showText(). Will be auto-invoked if an EventLogger
+object is evaluated in the shell, UNLESS the object has a higher-
+precedence show() function of its own. In that case, use showLog()
+to display log contents.
 }}
 }}
 

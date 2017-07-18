@@ -31,3 +31,9 @@ print(lol$map(c("Chefs", "Managers"), collapse='out'))
 lol$message("Things Henry can do:", color='yellow')
 print(lol$map("Henry"))
 
+
+### ---------------------------------------------------- ###
+dirPath <- AnnotatedMatrix:::.makeTempFile("folderOfLists")
+dirMat  <- AnnotatedMatrix(dirPath)
+dirMat$message("Loaded set of simple lists within a directory", bgcolor='cyan')
+

@@ -17,7 +17,7 @@ BEGIN {
 }
 use lib "$scriptDir";
 require Utils;
-our ($args, $clobber, $ftp, $tmpDir);
+our ($args, $clobber, $ftp, $tmpDir, $maxAbst);
 
 use IO::Uncompress::Gunzip;
 use XML::Parser::PerlSAX;
@@ -32,46 +32,10 @@ srand( time() ^ ($$ + ($$<<15)) ); # For -scramble
 my ($dbh, $xsid, 
     $getXS, $setXS, $doneXS, $clearPM, $delPM, $setPM);
 my $defDbName = "simplePubMed.sqlite";
-my $maxAbst   = 150;
 my $noteMod   = 5000;
 my $noTitle   = "-No title-";
 
 
-my @mnThree    = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
-my @mnFull     = qw(January February March April May June 
-                    July August September October November December);
-# These are not quite right, but close enough:
-my $mnHash     = {
-    winter    => 1,
-    spring    => 4,
-    spr       => 4,
-    summer    => 7,
-    sum       => 7,
-    autumn    => 10,
-    fall      => 10,
-    easter    => 4,  # http://www.ncbi.nlm.nih.gov/pubmed/2019856
-    christmas => 12, # http://www.ncbi.nlm.nih.gov/pubmed/13954194
-    '1st Quart' => 1, # PMID:10237212
-    '2d Quart'  => 4, # PMID:10248150
-    '3d Quart'  => 7, # PMID:10236507
-    '4th Quart' => 10, # PMID:10249456
-    '-00 Winter' => 1, # PMID:10711319
-    '-94 Winter' => 1, # PMID:11362190
-    'N0v' => 11, # PMID:5275180
-    '' => 1, #
-    '' => 1, #
-    '' => 1, #
-    '' => 1, #
-    '' => 1, #
-    '' => 1, #
-};
-foreach my $arr (\@mnThree, \@mnFull) {
-    map { $mnHash->{lc($arr->[$_])} = $_ + 1 } (0..$#{$arr});
-}
-for my $i (1..12) {
-    $mnHash->{$i} = $i;
-    $mnHash->{sprintf("%02d", $i)} = $i;
-}
 
 my $fileReq = $args->{file};
 my $pmdb    = $args->{pubmeddb};
@@ -728,36 +692,13 @@ sub _write_record {
     my @arts = @{$record->{article} || []};
     &msg("Multiple articles for PMID:$pmid") if ($#arts > 0);
     my $art = $arts[0] || {};
-    if (my $y = $art->{Year}) {
-        &msg("Multiple years for PMID:$pmid") if ($#{$y} > 0);
-        $y = $y->[0];
-        if ($y =~ /^\d{4}$/) {
-            $date = $y;
-            if (my $m = $art->{Month}) {
-                &msg("Multiple months for PMID:$pmid") if ($#{$m} > 0);
-                $m = $m->[0];
-                if (my $std = $mnHash->{lc($m)}) {
-                    $date = sprintf("%s-%02d", $date, $std);
-                    if (my $d = $art->{Day}) {
-                        &msg("Multiple days for PMID:$pmid") if ($#{$d} > 0);
-                        $d = $d->[0];
-                        if ($d =~ /^\d{1,2}$/ && $d > 0 && $d < 32) {
-                            $date = sprintf("%s-%02d", $date, $d);
-                        } else {
-                            &msg("Weird day for PMID:$pmid : '$d'");
-                        }
-                    }
-                } else {
-                    &msg("Weird month for PMID:$pmid : '$m'");
-                }
-            }
-        } else {
-            &msg("Weird year for PMID:$pmid : '$y'");
-        }
-    } elsif (my $mld = $art->{MedlineDate}) {
+    my $date = &parse_pubmed_date
+        ($pmid, $art->{Year}, $art->{Month}, $art->{Day});
+    if (!$date && $art->{MedlineDate}) {
         ## eg: <MedlineDate>1978 Sep-Oct</MedlineDate> This appears to
         ## be a fallback value, AFAICT used when a date spans a range
         ## rather than having a discrete value.
+        my $mld = $art->{MedlineDate};
         &msg("Multiple Medline dates for PMID:$pmid") if ($#{$mld} > 0);
         if ($mld->[0] =~ /^(\d{4})\b/) {
             ## Do not trust getting more than a year here
