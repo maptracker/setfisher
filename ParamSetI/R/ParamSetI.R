@@ -5,7 +5,8 @@
 #' Inherited class holding parameter manipulation functions
 #'
 #' @field paramSet List holding key-value pairs used by an object
-#' @field paramDef List holding parameter definitions
+#' @field paramDef List holding parameter definitions and class
+#'     restrictions
 #' @field varName Single string holding extracted variable names. Used
 #'     for reporting R code that utilizes actual variable names being
 #'     used.
@@ -34,7 +35,9 @@ ParamSetI <-
 ParamSetI$methods(
 
     initialize = function(params=NA, ... ) {
-        "\\preformatted{Create a new object using ParamSetI():
+        "\\preformatted{
+Create a new object. Not called directly, but invoked when building an
+object with ParamSetI()
      params - Optional list of key/value pairs that will be passed to
               setParamList()
         ... - dots will also be passed on to setParamList()
@@ -43,30 +46,35 @@ ParamSetI$methods(
         setParamList( params=params, ... )
     },
 
-    param = function (key = NA, val = NA, append = FALSE, default = NA,
-                      clobber = TRUE, check.class = NA, is.scalar = TRUE,
-                      coerce = TRUE) {
-        "\\preformatted{Gets/Sets a parameter. Parameters:
-      key - The name of the parameter. If NA will simply return NA. Key names
-            are case insensitive.
-      val - Optional new value. If not NA, then the parameter value will be
-            set, with behavior modified by some of the flags below
-   append - Default FALSE, which will cause the parameter to be set to 'val'.
-            If TRUE, val will be appended to the end of the current vector
-            holding the value for 'key'.
+    param = function (key=NA, val=NA, append=FALSE, default=NA,
+                      clobber=TRUE, check.class=NULL, is.scalar=TRUE,
+                      coerce=TRUE) {
+        "\\preformatted{
+Gets/Sets a parameter. Parameters:
+      key - The name of the parameter. If NA will simply return NA. Key
+            names are case insensitive.
+      val - Optional new value. If not NA, then the parameter value will
+            be set, with behavior modified by some of the flags below
+   append - Default FALSE, which will cause the parameter to be set to
+            'val'. If TRUE, val will be appended to the end of the current
+            vector holding the value for 'key'.
   default - Optional value to return if the value of 'key' is 'not defined',
             which corresponds to NA, NULL or zero-length vectors.
-  clobber - Default TRUE, which allows an already-set value to be replaced with
-            'val'. Using FALSE is primarily used for managing default settings.
- check.class - Default NA, which will not cause a class check. If provided,
-            'val' will be checked with is.class() to see if it matches the
-            requested value. If not, an error will be reported and 'key'
-            will not be set. The value 'percent' will be interpreted as
-            'numeric'.
- is.scalar - Default TRUE, which will result in only val[1] being used. Set
-            to FALSE if you wish all elements of 'val' to be assigned to 'key'
-   coerce - Default TRUE, which will attempt to coerce 'val' to 'check.class'
-            in the event that check.class is not NA
+  clobber - Default TRUE, which allows an already-set value to be replaced
+            with 'val'. Using FALSE is primarily used for managing default
+            settings.
+ check.class - Default NULL, which will check the parameter definitions
+            and use any class found there. If the value is NA or '', then
+            there will be no class check. Otherwise, is.class() will be
+            tested with the provided class name against the provided
+            'val' to see if it matches. If not,  an error will be reported
+            and 'key' will not be set. The value 'percent' will be
+            interpreted as 'numeric'.
+ is.scalar - Default TRUE, which will result in only val[1] being used.
+            Set to FALSE if you wish all elements of 'val' to be assigned
+            to 'key'
+   coerce - Default TRUE, which will attempt to coerce 'val' to
+            'check.class' in the event that check.class is not NA
 }"
         if (is.na(key)) return( NA )
         ## Always ignore the case of the key:
@@ -95,9 +103,9 @@ ParamSetI$methods(
                 }
                 ## Check type of value if a class check was requested
                 ## or is stored in the parameter definitions.
-                chk <- if (is.na(check.class)) {
+                chk <- if (is.null(check.class)) {
                            paramDef[key, "class"] } else { check.class }
-                if (CatMisc::is.def(chk)) {
+                if (CatMisc::is.something(chk)) {
                     ## 'percent' is a conveinence class to help with
                     ## automated value reporting.
                     if (chk == "percent") chk <- "numeric"
@@ -141,17 +149,93 @@ ParamSetI$methods(
         rv
     },
 
-    hasParam = function(key) {
-        "Returns TRUE if the provided key has been set or is in the defaults"
+    allParams = function( ) {
+        "\\preformatted{
+Returns a vector of all parameter keys, either ones that are set or ones
+that have a definition set.
+}"
+        union(rownames(paramDef), names(paramSet))
+    },
+
+    hasParam = function(key=NULL) {
+        "\\preformatted{
+Returns TRUE if the provided key has been set or is in the defaults
+      key - Default NULL, should be the key(s) to check
+}"
         ## A parameter always exists if there is a definition for
         ## it. This is done to help avoid falling back to looking for
         ## an object field in some functions.
-        tlk <- tolower(key)
-        is.element(tlk, rownames(paramDef)) || is.element(tlk, names(paramSet))
+        if (is.null(key)) return( NA )
+        is.element( tolower(key), allParams() )
+    },
+
+    paramDefinition = function(key, val=NULL) {
+        "\\preformatted{
+Returns the definition of the parameter, if provided by the code.
+      key - Default NULL, should be the key(s) to check
+      val - Optional new value to assign
+}"
+        lkey <- tolower(key)
+        if (!is.null(val)) {
+            ## Set new value(s)
+            paramDef[lkey, "description"] <<- val
+            ## Update key column if the requested keys are new
+            paramDef[lkey, "key"] <<- ifelse(is.na(paramDef[lkey, "key"]),
+                                             key, paramDef[lkey, "key"])
+        }
+        ## A "naked" NA is storage mode "logical", which behaves
+        ## differently than strings or integers when subsetting (it
+        ## will return a vector of NAs the length of the number of
+        ## rows in the data.frame). To avoid that, I am using the
+        ## function below to assure that each value in 'key' will
+        ## return one value in the output
+        vapply(lkey, function(x) paramDef[x, "description"][1], "")
+    },
+
+    paramClass = function(key, val=NULL) {
+        "\\preformatted{
+Returns the allowed class of the parameter, if provided by the code.
+      key - Default NULL, should be the key(s) to check
+      val - Optional new value to assign
+}"
+        lkey <- tolower(key)
+        if (!is.null(val)) {
+            ## Set new value(s)
+            paramDef[lkey, "class"] <<- val
+            ## Update key column if the requested keys are new
+            paramDef[lkey, "key"] <<- ifelse(is.na(paramDef[lkey, "key"]),
+                                             key, paramDef[lkey, "key"])
+        }
+        ## As above, cumbersome vapply to defend against boolean NA
+        vapply(lkey, function(x) paramDef[x, "class"][1], "")
+    },
+
+    paramName = function(key, val=NULL) {
+        "\\preformatted{
+Given a parameter name, returns the name. This is slightly less silly
+than it sounds, since names are handled case-insensitively but can
+carry a specific case for pretty-printing.
+      key - Default NULL, should be the key(s) to check
+      val - Optional new value to assign. Must be a case-insensitive
+            match to key
+}"
+        lkey <- tolower(key)
+        if (!is.null(val)) {
+            ## Set new value(s)
+            if (tolower(val) == lkey) {
+                paramDef[lkey, "key"] <<- val
+            } else {
+                err(paste("Can not change paramName() of",key,"to",
+                          val, ": must only differ in case"))
+            }
+        }
+        ## As above, cumbersome vapply to defend against boolean NA
+        vapply(lkey, function(x) paramDef[x, "key"][1], "")
     },
 
     setParamList = function (params=NULL, ...) {
-        "\\preformatted{Set one or more parameters provided by a list object. Parameters:
+        "\\preformatted{
+Set one or more parameters provided by a list object. Parameters:
    params - The list holding the parameters, with the names as key names
       ... - dots will be passed to param() for each key/value pair
 }"
@@ -162,7 +246,8 @@ ParamSetI$methods(
     },
 
     defineParameters = function(x) {
-        "\\preformatted{Set the parameter definitions by text block.
+        "\\preformatted{
+Set the parameter definitions (human descriptions) by text block.
    Format of each line is 'keyName [optionalClass] optional description' eg:
         
 myFirstKey [integer] Number of widgets to consider
@@ -181,7 +266,8 @@ ThatKey Widget asset key, can be text or numeric
             if (CatMisc::is.def(key)) {
                 nk <- nk + 1
                 keys[nk] <- key
-                clsDat <- CatMisc::parenRegExp("^\\s*\\[\\s*(\\S+)\\s*\\](.*)", keyDat[2])
+                clsDat <- CatMisc::parenRegExp("^\\s*\\[\\s*(\\S+)\\s*\\](.*)",
+                                               keyDat[2])
                 if (CatMisc::is.def(clsDat[1])) {
                     cls[nk] <- tolower(clsDat[1])
                     keyDat[2] <- clsDat[2]
@@ -199,20 +285,47 @@ ThatKey Widget asset key, can be text or numeric
     },
 
     showParameters = function () {
+        "\\preformatted{
+Display available parameters for the object, along with current values
+and definitions. Invisibly returns the same text.
+}"
         objName <- .selfVarName()
-        fmt <- sprintf("%s$param('%s', %s) : %%s\n", colorize(objName, "white"),
-                       colorize("%s", "purple"), colorize("%s", "red"))
+        defFmt  <- paste(c("\n", rep(" ", nchar(objName)[1]), 
+                           colorize("# %s", "yellow")), collapse="")
+        fmt <- sprintf("%s$param('%s', %s)%%s\n", colorize(objName, "white"),
+                       colorize("%s", "magenta"), colorize("%s", "red"))
         lines <- character()
-        for (i in seq_len(nrow(paramDef))) {
-            k <- paramDef[i,"key"]
+        for (k in allParams() ) {
             v <- param(k)
             if (is.character(v)) v <- sprintf("'%s'", v)
-            lines <- c(lines, sprintf(fmt, k , v, paramDef[i, "description"]))
+            ## Collapse vector values to a single R-like string
+            if (length(v) > 1) v <- sprintf("c(%s)", paste(v, collapse=", "))
+            ## Has a description been provided for the parameter?
+            desc  <- paramDefinition(k)
+            desc <- if (CatMisc::is.something(desc)) {
+                sprintf(defFmt, desc)
+            } else {
+                ""
+            }
+            ## ToDo: Note class restrictions?
+            lines <- c(lines, sprintf(fmt, k , v, desc))
         }
-        cat(paste(lines, collapse=""))        
+        txt <- paste(lines, collapse="")
+        cat(txt)
+        invisible(txt)
     },
 
     .selfVarName = function( def = "myObj", fallbackVar = "" ) {
+        "\\preformatted{
+Tries to extract a 'relevant' variable name for displayed help
+messages. For example, if show is invoked on object fooThing, this
+method is attempting to find the string 'fooThing', so it can show
+directly relevant examples like 'fooThing$setWidth()'
+      def - Default 'myObj', the string to use if the method fails
+            (finding the real object name is not always possible!)
+fallbackVar - Another default object name. To be honest, I forget
+            why this was needed, but it was. For... reasons.
+}"
         ## In illustrative output I want to include the 'actual'
         ## variable names for the objects being used. That is, instead
         ## of showing "myMatrix$metadata('GeneSymbol')" I want the

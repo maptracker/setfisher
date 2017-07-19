@@ -13,7 +13,8 @@ Inherited class holding parameter manipulation functions
 \describe{
 \item{\code{paramSet}}{List holding key-value pairs used by an object}
 
-\item{\code{paramDef}}{List holding parameter definitions}
+\item{\code{paramDef}}{List holding parameter definitions and class
+restrictions}
 
 \item{\code{varName}}{Single string holding extracted variable names. Used
 for reporting R code that utilizes actual variable names being
@@ -23,7 +24,13 @@ used.}
 \section{Methods}{
 
 \describe{
-\item{\code{defineParameters(x)}}{\preformatted{Set the parameter definitions by text block.
+\item{\code{allParams()}}{\preformatted{
+Returns a vector of all parameter keys, either ones that are set or ones
+that have a definition set.
+}}
+
+\item{\code{defineParameters(x)}}{\preformatted{
+Set the parameter definitions (human descriptions) by text block.
    Format of each line is 'keyName [optionalClass] optional description' eg:
         
 myFirstKey [integer] Number of widgets to consider
@@ -31,9 +38,13 @@ myOtherKey [character] URL for widget lookup
 ThatKey Widget asset key, can be text or numeric
 }}
 
-\item{\code{hasParam(key)}}{Returns TRUE if the provided key has been set or is in the defaults}
+\item{\code{hasParam(key = NULL)}}{\preformatted{
+Returns TRUE if the provided key has been set or is in the defaults
+      key - Default NULL, should be the key(s) to check
+}}
 
-\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{Create a new object using EventLogger():
+\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{
+Create a new object using EventLogger():
         log - Optional EventLogger object. This is used if EventLogger is an
               inherited ('contains') class in another RefClass object, and you
               wish that object to share the event log from a previously created
@@ -47,32 +58,64 @@ ThatKey Widget asset key, can be text or numeric
 }}
 
 \item{\code{param(key = NA, val = NA, append = FALSE, default = NA,
-  clobber = TRUE, check.class = NA, is.scalar = TRUE, coerce = TRUE)}}{\preformatted{Gets/Sets a parameter. Parameters:
-      key - The name of the parameter. If NA will simply return NA. Key names
-            are case insensitive.
-      val - Optional new value. If not NA, then the parameter value will be
-            set, with behavior modified by some of the flags below
-   append - Default FALSE, which will cause the parameter to be set to 'val'.
-            If TRUE, val will be appended to the end of the current vector
-            holding the value for 'key'.
+  clobber = TRUE, check.class = NULL, is.scalar = TRUE, coerce = TRUE)}}{\preformatted{
+Gets/Sets a parameter. Parameters:
+      key - The name of the parameter. If NA will simply return NA. Key
+            names are case insensitive.
+      val - Optional new value. If not NA, then the parameter value will
+            be set, with behavior modified by some of the flags below
+   append - Default FALSE, which will cause the parameter to be set to
+            'val'. If TRUE, val will be appended to the end of the current
+            vector holding the value for 'key'.
   default - Optional value to return if the value of 'key' is 'not defined',
             which corresponds to NA, NULL or zero-length vectors.
-  clobber - Default TRUE, which allows an already-set value to be replaced with
-            'val'. Using FALSE is primarily used for managing default settings.
- check.class - Default NA, which will not cause a class check. If provided,
-            'val' will be checked with is.class() to see if it matches the
-            requested value. If not, an error will be reported and 'key'
-            will not be set. The value 'percent' will be interpreted as
-            'numeric'.
- is.scalar - Default TRUE, which will result in only val[1] being used. Set
-            to FALSE if you wish all elements of 'val' to be assigned to 'key'
-   coerce - Default TRUE, which will attempt to coerce 'val' to 'check.class'
-            in the event that check.class is not NA
+  clobber - Default TRUE, which allows an already-set value to be replaced
+            with 'val'. Using FALSE is primarily used for managing default
+            settings.
+ check.class - Default NULL, which will check the parameter definitions
+            and use any class found there. If the value is NA or '', then
+            there will be no class check. Otherwise, is.class() will be
+            tested with the provided class name against the provided
+            'val' to see if it matches. If not,  an error will be reported
+            and 'key' will not be set. The value 'percent' will be
+            interpreted as 'numeric'.
+ is.scalar - Default TRUE, which will result in only val[1] being used.
+            Set to FALSE if you wish all elements of 'val' to be assigned
+            to 'key'
+   coerce - Default TRUE, which will attempt to coerce 'val' to
+            'check.class' in the event that check.class is not NA
 }}
 
-\item{\code{setParamList(params = NULL, ...)}}{\preformatted{Set one or more parameters provided by a list object. Parameters:
+\item{\code{paramClass(key, val = NULL)}}{\preformatted{
+Returns the allowed class of the parameter, if provided by the code.
+      key - Default NULL, should be the key(s) to check
+      val - Optional new value to assign
+}}
+
+\item{\code{paramDefinition(key, val = NULL)}}{\preformatted{
+Returns the definition of the parameter, if provided by the code.
+      key - Default NULL, should be the key(s) to check
+      val - Optional new value to assign
+}}
+
+\item{\code{paramName(key, val = NULL)}}{\preformatted{
+Given a parameter name, returns the name. This is slightly less silly
+than it sounds, since names are handled case-insensitively but can
+carry a specific case for pretty-printing.
+      key - Default NULL, should be the key(s) to check
+      val - Optional new value to assign. Must be a case-insensitive
+            match to key
+}}
+
+\item{\code{setParamList(params = NULL, ...)}}{\preformatted{
+Set one or more parameters provided by a list object. Parameters:
    params - The list holding the parameters, with the names as key names
       ... - dots will be passed to param() for each key/value pair
+}}
+
+\item{\code{showParameters()}}{\preformatted{
+Display available parameters for the object, along with current values
+and definitions. Invisibly returns the same text.
 }}
 }}
 
