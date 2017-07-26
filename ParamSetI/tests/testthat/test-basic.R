@@ -119,3 +119,19 @@ test_that("EventLogger Inheritance", {
     expect_message( psObj$err("This is an error message") )
     expect_message( psObj$dateMessage("This is a dated message") )
 })
+
+
+test_that("String splitting", {
+    x <- " [,][a,b, c ]  "
+    v <- selfSplittingString(x)
+    expect_identical(v, c("a","b", " c "))
+
+    expect_identical( selfSplittingString(c("a","b", "c")), "a",
+                     "Self-splitting without token")
+    expect_null( selfSplittingString(NULL), "Self-splitting with NULL")
+
+    psObj$param("sss", "[//][apple//pear]")
+    expect_identical( psObj$param("sss"), c("apple","pear"),
+                     "Param setting with self-splitting")
+    
+})

@@ -47,7 +47,7 @@ object with ParamSetI()
     },
 
     param = function (key=NA, val=NA, append=FALSE, default=NA,
-                      clobber=TRUE, check.class=NULL, is.scalar=TRUE,
+                      clobber=TRUE, check.class=NULL, is.scalar=NULL,
                       coerce=TRUE) {
         "\\preformatted{
 Gets/Sets a parameter. Parameters:
@@ -70,9 +70,11 @@ Gets/Sets a parameter. Parameters:
             'val' to see if it matches. If not,  an error will be reported
             and 'key' will not be set. The value 'percent' will be
             interpreted as 'numeric'.
- is.scalar - Default TRUE, which will result in only val[1] being used.
-            Set to FALSE if you wish all elements of 'val' to be assigned
-            to 'key'
+ is.scalar - Default NULL. If TRUE then only val[1] will be taken. If
+            FALSE, then all elements of 'val' to be assigned to 'key'.
+            If NULL, then if val is only a single element, but matches
+            the pattern  '[^]][.+]', then it will be split as a vector
+            - see selfSplittingString()
    coerce - Default TRUE, which will attempt to coerce 'val' to
             'check.class' in the event that check.class is not NA
 }"
@@ -84,7 +86,9 @@ Gets/Sets a parameter. Parameters:
             paramSet[[key]] <<- val
         } else if (any(!is.na(val))) {
             ## Setting a new value
-            if (is.scalar) {
+            if (is.null(is.scalar)) {
+                val <- selfSplittingString( val )
+            } else if (is.scalar) {
                 ## Treat the value as a single scalar, and take the
                 ## first non-NA/non-NULL value as the one to use. This
                 ## allows a preference-ordered list to be provided.
@@ -94,13 +98,7 @@ Gets/Sets a parameter. Parameters:
                 ## setting clobber to false prevents the value from
                 ## being set if one already exists (used for mananging
                 ## default settings)
-                vecDat <- CatMisc::parenRegExp("^\\s*\\[(.+?)\\]\\[(.+?)\\]\\s*$", val)
-                if (CatMisc::is.something(vecDat[1])) {
-                    ## The construct "[,][A,B,C]" is used to specify a
-                    ## vector of values. The first [] block specifies
-                    ## the text delimiter, the second the values
-                    val <- unlist(base::strsplit(vecDat[2], vecDat[1]))
-                }
+                
                 ## Check type of value if a class check was requested
                 ## or is stored in the parameter definitions.
                 chk <- if (is.null(check.class)) {
@@ -364,3 +362,54 @@ fallbackVar - Another default object name. To be honest, I forget
     }
 )
 
+#' Self-Splitting String
+#'
+#' Parses a string that defines a split token to turn it into a vector
+#'
+#' @param x Required, the string vector to proces
+#'
+#' @details
+#'
+#' Helper function for ParamSetI, takes a character vector as
+#' input. If the input is length 1 and is of format:
+#'
+#'    [<TOKEN>][<TEXT>]
+#'
+#' ... then <TEXT> will be split into a vector by <TOKEN>. For example:
+#'
+#'    [/][x/  y  /z]
+#'
+#' ... becomes c("x", "  y  ", "z").
+#'
+#' In all other cases, only a single value will be returned,
+#' corresponding to the first non-NA value in x.
+#'
+#' @return NULL if passed NULL, otherwise a character vector
+#'
+#' @examples
+#'
+#' selfSplittingString(" [,][a,b, c ]  ")
+#' # "a"   "b"   " c "
+#' 
+#' selfSplittingString("[ and ][lions and tigers and bears oh my]")
+#' # "lions" "tigers" "bears oh my"
+#'
+#' # A single return value (vector length 1) is enforced:
+#' selfSplittingString(c("a","b","c"))
+#' # "a"
+#'
+#' @importFrom CatMisc parenRegExp is.something
+#' 
+#' @export
+
+selfSplittingString <- function (x) {
+    if (is.null(x)) {
+        return( x )
+    } else if (length(x) == 1) {
+        vecDat <- CatMisc::parenRegExp("^\\s*\\[(.+?)\\]\\[(.+?)\\]\\s*$", x)
+        if (CatMisc::is.something(vecDat[1])) {
+            return( unlist(base::strsplit(vecDat[2], vecDat[1])) )
+        }
+    }
+    x[ !is.na(x) ][ 1 ]
+}

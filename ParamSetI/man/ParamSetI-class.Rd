@@ -58,7 +58,7 @@ Create a new object using EventLogger():
 }}
 
 \item{\code{param(key = NA, val = NA, append = FALSE, default = NA,
-  clobber = TRUE, check.class = NULL, is.scalar = TRUE, coerce = TRUE)}}{\preformatted{
+  clobber = TRUE, check.class = NULL, is.scalar = NULL, coerce = TRUE)}}{\preformatted{
 Gets/Sets a parameter. Parameters:
       key - The name of the parameter. If NA will simply return NA. Key
             names are case insensitive.
@@ -79,9 +79,11 @@ Gets/Sets a parameter. Parameters:
             'val' to see if it matches. If not,  an error will be reported
             and 'key' will not be set. The value 'percent' will be
             interpreted as 'numeric'.
- is.scalar - Default TRUE, which will result in only val[1] being used.
-            Set to FALSE if you wish all elements of 'val' to be assigned
-            to 'key'
+ is.scalar - Default NULL. If TRUE then only val[1] will be taken. If
+            FALSE, then all elements of 'val' to be assigned to 'key'.
+            If NULL, then if val is only a single element, but matches
+            the pattern  '[^]][.+]', then it will be split as a vector
+            - see selfSplittingString()
    coerce - Default TRUE, which will attempt to coerce 'val' to
             'check.class' in the event that check.class is not NA
 }}
