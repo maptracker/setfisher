@@ -29,14 +29,20 @@ input. If the input is length 1 and is of format:
 
 In all other cases, only a single value will be returned,
 corresponding to the first non-NA value in x.
+
+If the parsed text includes " ## ", then it and the following text
+will be removed, and the following text will be attached as a
+'comment' attribute
 }
 \examples{
 
 selfSplittingString(" [,][a,b, c ]  ")
 # "a"   "b"   " c "
 
-selfSplittingString("[ and ][lions and tigers and bears oh my]")
-# "lions" "tigers" "bears oh my"
+ltb <- selfSplittingString("[ and ][lions and tigers and bears] ## oh my")
+str(ltb, "comment")
+# "lions" "tigers" "bears"
+# 'comment' attribute "oh my"
 
 # A single return value (vector length 1) is enforced:
 selfSplittingString(c("a","b","c"))

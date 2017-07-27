@@ -133,5 +133,24 @@ test_that("String splitting", {
     psObj$param("sss", "[//][apple//pear]")
     expect_identical( psObj$param("sss"), c("apple","pear"),
                      "Param setting with self-splitting")
+
+    com <- selfSplittingString("[,][this,that] ## those")
+    
+    expect_equal(com, c("this","that"),
+                 "Comment values", check.attributes = FALSE)
+    expect_identical(attr(com, "comment"), "those",
+                     "Comment attribute")
+
+    comScalar <- selfSplittingString("A stitch in time ## Saves nine")
+    
+    expect_equal(comScalar, "A stitch in time",
+                 "Scalar comment", check.attributes = FALSE)
+    expect_identical(attr(comScalar, "comment"), "Saves nine",
+                     "Scalar comment attribute")
+
+    notCom <- selfSplittingString("Item #6")
+    expect_identical(notCom, "Item #6", "Ignore single #")
+    expect_null(attr(notCom, "comment"))
+
     
 })

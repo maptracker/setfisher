@@ -1,6 +1,6 @@
 Package: ParamSetI
 Title: Manage parameter tag/value pairs as an inheritable ReferenceClass object
-Version: 1.8
+Version: 1.9
 Date: 2017-07-26
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]

@@ -295,6 +295,7 @@ and definitions. Invisibly returns the same text.
         lines <- character()
         for (k in allParams() ) {
             v <- param(k)
+            com <- attr(v, 'comment')
             if (is.character(v)) v <- sprintf("'%s'", v)
             ## Collapse vector values to a single R-like string
             if (length(v) > 1) v <- sprintf("c(%s)", paste(v, collapse=", "))
@@ -307,6 +308,10 @@ and definitions. Invisibly returns the same text.
             }
             ## ToDo: Note class restrictions?
             lines <- c(lines, sprintf(fmt, k , v, desc))
+            if (CatMisc::is.something(com[1])) {
+                # There is a comment associated with the value
+                lines <- c(lines, sprintf(defFmt, strwrap(com[1])))
+            }
         }
         txt <- paste(lines, collapse="")
         cat(txt)
@@ -384,6 +389,10 @@ fallbackVar - Another default object name. To be honest, I forget
 #' In all other cases, only a single value will be returned,
 #' corresponding to the first non-NA value in x.
 #'
+#' If the parsed text includes " ## ", then it and the following text
+#' will be removed, and the following text will be attached as a
+#' 'comment' attribute
+#'
 #' @return NULL if passed NULL, otherwise a character vector
 #'
 #' @examples
@@ -391,8 +400,10 @@ fallbackVar - Another default object name. To be honest, I forget
 #' selfSplittingString(" [,][a,b, c ]  ")
 #' # "a"   "b"   " c "
 #' 
-#' selfSplittingString("[ and ][lions and tigers and bears oh my]")
-#' # "lions" "tigers" "bears oh my"
+#' ltb <- selfSplittingString("[ and ][lions and tigers and bears] ## oh my")
+#' str(ltb, "comment")
+#' # "lions" "tigers" "bears"
+#' # 'comment' attribute "oh my"
 #'
 #' # A single return value (vector length 1) is enforced:
 #' selfSplittingString(c("a","b","c"))
@@ -406,10 +417,20 @@ selfSplittingString <- function (x) {
     if (is.null(x)) {
         return( x )
     } else if (length(x) == 1) {
-        vecDat <- CatMisc::parenRegExp("^\\s*\\[(.+?)\\]\\[(.+?)\\]\\s*$", x)
+        vecDat <- CatMisc::parenRegExp("^\\s*\\[(.+?)\\]\\[(.+?)\\]\\s*(##\\s+(.+?)\\s*)?$", x)
         if (CatMisc::is.something(vecDat[1])) {
-            return( unlist(base::strsplit(vecDat[2], vecDat[1])) )
+            ## Matches vector pattern
+            rv <- unlist(base::strsplit(vecDat[2], vecDat[1], fixed=TRUE))
+            if (CatMisc::is.something(vecDat[4])) attr(rv, "comment") <- vecDat[4]
+            return( rv )
         }
     }
-    x[ !is.na(x) ][ 1 ]
+    rv <- x[ !is.na(x) ][ 1 ]
+    hasCom <- CatMisc::parenRegExp("^(.+?)\\s+##\\s+(.+?)\\s*$", rv)
+    if (CatMisc::is.something(hasCom[2])) {
+        ## Commented 'scalar'
+        rv <- hasCom[1]
+        attr(rv, "comment") <- hasCom[2]
+    }
+    rv
 }
