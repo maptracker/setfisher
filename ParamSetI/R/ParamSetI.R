@@ -282,20 +282,24 @@ ThatKey Widget asset key, can be text or numeric
         paramDef <<- df
     },
 
-    showParameters = function () {
+    showParameters = function ( na.rm=TRUE) {
         "\\preformatted{
 Display available parameters for the object, along with current values
 and definitions. Invisibly returns the same text.
+    na.rm - Default TRUE, which will exclude parameters that have
+            NA, NULL or '' as values.
 }"
         objName <- .selfVarName()
         defFmt  <- paste(c("\n", rep(" ", nchar(objName)[1]), 
                            colorize("# %s", "yellow")), collapse="")
-        fmt <- sprintf("%s$param('%s', %s)%%s\n", colorize(objName, "white"),
+        fmt <- sprintf("%s$param('%s', %s)%%s", colorize(objName, "white"),
                        colorize("%s", "magenta"), colorize("%s", "red"))
         lines <- character()
         for (k in allParams() ) {
-            v <- param(k)
-            com <- attr(v, 'comment')
+            v   <- param(k)
+            ## Exclude showing "empty" parameters if requested:
+            if (na.rm && (is.null(v) || all(is.na(v)) || all(v == ""))) next
+            com <- attr(v, 'comment')[1]
             if (is.character(v)) v <- sprintf("'%s'", v)
             ## Collapse vector values to a single R-like string
             if (length(v) > 1) v <- sprintf("c(%s)", paste(v, collapse=", "))
@@ -308,10 +312,11 @@ and definitions. Invisibly returns the same text.
             }
             ## ToDo: Note class restrictions?
             lines <- c(lines, sprintf(fmt, k , v, desc))
-            if (CatMisc::is.something(com[1])) {
+            if (CatMisc::is.something(com)) {
                 # There is a comment associated with the value
-                lines <- c(lines, sprintf(defFmt, strwrap(com[1])))
+                lines <- c(lines, sprintf(defFmt, strwrap(com)))
             }
+            lines <- c(lines, "\n")
         }
         txt <- paste(lines, collapse="")
         cat(txt)

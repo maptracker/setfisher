@@ -115,9 +115,11 @@ Set one or more parameters provided by a list object. Parameters:
       ... - dots will be passed to param() for each key/value pair
 }}
 
-\item{\code{showParameters()}}{\preformatted{
+\item{\code{showParameters(na.rm = TRUE)}}{\preformatted{
 Display available parameters for the object, along with current values
 and definitions. Invisibly returns the same text.
+    na.rm - Default TRUE, which will exclude parameters that have
+            NA, NULL or '' as values.
 }}
 }}
 
