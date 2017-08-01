@@ -6,13 +6,17 @@
 %% MapTracker graph database.
 %
 %% DEFAULT Name Sample Human Symbol-to-Entrez Lookup
-%% DEFAULT Description 4=Official Symbol, 3=Preferred unofficial, 2=Unofficial, 1=Unknown
+%% DEFAULT Description A small sample of gene symbol to Entrez Gene ID lookups
+%% DEFAULT ScoreDesc Factors representing nomenclature status
 % Rows are Gene Symbols
 %% DEFAULT RowDim Gene Symbol
 %% DEFAULT RowUrl https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D
 % Columns are Entrez IDs
 %% DEFAULT ColDim Entrez ID
 %% DEFAULT ColUrl https://www.ncbi.nlm.nih.gov/gene/%s
+%
+% DEFAULT TossLevel [,][Unknown] ## Unknown status = uncertain provenance in MapTracker
+% DEFAULT TossMeta [,][Description LIKE {Deprecated}] ## Exclude deprecated loci
 %
 %% Values should be treated as factors representing official
 %% assignment levels:

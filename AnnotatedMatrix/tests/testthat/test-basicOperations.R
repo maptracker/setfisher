@@ -1,9 +1,12 @@
 library("AnnotatedMatrix")
 
 symFile <- AnnotatedMatrix:::.makeTempFile("Symbol-To-Gene.mtx")
+chk <- annotatedMatrixExampleFile()
 test_that("Temp file copy", {
     expect_true(file.size(symFile) > 0,
                 ".makeTempFile found sample file")    
+    expect_identical(symFile, chk,
+                     "annotatedMatrixExampleFile check")
 })
 
 s2e <- AnnotatedMatrix(symFile)
@@ -20,8 +23,8 @@ test_that("LoadingMTX", {
                      "Valid number of rows")
     expect_identical(67L, length(cn),
                      "Valid number of cols")
-    expect_identical(208L, s2e$nnZero(),
-                     "Valid number of connections")
+    expect_identical(180L, s2e$nnZero(),
+                     "Valid number of connections (after autofilter)")
     expect_identical(c("AR","AIRE1","IGF2RAS","IGF2R-AS1"), rn[c(1,2,166,167)],
                      "Spot check of rownames")
     expect_identical(c("LOC231","LOC326","LOC100188846","LOC100271873"),
@@ -91,3 +94,8 @@ test_that("matrix extraction from columns and rows", {
                      "Matrix recovery of a row")
 })
 
+test_that("Information output", {
+    expect_output(s2e$show(), NULL, "Basic show method")
+    expect_message(s2e$help(), NULL, "help method")
+    expect_message(print(s2e$filterSummary()), NULL, "filter summary")
+})

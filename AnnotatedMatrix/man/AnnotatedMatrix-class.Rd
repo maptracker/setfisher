@@ -32,6 +32,9 @@ matrix}
 \item{\code{filterLog}}{data.frame storing filtering events that transpire
 during the pruning of matrices prior to analysis.}
 
+\item{\code{setFilters}}{Human- and machine-readable character vector of
+filters that have been applied}
+
 \item{\code{rowChanges}}{Named character vector of any row names that
 needed changing. Values are the original name, names are the
 names after processing with make.names() (if valid = TRUE) or
@@ -43,6 +46,14 @@ make.unique() if (valid = FALSE)}
 \section{Methods}{
 
 \describe{
+\item{\code{appliedFilters(new = NULL)}}{\preformatted{
+Filters applied to matrix so far, represented as text that can be read
+both by humans and computationally.
+      new - Provide new filters to apply, using the same format.
+            Designed to allow a snapshot of the filter state to be
+            reapplied to the matrix after a $reset()
+}}
+
 \item{\code{as.gmt(obj = NULL, transpose = FALSE, file = NULL, ...)}}{\preformatted{
 Converts matrix into a block of GMT-formatted text
         obj - Default NULL, which will recover the matrix from matObj(),
@@ -53,6 +64,25 @@ Converts matrix into a block of GMT-formatted text
               path
 }}
 
+\item{\code{autoFilter(recursive = TRUE, verbose = TRUE)}}{\preformatted{
+Will apply filters based on certain parameters. The method is called
+automatically on object instantiation, but can be called manually as
+well. Parameters will generally be set as part of the source data file.
+
+  recursive - Default TRUE, which will result in autoFilter being
+              recursively called until no further changes are made.
+              This can be relevant with row (or column) count filters,
+              where rows that pass on one iteration fail on another,
+              due to zero-ed out cells that previously enabled a count
+              to pass.
+    verbose - Default TRUE, will print a message of how many cells have
+              been affected.
+
+Recognized parameters:
+   MinScore   MaxScore
+   KeepLevel  TossLevel
+}}
+
 \item{\code{cCounts(obj = NULL, ...)}}{\preformatted{
 Return an integer vector of non-zero rows for each column
         obj - Default NULL, which will recover the matrix from matObj(),
@@ -60,11 +90,16 @@ Return an integer vector of non-zero rows for each column
               desired)
 }}
 
-\item{\code{cNames(raw = FALSE)}}{\preformatted{
+\item{\code{cNames(new = NULL, raw = FALSE, reason = NA)}}{\preformatted{
 Returns the column names of the Matrix
+      new - Optional new set of column names. Normally used to re-order columns.
+            Will be treated as a filter if any columns are excluded
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be used, if available - otherwise the original
             raw matrix will be used.
+   reason - Default NA; If specified, a text value that will be added to
+            the $filterLog under the 'reason' column if any columns end up
+            removed or added (added columns will be all zeros)
 }}
 
 \item{\code{filterByFactorLevel(x, keep = TRUE, ignore.case = TRUE,
@@ -83,9 +118,30 @@ Returns the number of cells zeroed (filtered) out.
               the $filterLog under the 'reason' column
 }}
 
+\item{\code{filterByMetadata(key, val, MARGIN = NULL, type = "like", op = "or",
+  reason = NA)}}{\preformatted{
+Zero out rows or columns that have metadata matching certain values
+Returns the number of cells zeroed (filtered) out.
+        key - The metadata key/tag/column to match
+        val - The value(s) to match
+     MARGIN - Default NULL, which will test matched IDs against both rows
+              and columns. Can also be 1, row, 2 or col
+       type - Default 'like'. Recognized values are:
+                like = Finds matches of word/phrase anywhere in text
+                regexp = Per 'like', but will interpret as regular expression
+                equal  = Finds only full exact matches
+              In addition, 'case' can be added to any type to force
+              case-sensitive matches.
+         op - Default 'or', which will count a match if any of the values
+              Alternative is 'and', which requires all values to match.
+              'any' and 'all' are also acceptible.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}}
+
 \item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA)}}{\preformatted{
 Apply filters to the current matrix to zero-out cells failing thresholds.
-Returns the number of cells zeroed (filtered) out.
+Returns the count of (cells,rows,cols) zeroed (filtered) out.
         min - Minimum allowed value. Cells below this will be set to zero
         max - Maximum allowed value. Cells above it will be set to zero
  filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
@@ -94,27 +150,52 @@ Returns the number of cells zeroed (filtered) out.
               the $filterLog under the 'reason' column
 }}
 
-\item{\code{is.factor()}}{TRUE if the matrix is a pseudo-factor (levels have been defined), otherwise FALSE}
+\item{\code{filterSummary(reason = TRUE)}}{\preformatted{
+Tallies number of filtered objects (generally cells) by filter criteria
+and optionally reason. Returns a data frame
+   reason - Default TRUE, which includes the reason text in the count
+            grouping
+}}
 
-\item{\code{levels(asFactor = FALSE)}}{\preformatted{Returns factor levels, if appropriate. If not, returns NULL
+\item{\code{help(color = NULL)}}{\preformatted{
+Show compact help information about the object
+      color - Should output be colorized. Default NULL, which checks
+              $color()
+}}
+
+\item{\code{is.factor()}}{\preformatted{
+TRUE if the matrix is a pseudo-factor (levels have been defined),
+otherwise FALSE
+}}
+
+\item{\code{levels(asFactor = FALSE)}}{\preformatted{
+Returns factor levels, if appropriate. If not, returns NULL
  asFactor - Default FALSE, which will return an ordered character vector of the
             level values (names). If true, a factor will be returned with
             appropriate levels assigned
 }}
 
-\item{\code{map(input, via = NULL, format = "data.frame", ignore.case = TRUE,
+\item{\code{map(input = NULL, via = NULL, format = "data.frame", ignore.case = TRUE,
   keep.best = FALSE, column.func = max, collapse = NULL,
   collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
   collapse.factor = NULL, integer.factor = FALSE, add.metadata = TRUE,
-  warn = TRUE)}}{\preformatted{
-Provide a list of IDs, and map/pivot it from one dimension of the matrix to the
-other, following 'connections' defined by non-zero cells. Returns a data.frame
-with Input and Output columns, plus Score and/or Factor columns.
-      input - Required, a vector of IDs
+  warn = TRUE, append.to = NULL, append.col = 1L)}}{\preformatted{
+Provide a list of IDs, and map/pivot it from one dimension of the matrix
+to the other, following 'connections' defined by non-zero cells. Returns
+a data.frame with Input and Output columns, plus Score and/or Factor columns.
+
+If collapse='out', rownames will be set to the Output column. Otherwise,
+if an input ID results in a unique row, the rowname will be that input ID.
+Other-otherwise, the rowname will be the input ID plus '#1', '#2' etc for
+each row with that ID. Non-unique input IDs will never generate an
+unaltered rowname.
+
+      input - A vector of 'input' IDs. Required, unless append.to is set, in
+              which case it will be taken from that table using append.col
         via - Specify if the input matches the 'rows' or 'columns' of the
-              matrix. If NULL (default) then your input will be compared to the
-              row and column names, and the one with the most matches will be
-              chosen (defaulting to 'row' in the event of equal matches)
+              matrix. If NULL (default) then your input will be compared to
+              the row and column names, and the one with the most matches
+              will be chosen (defaulting to 'row' in the event of equal matches)
      format - Default 'data.frame', specifies the output format. Can also be:
                  Vector: Will return a named character vector, with values
                          corresponding to $Output and names as $Input
@@ -159,6 +240,13 @@ with Input and Output columns, plus Score and/or Factor columns.
        warn - Default TRUE, which will show warning text if matches failed to
               be made for the input. This information is also always captured
               in attributes attached to the returned data.frame
+  append.to - Default NULL. If a data.frame-compliant object, it will become
+              the return value, with the mapped columns being added on.
+              If collapse='out' then the Output column will be used to
+              merge, otherwise the Input column will be utilized. The merge
+              column from the provided data.frame is set with append.col
+ append.col - The column to use in append.to for merging. Default is 1,
+              can provide another column number or name.
 }}
 
 \item{\code{matObj(raw = FALSE, transpose = FALSE)}}{\preformatted{
@@ -200,7 +288,7 @@ cell
               desired)
 }}
 
-\item{\code{populatedColumns(obj = NULL, ...)}}{\preformatted{
+\item{\code{populatedCols(obj = NULL, ...)}}{\preformatted{
 Return a logical vector indicating which columns have at least one non-zero
  cell
         obj - Default NULL, which will recover the matrix from matObj(),
@@ -229,7 +317,7 @@ Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
               the $filterLog under the 'reason' column
 }}
 
-\item{\code{removeEmptyColumns(reason = NA)}}{\preformatted{
+\item{\code{removeEmptyCols(reason = NA)}}{\preformatted{
 Remove all empty columns (those that only contain zeros). Invisibly
 returns a vector of removed IDs.
      reason - Default NA; If specified, a text value that will be added
@@ -248,11 +336,16 @@ Reset any filters that were applied - the 'used' matrix will be the
 original 'raw' one
 }}
 
-\item{\code{rNames(raw = FALSE)}}{\preformatted{
+\item{\code{rNames(new = NULL, raw = FALSE, reason = NA)}}{\preformatted{
 Returns the row names of the Matrix
+      new - Optional new set of row names. Normally used to re-order rows.
+            Will be treated as a filter if any rows are excluded
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be used, if available - otherwise the original
             raw matrix will be used.
+   reason - Default NA; If specified, a text value that will be added to
+            the $filterLog under the 'reason' column if any rows end up
+            removed or added (added rows will be all zeros)
 }}
 
 \item{\code{show(...)}}{\preformatted{
@@ -264,6 +357,11 @@ to display log contents.
 }}
 
 \examples{
+
+## Load the toy symbol-to-gene mapping matrix
+s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+s2e$help() # Compact reminder of fields and methods
+s2e        # Summary of loaded object
 
 ## Load a toy symbol-to-gene mapping matrix and use it to convert
 ## some genes to Entrez Gene IDs

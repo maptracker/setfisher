@@ -1,3 +1,226 @@
+#' Parse MatrixMarket File
+#'
+#' Parses a MatrixMarket file so it can be read by AnnotatedMatrix
+#'
+#' @details
+#'
+#' Reads the "normal" matrix data from a MatrixMarket file (the
+#' [i,j,x] triples), as well as parses '%' comments to extract
+#' metadata usable by AnnotatedMatrix.
+#'
+#' @param file Required - the path to the .mtx file. Files can be
+#'     gzipped, provided they have a .gz suffix.
+#'
+#' @importFrom CatMisc parenRegExp .flexFilehandle
+#' @importFrom ParamSetI selfSplittingString
+#' @importFrom Matrix readMM
+#' 
+
+## Metadata can be held either in the comments of the MatrixMarket
+## file, or as a separate file with a related name. Using a separate
+## file is faster (roughly two fold)
+
+## Separate .mtx and metadata files (~3.8 sec)
+
+## 454.137 ms | Reading Matrix file
+##              MAP_HG-U219_to_EntrezGene.mtx
+##    2.251 s | Parsing Row names
+## 978.887 ms | Parsing Col names
+## 101.468 ms | Reading metadata file -
+##              MAP_HG-U219_to_EntrezGene.mtx-Metadata.tsv
+##            | Finished - 48867 x 20823, 0.00498% populated
+
+## Unified .mtx file with embdedded metadata (~8.5 sec, 31Mb file)
+
+##    1.049 s | Reading Matrix file
+##              MAP_HG-U219_to_EntrezGene.mtx
+##    5.251 s | Parsing Row names
+##    2.286 s | Parsing Col names
+##            | Finished - 48867 x 20823, 0.00498% populated
+
+## Serializing timings (3.3Mb file)
+##    1.569 s | Serializing matrix to file HG-U219LL-GO.mtx.rds
+##    1.233 s | Reading serialized matrix HG-U219LL-GO.mtx.rds
+
+parse_MatrixMarket_file <- function( file ) {
+    rv  <- list()
+    ## Begin by simply reading the matrix data
+    fhDat <- CatMisc::.flexFilehandle(file)
+    if (is.na(fhDat[1])) {
+        message("[!]", "MatrixMarket file '", file,"' was not found");
+        return(NULL)
+    }
+    mat <- readMM(fhDat$fh)
+    close(fhDat$fh)
+    
+    ## Now begin parsing comments. Check to see if the file includes
+    ## metadata First, find how many rows are comments, then extract
+    ## just those rows as a character vector. Doing this in the
+    ## (potentially misguided) hope that streaming readLines through
+    ## grep and max will minimize RAM overhead for large files
+    message("  Reading comment lines...")
+    fhDat <- CatMisc::.flexFilehandle(file)
+    lastCom <- max(grep("^%", readLines(fhDat$fh)))
+    close(fhDat$fh)
+    
+    fhDat <- CatMisc::.flexFilehandle(file)
+    allCom  <- readLines(fhDat$fh, warn = FALSE, n = lastCom)
+    close(fhDat$fh)
+
+    ## It is possible there are comments later in the file? That
+    ## is, we may have some non-comments in allCom
+    comChk  <- grep("^%", allCom)
+    if (length(comChk) < lastCom) allCom <- allCom[ comChk ]
+    ## Remove leading comment token and leading whitespace
+    allCom <- gsub('^%+\\s*', "", allCom)
+    ## Is a separator defined?
+    sep    <- grep("^Separator\\s+'.+'", allCom)
+    if (length(sep) == 0) {
+        sep <- NA
+    } else if (length(sep) > 1) {
+        message("Multiple separators defined in matrix file ",
+                file, " : '", paste(sep, collapse="/"), "'")
+        return(NULL)
+    } else {
+        sep <- CatMisc::parenRegExp("Separator\\s+\\'([^\\']+)\\'", allCom[sep])
+    }
+    fac    <- grep("^LEVELS\\s+\\[.+\\]", allCom)
+    if (length(fac) == 0) {
+        fac <- NA
+    } else if (length(fac) > 1) {
+        message("Multiple factor levels defined in matrix file ",
+                file, " : '", paste(fac, collapse="/"), "'")
+        return(NULL)
+    } else {
+        ## Not sure why "[^]]" works - I should have to escape the
+        ## internal bracket (eg "[^\\]]" but that does NOT work.
+        facDat    <- CatMisc::parenRegExp("LEVELS\\s+(.+?)$", allCom[fac])
+        rv$levels <- ParamSetI::selfSplittingString(facDat[1])
+    }
+    
+    ## Get any defaults that have been set
+    def <- grep("^DEFAULT\\s+", allCom)
+    params <- list()
+    for (defl in def) {
+        kv <- CatMisc::parenRegExp("DEFAULT\\s+(\\S+)\\s+(\\S.*?)\\s*$",
+                                   allCom[defl])
+        k <- tolower(kv[1])
+        if (is.null( params[[ k ]] )) {
+            params[[ k ]] <- kv[2]
+        } else {
+            message("Ignoring duplicate value for DEFAULT ",k, ' = ', kv[2]);
+        }
+    }
+    rv$params <- params
+    
+    ## Find the row and column header lines
+    rcPos <- grep("^(Row|Col) Name", allCom)
+    rcLen <- length(rcPos)
+    parseRow <- function (x, sep = NA) {
+        ## strsplit() on spaces discards trailing spaces, which causes
+        ## problems for a space-containing metadata token (eg the
+        ## default ' :: ') when the last metadata column is empty. So
+        ## use CatMisc::parenRegExp to get the index number instead:
+
+        indDat <- CatMisc::parenRegExp("^(\\d+)\\s+(.+)", x)
+        if (is.na(sep)) {
+            ## No metadata separator defined
+            indDat
+        } else {
+            ## Split the data section on the separator
+            c(indDat[1], unlist(base::strsplit(indDat[2], sep)) )
+        }
+    }
+
+    padRow <- function (x, len = 0) {
+        ## Make sure a vector is at least len long, padding with NAs
+        if (length(x) < len) x[len] <- NA
+        x
+    }
+    rChng <- NULL
+    cChng <- NULL
+    metadata <- data.table::data.table( id = character(), key = "id" )
+    dimNames <- list( Row = NULL, Col = NULL )
+    dimChngs <- list( Row = NULL, Col = NULL )
+    for (i in seq_len(rcLen)) {
+        ## Is this specifying Row or Col, and what are the headers?
+        targDat <- CatMisc::parenRegExp("^(\\S+)\\s+(.+?)\\s*$",
+                                        allCom[rcPos[i]])
+        what    <- targDat[1] # Row / Col
+        meta    <- targDat[2]
+        if (!is.na(sep))
+            meta <- base::strsplit(meta, sep, fixed = TRUE)[[1]]
+        meta[1] <- "id" # Generally will be "Name", but normalize to "id"
+        mdCol   <- length(meta) - 1;
+        hasMD <- if (mdCol > 0) {
+            sprintf("and %d metadata column%s", mdCol, ifelse(mdCol==1,"","s"))
+        } else {
+            "(no metadata)"
+        }
+        message("  Parsing ", what, " names ", hasMD)
+        ## What are the first and last coordinate rows?
+        s <- rcPos[i] + 1
+        e <- ifelse(i == rcLen, length(allCom), rcPos[i+1] - 1)
+        rows <- allCom[s:e]
+        ## Remove non-coordinate rows
+        isCoord <- grep("^\\d+\\s+\\S", rows)
+        ## Make a (possibly) ragged list
+        ragged  <- lapply(rows[ isCoord ], parseRow, sep = sep)
+        ## Find the maximum number of columns
+        maxCol  <- max(unlist(lapply(ragged, length)))
+        ## Pad and convert to character matrix
+        cmat    <- matrix(unlist(lapply(ragged, padRow, maxCol)),
+                          ncol = maxCol, byrow = TRUE)
+        tmpIndName     <- ".index."
+        colnames(cmat) <- uniqueNames(
+            c(tmpIndName, meta), paste("Metadata headers for",what))$names
+        rownames(cmat) <- uniqueNames(cmat[, "id" ])$names
+        ## The first column are indices in the sparse matrix
+        inds    <- as.integer(cmat[, 1])
+        ## The second column holds the names
+        names <- character()
+        names[ inds ] <- cmat[, 2]
+        mnn <- uniqueNames(names,paste(what, "Names"))
+        dimNames[[ what ]] <- mnn$names
+        dimChngs[[ what ]] <- mnn$changes
+        mlen <- length(meta)
+        if (mlen > 1) {
+            ## Reliably building the DT proved
+            ## non-intuitive. Using the matrix directly with
+            ## as.data.table() seems to be the most reliable
+            ## mechanism.
+
+            ## https://stackoverflow.com/a/10235618
+            ## Convert the matrix to a DT, leaving out the index column
+            tmp <- data.table::as.data.table( cmat[, -1, drop = FALSE],
+                                             key = "id")
+            rownames(tmp) <- uniqueNames(cmat[, "id" ])$names
+            metadata <- extendDataTable(metadata, tmp)
+            ## Merged DTs don't carry over key:
+            data.table::setkeyv(metadata, "id") 
+        }
+    }
+    ## Set the dimension names
+    rdn <- params$rowdim
+    names(dimNames)[1] <- ifelse(CatMisc::is.something(rdn), rdn, "")
+    cdn <- params$coldim
+    names(dimNames)[2] <- ifelse(CatMisc::is.something(cdn), cdn, "")
+    dimnames(mat) <- dimNames
+
+    ## Now check if there are also sidecar metadata files. We will
+    ## expect them to have the same name as the MatrixMarket file,
+    ## but be additionally suffixed with
+    ## "-metadata<any-other-characters>"
+
+    metadata      <- parseMetadataSidecar( file, metadata )
+    rv$matrix     <- mat
+    rv$metadata   <- metadata
+    rv$colChanges <- dimChngs$Col
+    rv$rowChanges <- dimChngs$Row
+    rv
+}
+
+
 #' Matrix from Lists
 #'
 #' Convert a list of vectors into a sparse matrix consumable by AnnotatedMatrix

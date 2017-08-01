@@ -2,9 +2,7 @@ library("AnnotatedMatrix")
 
 ## Load a small matrix that provides a lookup of gene symbols to their
 ## Entrez Gene accessions.
-## ( .makeTempFile() is a utility method that's only of use in these demos.
-##   Normally you would be providing your own static path to the file. )
-symFile <- AnnotatedMatrix:::.makeTempFile("Symbol-To-Gene.mtx")
+symFile <- annotatedMatrixExampleFile()
 s2e     <- AnnotatedMatrix(symFile)
 
 ## -----------------------------------------------------------------------##

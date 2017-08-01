@@ -1,3 +1,5 @@
+sfSep <- ' || ' # Token for separating text while recording filters
+
 #' Annotated Matrix
 #'
 #' Annotated sparse matrix for capturing query lists, identifier
@@ -15,6 +17,8 @@
 #' @field lvlVal Character array of level names for factor matrices
 #' @field filterLog data.frame storing filtering events that transpire
 #'     during the pruning of matrices prior to analysis.
+#' @field setFilters Human- and machine-readable character vector of
+#'     filters that have been applied
 #' @field rowChanges Named character vector of any row names that
 #'     needed changing. Values are the original name, names are the
 #'     names after processing with make.names() (if valid = TRUE) or
@@ -23,8 +27,8 @@
 #'
 #' @importFrom methods new setRefClass
 #' @importFrom utils read.table
-#' @importFrom data.table data.table as.data.table
-#'      setkeyv
+#' @importFrom data.table data.table as.data.table setkeyv
+#' @importFrom dplyr count
 #' @import Matrix
 #' @importFrom CatMisc is.def is.something
 #' @import ParamSetI
@@ -32,6 +36,11 @@
 #'
 #' @examples
 #'
+#' ## Load the toy symbol-to-gene mapping matrix
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$help() # Compact reminder of fields and methods
+#' s2e        # Summary of loaded object
+#' 
 #' ## Load a toy symbol-to-gene mapping matrix and use it to convert
 #' ## some genes to Entrez Gene IDs
 #' demo("geneSymbolMapping", package="AnnotatedMatrix", ask=FALSE)
@@ -58,6 +67,7 @@ AnnotatedMatrix <-
                     matrixUse  = "ANY", # dgTMatrix
                     matrixMD   = "data.table",
                     filterLog  = "data.table",
+                    setFilters = "character",
                     lvlVal     = "character",
 
                     ## If row or column names need to be remapped:
@@ -70,13 +80,17 @@ AnnotatedMatrix <-
 
 AnnotatedMatrix$methods(
     
-    initialize = function(file=NA, params=NA, ... ) {
+    initialize = function(file=NA, params=NA, autofilter=TRUE, ... ) {
         "\\preformatted{
 Create a new object using AnnotatedMatrix():
        file - Required, a path to the file that stores the matrix. See
               .readMatrix() for details on supported formats
      params - Optional list of key/value pairs that will be passed to
               setParamList()
+ autofilter - Default TRUE, which will run $autoFilter() after the
+              matrix has parsed. This will apply any default filters
+              defined by the matrix file. Note that you can also use
+              $reset() to undo all filters.
         ... - dots will also be passed on to setParamList(), as well as to
               .readMatrix()
 }"
@@ -86,16 +100,27 @@ Create a new object using AnnotatedMatrix():
         file    <<- file
         fromRDS <<- FALSE
         defineParameters("
-Name        [character] Optional name assigned to the matrix
-Description [character] Optional description for the matrix
-RowDim      [character] Optional name for the row dimension
-ColDim      [character] Optional name for the column dimension
-RowUrl [character] Optional base URL for row names (%s placeholder for name)
-ColUrl [character] Optional base URL for column names (%s placeholder for name)
+Name        [character] Short Name assigned to the matrix
+Description [character] Description for the matrix
+ScoreDesc   [Character] Describes what the matrix values (scores) represent
+Source      [character] Primary source, presumably a URL
+
+RowDim      [character] Name for the row dimension
+ColDim      [character] Name for the column dimension
+RowUrl      [character] Base URL for row names (%s placeholder for name)
+ColUrl      [character] Base URL for column names (%s placeholder for name)
+
+MinScore    [numeric] Minimum score recognized by $autoFilter()
+MaxScore    [numeric] Maximum score recognized by $autoFilter()
+KeepLevel   [character] List of preserved factor levels recognized by $autoFilter()
+TossLevel   [character] List of discarded factor levels recognized by $autoFilter()
+TossMeta    [character] Metadata value filter recognized by $autoFilter()
+
 ")
         setParamList( params=params, ... )
         .readMatrix( ... )
         reset()
+        if (autofilter) autoFilter()
     },
     
     matObj = function( raw=FALSE, transpose=FALSE) {
@@ -135,24 +160,140 @@ Retrieves the underlying Matrix for this object. Parameters:
         rv
     },
 
-    rNames = function( raw=FALSE ) {
+    rNames = function(new=NULL, raw=FALSE, reason=NA) {
         "\\preformatted{
 Returns the row names of the Matrix
+      new - Optional new set of row names. Normally used to re-order rows.
+            Will be treated as a filter if any rows are excluded
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be used, if available - otherwise the original
             raw matrix will be used.
+   reason - Default NA; If specified, a text value that will be added to
+            the $filterLog under the 'reason' column if any rows end up
+            removed or added (added rows will be all zeros)
 }"
-        rownames(matObj(raw))
+        obj   <- matObj(raw)
+        if (is.null(new)) {
+            ## Just asking for the current names
+            return (rownames(obj))
+        }
+        ## User is also reodering names, or removing/adding some
+        if (raw) err("$rNames() can not set new names while specifying raw=TRUE", fatal=TRUE)
+        obj   <- matObj(raw=raw)
+        now   <- rownames(obj)
+        lost  <- setdiff(now, new)
+        if (length(lost > 0)) {
+            ## Some rows have been removed. But did they have any
+            ## nonzero cells?
+            counts <- rCounts( obj )[ lost ]
+            counts <- counts[ counts > 0 ]
+            if (length(counts) > 0) {
+                ## Yes, at least one data-bearing row has been
+                ## eliminated by this action
+                .filterDetails(id=names(counts), type="Row", reason=reason,
+                              metric="Row names reordered/reset")
+            }
+        }
+        gain  <- setdiff(new, now)
+        if (length(gain) > 0) {
+            ## There are some new rownames, we will add as "empty"
+            ## rows in the expected place (row order)
+
+            ## The Matrix package has a problem with NA indices, so
+            ## this does NOT work:
+            ## obj <- obj[ match(new, now), , drop=FALSE ]
+
+            ## Instead, extract the known rows:
+            both <- intersect(new, now)
+            obj  <- obj[ both, , drop=FALSE ]
+            ## ... build a new empty matrix with the new ones. Using
+            ## Matrix() generates a dgeMatrix, we want to keep using
+            ## dgTMatrix instead:
+            m <- new("dgTMatrix", i=integer(), j=integer(),
+                     Dim=c(length(gain), ncol(obj)),
+                     Dimnames = list(gain, NULL))
+            ## ... bind them into the known rows, and clean up the order:
+            obj  <- rbind(obj, m)[ new, ]
+            matrixUse <<- obj
+            .filterDetails(id=gain, type="Row", reason=reason,
+                          metric="Empty rows added")
+        } else {
+            ## No new rows, just a reshuffle and/or removal of existing names
+            matrixUse <<- obj[ new, , drop=FALSE ]
+        }
+        rtxt <- if (CatMisc::is.something(reason)) {
+                    paste("#", reason) } else { NULL }
+        setFilters <<- unique(c(setFilters, paste("ROWORDER",
+            paste(new, collapse=sfSep), rtxt)))
+        
+        ## Just return the provided value back to the user
+        new
     },
 
-    cNames = function( raw=FALSE ) {
+    cNames = function(new=NULL, raw=FALSE, reason=NA) {
         "\\preformatted{
 Returns the column names of the Matrix
+      new - Optional new set of column names. Normally used to re-order columns.
+            Will be treated as a filter if any columns are excluded
       raw - Default FALSE, in which case the filtered Matrix (held in field
             'matrixUse') will be used, if available - otherwise the original
             raw matrix will be used.
+   reason - Default NA; If specified, a text value that will be added to
+            the $filterLog under the 'reason' column if any columns end up
+            removed or added (added columns will be all zeros)
 }"
-        colnames(matObj(raw))
+        obj   <- matObj(raw)
+        if (is.null(new)) {
+            ## Just asking for the current names
+            return (colnames(obj))
+        }
+        ## User is also reodering names, or removing/adding some
+        if (raw) err("$cNames() can not set new names while specifying raw=TRUE", fatal=TRUE)
+        now   <- colnames(obj)
+        lost  <- setdiff(now, new)
+        if (length(lost > 0)) {
+            ## Some columns have been removed. But did they have any
+            ## nonzero cells?
+            counts <- rCounts( obj )[ lost ]
+            counts <- counts[ counts > 0 ]
+            if (length(counts) > 0) {
+                ## Yes, at least one data-bearing column has been
+                ## eliminated by this action
+                .filterDetails(id=names(counts), type="Col", reason=reason,
+                              metric="Col names reordered/reset")
+            }
+        }
+        gain  <- setdiff(new, now)
+        if (length(gain) > 0) {
+            ## There are some new colnames, we will add as "empty"
+            ## cols in the expected place (column order)
+
+            ## The Matrix package has a problem with NA indices, so
+            ## this does NOT work:
+            ## obj <- obj[ , match(new, now), drop=FALSE ]
+
+            ## Instead, extract the known columns:
+            both <- intersect(new, now)
+            obj  <- obj[ , both, drop=FALSE ]
+            ## ... build a new empty matrix with the new ones:
+            m <- new("dgTMatrix", i=integer(), j=integer(),
+                     Dim=c(nrow(obj), length(gain)),
+                     Dimnames = list(NULL, gain))
+            ## ... bind them into the known cols, and clean up the order:
+            obj  <- cbind(obj, m)[ , new ]
+            matrixUse <<- obj
+            .filterDetails(id=gain, type="Col", reason=reason,
+                          metric="Empty columns added")
+        } else {
+            ## No new columns, just a reshuffle and/or removal of existing names
+            matrixUse <<- obj[ , new, drop=FALSE ]
+        }
+        rtxt <- if (CatMisc::is.something(reason)) {
+                    paste("#", reason) } else { NULL }
+        setFilters <<- unique(c(setFilters, paste("COLORDER",
+            paste(new, collapse=sfSep), rtxt)))
+        ## Just return the provided value back to the user
+        new
     },
 
     reset = function( asFactor=FALSE ) {
@@ -160,15 +301,77 @@ Returns the column names of the Matrix
 Reset any filters that were applied - the 'used' matrix will be the
 original 'raw' one
 }"
-        matrixUse <<- NULL
-        filterLog <<- data.table(id = character(), key = "id")
+        matrixUse  <<- NULL
+        setFilters <<- character()
+        filterLog <<- data.table(id   = character(), metric = character(),
+                                 type = character(), reason = character(),
+                                 key = "id")
         invisible(NA)
+    },
+
+    autoFilter = function( recursive = TRUE, verbose=TRUE) {
+        "\\preformatted{
+Will apply filters based on certain parameters. The method is called
+automatically on object instantiation, but can be called manually as
+well. Parameters will generally be set as part of the source data file.
+
+  recursive - Default TRUE, which will result in autoFilter being
+              recursively called until no further changes are made.
+              This can be relevant with row (or column) count filters,
+              where rows that pass on one iteration fail on another,
+              due to zero-ed out cells that previously enabled a count
+              to pass.
+    verbose - Default TRUE, will print a message of how many cells have
+              been affected.
+
+Recognized parameters:
+   MinScore   MaxScore
+   KeepLevel  TossLevel
+}"
+        x <- 0
+        min <- param("MinScore")
+        if (CatMisc::is.something(min)) {
+            x <- x + filterByScore(min=min, reason=attr(min,"comment"))
+        }
+        max <- param("MaxScore")
+        if (CatMisc::is.something(max)) {
+            x <- x + filterByScore(max=max, reason=attr(max,"comment"))
+        }
+        if (is.factor()) {
+            kL <- param("KeepLevel")
+            if (CatMisc::is.something(kL)) {
+                x <- x + filterByFactorLevel(kL, keep=TRUE,
+                                             reason=attr(kL,"comment"))
+            }
+            tL <- param("TossLevel")
+            if (CatMisc::is.something(tL)) {
+                x <- x + filterByFactorLevel(tL, keep=FALSE,
+                                             reason=attr(tL,"comment"))
+            }
+        }
+        meta <- param("TossMeta")
+        if (CatMisc::is.something(meta)) {
+            fbms <- CatMisc::parenRegExp('^(\\S+)\\s+(\\S+)\\s+(.+)', meta,
+                                         unlist=FALSE)
+            for (fbm in fbms) {
+                v <- fbm[3]
+                ## ToDo - smuggle in Row/Col at front of val
+                x <- x + filterByMetadata(key=fbm[1], val=v, type=fbm[2],
+                                          reason=attr(meta,"comment"))
+            }
+        }
+
+        if (x > 0 && recursive) x <- x + autoFilter( verbose=FALSE )
+        if (x > 0 && verbose) message(c("Automatic filters have masked",x[1],
+              "cells,",x[2],"rows, and",x[3],"cols"), prefix="[-]",
+              bgcolor='cyan', color='yellow')
+        invisible(x)
     },
 
     filterByScore = function( min=NA, max=NA, filterEmpty=FALSE, reason=NA ) {
         "\\preformatted{
 Apply filters to the current matrix to zero-out cells failing thresholds.
-Returns the number of cells zeroed (filtered) out.
+Returns the count of (cells,rows,cols) zeroed (filtered) out.
         min - Minimum allowed value. Cells below this will be set to zero
         max - Maximum allowed value. Cells above it will be set to zero
  filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
@@ -177,53 +380,99 @@ Returns the number of cells zeroed (filtered) out.
               the $filterLog under the 'reason' column
 }"
         obj <- matObj()
-        rv  <- 0
+        rv  <- c(0L, 0L, 0L)
         if (filterEmpty) removeEmpty("Empty rows and cols before score filter")
-        if (is.something(min)) {
-            ## Zero out entries that fall below min
-            fail <- obj@x < min
+        rtxt <- if (CatMisc::is.something(reason)) {
+                    paste("#", reason) } else { NULL }
+        if (CatMisc::is.something(min)) {
+            ## Zero out entries that fall below min and are not already zero
+            fail <- if (min > 0) {
+                obj@x < min & obj@x != 0
+            } else {
+                obj@x < min
+            }
             numZ <- sum(fail)
             if (numZ > 0) {
                 ## At least some cells were zeroed out
                 obj@x[ fail ] <- 0
-                ## obj <- drop0(obj)
-                rv      <- rv + numZ
                 testTxt <- paste("x <", min)
                 numTxt  <- paste(numZ, "Cells")
-                filterDetails(id=testTxt, type="Val", metric=numTxt,
-                              reason=reason)
+                type    <- "Val"
+                ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
+                rv  <- rv + c(numZ, ijz)
                 if (filterEmpty) {
                     ## Strip empty rows and columns
                     matrixUse <<- obj
-                    if (!is.na(reason[1])) testTxt <- paste(testTxt, reason[1])
+                    if (is.something(reason[1])) {
+                        testTxt <- paste(testTxt, reason[1])
+                    }
                     removeEmpty(testTxt)
                     obj <- matObj()
                 }
             }
+            setFilters <<- unique(c(setFilters, paste("SCORE <", min, rtxt)))
         }
-        if (is.something(max)) {
-            ## Zero out entries that are above max
-            fail <- obj@x > max
+        if (CatMisc::is.something(max)) {
+            ## Zero out entries that are above max and not already zero
+            fail <- if (max < 0) {
+                obj@x > max & obj@x != 0
+            } else {
+                obj@x > max
+            }
+
             numZ <- sum(fail)
             if (numZ > 0) {
                 ## At least some cells were zeroed out
                 obj@x[ fail ] <- 0
-                rv      <- rv + numZ
                 testTxt <- paste("x >", max)
                 numTxt  <- paste(numZ, "Cells")
-                filterDetails(id=testTxt, type="Val", metric=numTxt,
-                              reason=reason)
+                ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
+                rv  <- rv + c(numZ, ijz)
                 if (filterEmpty) {
                     ## Strip empty rows and columns
                     matrixUse <<- obj
-                    if (!is.na(reason[1])) testTxt <- paste(testTxt, reason[1])
+                    if (is.something(reason[1])) {
+                        testTxt <- paste(testTxt, reason[1])
+                    }
                     removeEmpty(testTxt)
                     obj <- matObj()
                 }
             }
+            setFilters <<- unique(c(setFilters, paste("SCORE >", max, rtxt)))
         }
-        if (rv != 0 && !filterEmpty) matrixUse <<- obj
+        if (rv[1] != 0 && !filterEmpty) matrixUse <<- obj
         invisible(rv)
+    },
+
+    .detailZeroedRowCol = function( obj, fail, metric, reason ) {
+        "\\preformatted{
+Internal method. Takes a SparseMatrix and a (previously calculated)
+logical vector of 'failed' rows, and determines which (if any) rows
+and columns went from populated to unpopulated (all zeroes). Adds
+entries to $filterLog to record them
+}"
+        ## What rows / columns were affected?
+        ij   <- which( fail )
+        ## Check if any rows are now totally zeroed out
+        i    <- unique( obj@i[ ij ] )
+        iBye <- vapply(i, function(xi) all(obj@x[ obj@i == xi ] == 0), TRUE)
+        ibs <- sum(iBye)
+        ## +1 -> Because Matrix Row/Col are zero-indexed!
+        if (ibs > 0) {
+            ## Some rows are now all zero because of the filter
+            ids <- rownames(obj)[ i[iBye] + 1 ]
+            .filterDetails(id=ids, type="Row", metric=metric, reason=reason)
+        }
+        ## Check the columns
+        j    <- unique( obj@j[ ij ] )
+        jBye <- vapply(j, function(xj) all(obj@x[ obj@j == xj ] == 0), TRUE)
+        jbs  <- sum(jBye)
+        if (jbs > 0) {
+            ## Some rows are now all zero because of the filter
+            ids <- colnames(obj)[ j[jBye] + 1 ]
+            .filterDetails(id=ids, type="Col", metric=metric, reason=reason)
+        }
+        c(ibs, jbs)
     },
 
     filterByFactorLevel = function( x, keep=TRUE, ignore.case=TRUE,
@@ -246,16 +495,18 @@ Returns the number of cells zeroed (filtered) out.
             err("Can not filterByFactorLevel() - matrix is not a factor")
             return(invisible(NA))
         }
-        obj <- matObj()
-        rv  <- 0
+        obj  <- matObj()
+        rv   <- c(0L, 0L, 0L)
         xVal <- integer()
         lvls <- levels()
         nlvl <- length(lvls)
         if (is.numeric(x)) {
+            ## Levels appear to be specified by index
             xVal <- if (!is.integer( x )) {
                 xVal <- as.integer( x )
                 if (!all.equal(x, xVal)) {
-                    err(c("Integer conversion in filterByFactorLevel() appears to have altered your request"))
+                    ## Uh. Probably a problem.
+                    err(c("Integer conversion in filterByFactorLevel() appears to have altered your request"), fatal=TRUE)
                 }
                 xVal
             } else {
@@ -306,43 +557,228 @@ Returns the number of cells zeroed (filtered) out.
             return( invisible(NA) )
         }
 
+        ## Even if the user asked to keep a set of levels, the set
+        ## being excluded might be smaller (and vice versa). Determine
+        ## what the most compact representation of the filter is
+        k      <- keep
+        lnames <- if (length(xVal) * 2 > nlvl) {
+            ## Briefer to refer to the un-specified set
+            k <- !k
+            lvls[ -xVal ]
+        } else {
+            lvls[ xVal ]
+        }
+        k <- if (k) {"=="} else {"!="}
+        ## The filter text describes failing cells
+        testTxt <- sprintf("Level %s %s", k,
+                           paste(lnames, collapse=', '))
+        rtxt <- if (CatMisc::is.something(reason)) {
+                    paste("#", reason) } else { NULL }
+        setFilters <<- unique(c(setFilters, paste("LEVELS", k,
+                 paste(lnames, collapse=sfSep), rtxt)))
 
+        
         ## Working with the @x value vector for the sparse
         ## matrix. Determine which values are 'unwanted'
-        fail <- is.element(obj@x, xVal)
+        fail <- is.element(obj@x, xVal) & obj@x != 0
         if (keep) fail <- !fail
-        rv <- sum( fail )
-        if (rv) {
+        numZ <- sum( fail )
+        if (numZ > 0) {
+            # if (filterEmpty) removeEmpty("Empty rows and cols prior to factor filter")
             ## Zero-out the failing cells
-            if (filterEmpty) removeEmpty("Empty rows and cols prior to factor filter")
             obj@x[ fail ] <- 0
-            ## Even if the user asked to keep a set of levels, the set
-            ## being excluded might be smaller (and vice
-            ## versa). Determine what the most compact representation
-            ## of the filter is
-            k  <- keep
-            lnames <- if (length(xVal) * 2 > nlvl) {
-                ## Briefer to refer to the un-specified set
-                k <- !k
-                lvls[ -xVal ]
-            } else {
-                lvls[ xVal ]
-            }
-            ## The filter text describes failing cells
-            testTxt <- sprintf("x %sassigned to %s", if (k) {"not "} else {""},
-                               paste(lnames, collapse=', '))
-            numTxt  <- paste(rv, "Cells")
-            filterDetails(id=testTxt, type="Factor", metric=numTxt,
-                          reason=reason)
+            numTxt  <- paste(numZ, "Cells")
+            type    <- "Val"
+            ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
+            rv  <- rv + c(numZ, ijz)
             if (filterEmpty) {
                 ## Strip empty rows and columns
                 matrixUse <<- obj
-                if (!is.na(reason[1])) testTxt <- paste(testTxt, reason[1])
+                if (is.something(reason[1])) {
+                    testTxt <- paste(testTxt, reason[1])
+                }
                 removeEmpty(testTxt)
                 obj <- matObj()
             }
         }
-        if (rv != 0 && !filterEmpty) matrixUse <<- obj
+        if (rv[1] != 0 && !filterEmpty) matrixUse <<- obj
+        invisible(rv)
+    },
+
+    filterByMetadata = function(key, val, MARGIN=NULL, type="like", op='or',
+                                reason=NA) {
+        "\\preformatted{
+Zero out rows or columns that have metadata matching certain values
+Returns the number of cells zeroed (filtered) out.
+        key - The metadata key/tag/column to match
+        val - The value(s) to match
+     MARGIN - Default NULL, which will test matched IDs against both rows
+              and columns. Can also be 1, row, 2 or col
+       type - Default 'like'. Recognized values are:
+                like = Finds matches of word/phrase anywhere in text
+                regexp = Per 'like', but will interpret as regular expression
+                equal  = Finds only full exact matches
+              In addition, 'case' can be added to any type to force
+              case-sensitive matches.
+         op - Default 'or', which will count a match if any of the values
+              Alternative is 'and', which requires all values to match.
+              'any' and 'all' are also acceptible.
+     reason - Default NA; If specified, a text value that will be added to
+              the $filterLog under the 'reason' column
+}"
+        ## Normalize the requested key
+        key <- key[1]
+        x   <- is.element(tolower(metadata_keys()), tolower(key))
+        x   <- which(x)
+        if (length(x) == 0) {
+            err(paste("$filterByMetadata(key='", key,"') does not match any keys"))
+            return(NULL)
+        }
+        if (length(x) > 1) {
+            ## Try case insensitive?
+            x   <- is.element(metadata_keys(), key)
+            x   <- which(x)
+            if (length(x) != 1) {
+                err(c("filterByMetadata(key =", key,") matches multiple columns"))
+                return(NULL)
+            }
+        }
+        colN <- metadata_keys()[x] # The column name (key) we will use
+        metric <- colN
+        
+        if (!is.null(MARGIN)) {
+            ## Normalize the margin
+            MARGIN <- MARGIN[1]
+            if (grepl('(1|row)', MARGIN, ignore.case=TRUE)) {
+                MARGIN <- 'row'
+            } else if (grepl('(2|col)', MARGIN, ignore.case=TRUE)) {
+                MARGIN <- 'col'
+            } else {
+                err("$filterByMetadata(MARGIN) should be one of NULL,1,2,row,col",
+                    fatal=TRUE)
+            }
+        }
+
+        type <- type[1]
+        ## Ignore case flag - if type includes 'case', then do case sensitive
+        ic   <- ifelse(grepl('case', type, ignore.case=TRUE), FALSE, TRUE)
+
+        ## Normalize the matching type mat will be a matrix where the
+        ## rows correspond to the rows of the matrixMD metadata table,
+        ## and the columns are the value(s) that were passed to this
+        ## method.
+        mat <- if (grepl('(like|sim)', type, ignore.case=TRUE)) {
+            ## Flanking wildcard match, no regular expression
+            type <- "LIKE"
+            if (ic) {
+                sapply(val, function(v) grepl(tolower(v),
+                    tolower(matrixMD[[colN]]), fixed=TRUE), simplify='matrix')
+            } else {
+                sapply(val, function(v) grepl(v, matrixMD[[colN]], fixed=TRUE),
+                       simplify='matrix')
+            }
+        } else if (grepl('(regexp)', type, ignore.case=TRUE)) {
+            ## Regular expression
+            type <- "RegExp"
+            sapply(val, function(v) grepl(v, matrixMD[[colN]],
+                                          ignore.case=ic), simplify='matrix')
+         } else if (grepl('(equal|exact)', type, ignore.case=TRUE)) {
+            type <- "Equals"
+            if (ic) {
+                sapply(val, function(v) tolower(v) == tolower(matrixMD[[colN]]),
+                       simplify='matrix')
+            } else {
+                sapply(val, function(v) v == matrixMD[[colN]],
+                       simplify='matrix')
+            }
+        } else {
+            err(c("$filterByMetadata(type =",type,") is not recognized"),
+                fatal=TRUE)
+        }
+        metric <- c(metric, type)
+        
+        ## Normalize the operator
+        fail <- if (grepl('(or|any)', op, ignore.case=TRUE)) {
+            ## If any of the values matched, we count it as a fail
+            metric <- c(metric, paste(val, collapse=' | '))
+            op <- 'or'
+            apply(mat, 1, any)
+        } else if (grepl('(and|all)', op, ignore.case=TRUE)) {
+            ## All must match to count
+            metric <- c(metric, paste(val, collapse=' & '))
+            op <- 'and'
+            apply(mat, 1, any)
+        } else {
+            err("$filterByMetadata(op) should be one of or,any,and,all",
+                fatal=TRUE)
+        }
+
+        rv     <- c(0L, 0L, 0L)
+        metric <- paste(metric, collapse=' ')
+        ## No matches
+        if (sum(fail) == 0) return( rv )
+
+        ## Need to consider the hits one by one to check if they've
+        ## already been zeroed out or not, and to collect stats. This
+        ## could admittedly be slow for large matrices with many hits
+        ## and/or rows/cols.
+        obj  <- matObj()
+        hits <- matrixMD[["id"]][ fail ]
+        if (is.null(MARGIN) || MARGIN == 'row') {
+            ## Check for matches in rownames
+            rn <- match(hits, rownames(obj))
+            rn <- rn[ !is.na(rn) ]
+            if (length(rn) > 0) {
+                inds <- rn - 1 # Zero-index SparseMatrix
+                ## Which of these names has non-zero cells in the matrix?
+                ## Some may not due to prior filters
+                zeroed <- sapply(inds, function(i) obj@i == i & obj@x != 0,
+                                 simplify='matrix')
+                zHits  <- base::colSums( zeroed )
+                inds   <- inds[ zHits != 0 ]
+                if (length(inds) != 0) {
+                    ## This operation has impacted one or more rows
+                    rv[2] <- length(inds)
+                    cells <- base::rowSums(zeroed) != 0
+                    rv[1] <- rv[1] + sum(cells)
+                    obj@x[ cells ] <- 0
+                    .filterDetails(id=colnames(obj)[inds + 1], type="Row",
+                                  metric=metric, reason=reason)
+                }
+            }
+        }
+        if (is.null(MARGIN) || MARGIN == 'col') {
+            ## Check for matches in colnames
+            cn <- match(hits, colnames(obj))
+            cn <- cn[ !is.na(cn) ]
+            if (length(cn) > 0) {
+                inds <- cn - 1 # Zero-index SparseMatrix
+                ## Which of these names has non-zero cells in the matrix?
+                ## Some may not due to prior filters
+                zeroed <- sapply(inds, function(i) obj@j == i & obj@x != 0,
+                                 simplify='matrix')
+                zHits  <- base::colSums( zeroed )
+                inds   <- inds[ zHits != 0 ]
+                if (length(inds) != 0) {
+                    ## This operation has impacted one or more columns
+                    rv[3] <- length(inds)
+                    cells <- base::rowSums(zeroed) != 0
+                    rv[1] <- rv[1] + sum(cells)
+                    obj@x[ cells ] <- 0
+                    .filterDetails(id=colnames(obj)[inds + 1], type="Col",
+                                  metric=metric, reason=reason)
+                }
+            }
+        }
+        margTxt <- if(is.null(MARGIN)) { "any" } else { MARGIN }
+        valTxt  <- paste(sprintf('"%s"', val), collapse=sfSep)
+        rtxt    <- if (CatMisc::is.something(reason)) {
+                       paste(" #", reason) } else { "" }
+        setFilters <<- unique(c(setFilters, sprintf(
+           "METADATA %s %s %s [%s/%s]%s%s", colN, type, valTxt,
+           margTxt, op, ifelse(ic, ' ignore.case', ''), rtxt)))
+
+        if (rv[1] != 0) matrixUse <<- obj # Update matrix if changed
         invisible(rv)
     },
 
@@ -393,11 +829,7 @@ vector of removed IDs.
         ## populatedRows() returns a named logical vector. Take names
         ## from there
         toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) {
-            ## Some columns have been removed
-            filterDetails(id=toss, type="Row", metric="AllZero", reason=reason)
-            matrixUse <<- obj[ !isEmpty, ]
-        }
+        if (length(toss) != 0) matrixUse <<- obj[ !isEmpty, ]
         invisible(toss)
     },
 
@@ -412,7 +844,7 @@ Return an integer vector of non-zero rows for each column
         Matrix::colSums(obj != 0)
     },
 
-    populatedColumns = function(obj=NULL, ...) {
+    populatedCols = function(obj=NULL, ...) {
         "\\preformatted{
 Return a logical vector indicating which columns have at least one non-zero
  cell
@@ -423,7 +855,7 @@ Return a logical vector indicating which columns have at least one non-zero
         cCounts( obj=obj, ...) != 0
     },
 
-    removeEmptyColumns = function(reason=NA) {
+    removeEmptyCols = function(reason=NA) {
         "\\preformatted{
 Remove all empty columns (those that only contain zeros). Invisibly
 returns a vector of removed IDs.
@@ -431,15 +863,11 @@ returns a vector of removed IDs.
               to the $filterLog under the 'reason' column
 }"
         obj     <- matObj()
-        isEmpty <- !populatedColumns()
-        ## populatedColumns() returns a named logical vector. Take
+        isEmpty <- !populatedCols()
+        ## populatedCols() returns a named logical vector. Take
         ## names from there
         toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) {
-            ## Some columns have been removed
-            filterDetails(id=toss, type="Col", metric="AllZero", reason=reason)
-            matrixUse <<- obj[ , !isEmpty]
-        }
+        if (length(toss) != 0) matrixUse <<- obj[ , !isEmpty]
         invisible(toss)
     },
 
@@ -450,27 +878,36 @@ Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
               the $filterLog under the 'reason' column
 }"
         toss <- removeEmptyRows(reason)
-        toss <- c(toss, removeEmptyColumns(reason))
+        toss <- c(toss, removeEmptyCols(reason))
         invisible(toss)
     },
 
-    map = function(input, via=NULL, format="data.frame",
+    map = function(input=NULL, via=NULL, format="data.frame",
                    ignore.case=TRUE, keep.best=FALSE,
                    column.func=max,
                    collapse=NULL, collapse.name=NULL, collapse.token=',',
                    collapse.score=NULL,
                    collapse.factor=NULL, integer.factor=FALSE,
-                   add.metadata=TRUE, warn=TRUE
+                   add.metadata=TRUE, warn=TRUE,
+                   append.to=NULL, append.col=1L
                    ) {
         "\\preformatted{
-Provide a list of IDs, and map/pivot it from one dimension of the matrix to the
-other, following 'connections' defined by non-zero cells. Returns a data.frame
-with Input and Output columns, plus Score and/or Factor columns.
-      input - Required, a vector of IDs
+Provide a list of IDs, and map/pivot it from one dimension of the matrix
+to the other, following 'connections' defined by non-zero cells. Returns
+a data.frame with Input and Output columns, plus Score and/or Factor columns.
+
+If collapse='out', rownames will be set to the Output column. Otherwise,
+if an input ID results in a unique row, the rowname will be that input ID.
+Other-otherwise, the rowname will be the input ID plus '#1', '#2' etc for
+each row with that ID. Non-unique input IDs will never generate an
+unaltered rowname.
+
+      input - A vector of 'input' IDs. Required, unless append.to is set, in
+              which case it will be taken from that table using append.col
         via - Specify if the input matches the 'rows' or 'columns' of the
-              matrix. If NULL (default) then your input will be compared to the
-              row and column names, and the one with the most matches will be
-              chosen (defaulting to 'row' in the event of equal matches)
+              matrix. If NULL (default) then your input will be compared to
+              the row and column names, and the one with the most matches
+              will be chosen (defaulting to 'row' in the event of equal matches)
      format - Default 'data.frame', specifies the output format. Can also be:
                  Vector: Will return a named character vector, with values
                          corresponding to $Output and names as $Input
@@ -515,7 +952,18 @@ with Input and Output columns, plus Score and/or Factor columns.
        warn - Default TRUE, which will show warning text if matches failed to
               be made for the input. This information is also always captured
               in attributes attached to the returned data.frame
+  append.to - Default NULL. If a data.frame-compliant object, it will become
+              the return value, with the mapped columns being added on.
+              If collapse='out' then the Output column will be used to
+              merge, otherwise the Input column will be utilized. The merge
+              column from the provided data.frame is set with append.col
+ append.col - The column to use in append.to for merging. Default is 1,
+              can provide another column number or name.
 }"
+
+        ## If we are appending to another data.frame, always take the
+        ## input as the designated pivot column:
+        if (!is.null(append.to)) input <- append.to[[ append.col ]]
         if (!is.vector(input) || !is.character(input[1])) {
             err("$map() must be provided with a character vector as input")
             return(NA)
@@ -537,7 +985,7 @@ with Input and Output columns, plus Score and/or Factor columns.
         }
 
         ## Is the input unique, or duplicated?
-        dupIn <- duplicated(inp)
+        dupIn <- base::duplicated(inp)
         if (sum(dupIn) == 0) {
             dupIn <- character()
         } else {
@@ -546,7 +994,7 @@ with Input and Output columns, plus Score and/or Factor columns.
             dupIn <- vapply(dupIn, function(x) {
                 paste(names(rn)[which(rn == x)], collapse=collapse.token)
             }, "")
-            inp  <- inp[ !duplicated(inp) ]
+            inp  <- inp[ !base::duplicated(inp) ]
         }
 
         ## Work out if we're collapsing anything
@@ -623,8 +1071,7 @@ with Input and Output columns, plus Score and/or Factor columns.
         ## to collect all the tests in one place and pre-choose which
         ## function to use. Each function will take a single vector of
         ## numeric values
-        valueCollapseFunction <-
-        if (!is.null(collapse.score)) {
+        valueCollapseFunction <- if (!is.null(collapse.score)) {
             ## The user is supplying their own function to handle
             ## value (score) collapse
             collapse.score
@@ -743,7 +1190,7 @@ with Input and Output columns, plus Score and/or Factor columns.
             }
         }
 
-        multOut <- duplicated(rv$Output)
+        multOut <- base::duplicated(rv$Output)
         if (sum(multOut) == 0) {
             multOut <- character()
         } else {
@@ -771,6 +1218,17 @@ with Input and Output columns, plus Score and/or Factor columns.
 
             }
         }
+
+        ## Set rownames
+        rownames(rv) <- if (colOut) {
+            ## Collapsing on output -> Name rows by Output column
+            rv$Output
+        } else if (colIn || length(multIn) == 0) {
+            ## Collapsing on Input, or Input (by chance or design) is unique:
+            rv$Input
+        } else {
+            strict.unique( rv$Input )
+        }
         
         if (isFac && !any(integer.factor)) {
             ## Add factor text column
@@ -787,7 +1245,7 @@ with Input and Output columns, plus Score and/or Factor columns.
             }
         }
 
-        if (is.something(add.metadata)) {
+        if (CatMisc::is.something(add.metadata)) {
 
 
 ### TODO: Need to manage cases where colIn is true, and Output is a
@@ -797,7 +1255,8 @@ with Input and Output columns, plus Score and/or Factor columns.
             
             ## Request to include metadata columns
             ## Map our output IDs to the Metadata data.table :
-            md  <- matrixMD[.(rv$Output), -"id"]
+            md  <- matrixMD[rv$Output, setdiff(colnames(matrixMD), "id"),
+                            with=FALSE]
             mdc <- colnames(md) # All available metadata columns
             ## If the param is not a character vector, take all
             if (!is.character(add.metadata)) add.metadata <- mdc
@@ -814,9 +1273,40 @@ with Input and Output columns, plus Score and/or Factor columns.
             }
         }
 
-        if (grepl('vec', format[1], ignore.case=TRUE)) {
-            ## Vector format
+        ## Also attach a brief explanation of each attribute:
+        Notes <- list(
+            Via = "Whether your input was matched to rows or columns of the matrix",
+            'Dup.In' = "IDs that were present twice or more in input (possibly after case removal)",
+            'Dup.Mat' = "IDs that were present twice or more in matrix (after case removal)",
+            'Mult.In' = "Input IDs that generated multiple output values",
+            'Mult.Out' = "Output IDs that were generated from multiple inputs",
+            Unmapped = "Input ID is also in the matrix, but does not have a target with non-zero score. Score will be zero",
+            Unknown = "Input ID could not be matched to any in the matrix. Score will be NA")
+
+        if (!is.null(append.to)) {
+            ## User wants result columns added to their own data.frame
+            mainCol  <- if (colOut) { 1L } else { 2L }
+            cnames   <- colnames(rv)
+            transfer <- c(mainCol, seq(3, length(cnames)))
+            added    <- character()
+            for (i in transfer) {
+                ## Make sure the appended column is unique as we
+                ## extend the data.frame:
+                cn  <- cnames[i]
+                u   <- make.unique(c(colnames(append.to), cn))
+                cnu <- u[ length(u) ]
+                append.to[[ cnu ]] <- rv[ input, i ]
+                added <- c(added, cnu)
+            }
+            rv <- append.to
+            attr(rv, "Appended") <- added
+            Notes[["Appended"]]  <- "Column names that were appended to the data.frame you provided with append.to="
+        } else if (grepl('vec', format[1], ignore.case=TRUE)) {
+            ## Vector format.
             rv <- setNames(rv$Output, rv$Input)
+            ## This can result in non-unique names. Do we want to use
+            ## strict.unique() to uniquify names?
+            class(rv) <- c("mapResult", class(rv))
         }
 
         ## Attach some summary attributes:
@@ -828,15 +1318,8 @@ with Input and Output columns, plus Score and/or Factor columns.
         attr(rv, "Mult.In")    <- multIn
         attr(rv, "Mult.Out")   <- multOut
         if (isFac) attr(rv, "Levels") <- lvlVal
-        ## Also attach a brief explanation of each attribute:
-        attr(rv, "Notes")      <-
-            list(Via = "Whether your input was matched to rows or columns of the matrix",
-                 'Dup.In' = "IDs that were present twice or more in input (possibly after case removal)",
-                 'Dup.Mat' = "IDs that were present twice or more in matrix (after case removal)",
-                 'Mult.In' = "Input IDs that generated multiple output values",
-                 'Mult.Out' = "Output IDs that were generated from multiple inputs",
-                 Unmapped = "Input ID is also in the matrix, but does not have a target with non-zero score",
-                 Unknown = "Input ID could not be matched to any in the matrix")
+        attr(rv, "Notes")      <- Notes
+            
         if (warn) {
             ## Alert user to any non-unique relationships:
             msg <- character()
@@ -881,7 +1364,7 @@ a new token-separated level
         which(lvl == lvlVal)
     },
 
-    filterDetails = function ( id=NA, type=NA,  metric=NA, reason=NA) {
+    .filterDetails = function ( id=NA, type=NA,  metric=NA, reason=NA) {
         if (is.null(metric)) return(NA)
         if (any(is.na(id))) {
             ## Should not happen! This method should only be called on
@@ -913,13 +1396,61 @@ a new token-separated level
         filterLog
     },
 
+    filterSummary = function (reason=TRUE) {
+        "\\preformatted{
+Tallies number of filtered objects (generally cells) by filter criteria
+and optionally reason. Returns a data frame
+   reason - Default TRUE, which includes the reason text in the count
+            grouping
+}"
+
+        rv <- if (reason) {
+            dplyr::count(filterLog, metric, type, reason)
+        } else {
+            dplyr::count(filterLog, metric, type)
+        }
+        rv <- if (nrow(rv) == 0) {
+            ## Nothing filtered
+            data.frame(metric=character(), reason=character(),
+                       Col=integer(), Row=integer())
+        } else {
+            reshape2::dcast(rv, metric + reason ~ type, sum,
+                            value.var = "n",na.rm=TRUE)
+        }
+        ## Class to utilize pretty-print function
+        class(rv) <- c("mapFilter", class(rv))
+        attr(rv, "useCol")  <- useColor()
+        attr(rv, "filters") <- setFilters
+        rv
+    },
+
+    appliedFilters = function (new=NULL) {
+        "\\preformatted{
+Filters applied to matrix so far, represented as text that can be read
+both by humans and computationally.
+      new - Provide new filters to apply, using the same format.
+            Designed to allow a snapshot of the filter state to be
+            reapplied to the matrix after a $reset()
+}"
+        if (!is.null(new)) {
+            err("
+ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
+")
+        }
+        setFilters
+    },
+
     is.factor = function () {
-        "TRUE if the matrix is a pseudo-factor (levels have been defined), otherwise FALSE"
+        "\\preformatted{
+TRUE if the matrix is a pseudo-factor (levels have been defined),
+otherwise FALSE
+}"
         CatMisc::is.something(lvlVal)
     },
 
     levels = function( asFactor=FALSE ) {
-        "\\preformatted{Returns factor levels, if appropriate. If not, returns NULL
+        "\\preformatted{
+Returns factor levels, if appropriate. If not, returns NULL
  asFactor - Default FALSE, which will return an ordered character vector of the
             level values (names). If true, a factor will be returned with
             appropriate levels assigned
@@ -948,7 +1479,7 @@ Converts matrix into a block of GMT-formatted text
         obj      <- obj[hasData, ]
         setNames <- rownames(obj) # Rows are sets
         memNames <- colnames(obj) # Columns are the potential members
-        descr    <- matrixMD[.(setNames), "Description"]
+        descr    <- matrixMD[.(setNames), "Description", with=FALSE]
         ns       <- length(setNames)
         out      <- character(ns)
         for (i in seq_len(ns)) {
@@ -964,31 +1495,6 @@ Converts matrix into a block of GMT-formatted text
         }
     },
 
-    ## Metadata can be held either in the comments of the MatrixMarket
-    ## file, or as a separate file with a related name. Using a
-    ## separate file is faster (roughly two fold)
-
-    ## Separate .mtx and metadata files (~3.8 sec)
-
-    ## 454.137 ms | Reading Matrix file
-    ##              MAP_HG-U219_to_EntrezGene.mtx
-    ##    2.251 s | Parsing Row names
-    ## 978.887 ms | Parsing Col names
-    ## 101.468 ms | Reading metadata file -
-    ##              MAP_HG-U219_to_EntrezGene.mtx-Metadata.tsv
-    ##            | Finished - 48867 x 20823, 0.00498% populated
-
-    ## Unified .mtx file with embdedded metadata (~8.5 sec, 31Mb file)
-
-    ##    1.049 s | Reading Matrix file
-    ##              MAP_HG-U219_to_EntrezGene.mtx
-    ##    5.251 s | Parsing Row names
-    ##    2.286 s | Parsing Col names
-    ##            | Finished - 48867 x 20823, 0.00498% populated
-
-    ## Serializing timings (3.3Mb file)
-    ##    1.569 s | Serializing matrix to file HG-U219LL-GO.mtx.rds
-    ##    1.233 s | Reading serialized matrix HG-U219LL-GO.mtx.rds
  
 
     .readMatrix = function ( format = "", ... ) {
@@ -1007,28 +1513,27 @@ Converts matrix into a block of GMT-formatted text
             if (!file.exists(file)) err(c("Can not make AnnotatedMatrix",
                                           "File does not exist : ", file),
                                         fatal = TRUE)
-            fname <- file
-            is.gz <- CatMisc::parenRegExp('(.+)\\.gz$', fname)
+            fname   <- file
+            colName <- colorize(file,"white")
+            is.gz   <- CatMisc::parenRegExp('(.+)\\.gz$', fname)
             if (!is.na(is.gz[1])) fname <- is.gz[1]
             
             if (grepl('(mtx|matrixmarket)', format, ignore.case = TRUE) ||
                 grepl('\\.mtx', fname, ignore.case = TRUE)) {
-                rv <- .readMatrixMTX( ... )
+                dateMessage(paste("Reading MatrixMarket file", colName))
+                rv <- parse_MatrixMarket_file( file )
             } else if (grepl('(txt|text)', format, ignore.case = TRUE) ||
                        any(dir.exists(file)) ||
                        grepl('\\.(txt|text|list)$',fname, ignore.case = TRUE)) {
-                dateMessage(paste("Reading simple list from text file",
-                                  colorize(file,"white")))
+                dateMessage(paste("Reading simple list from file", colName))
                 rv <- parse_Text_file( file=file, ... )
             } else if (grepl('(lol)', format, ignore.case = TRUE) ||
                        grepl('\\.(inp)$', fname, ignore.case = TRUE)) {
-                dateMessage(paste("Reading List-of-Lists",
-                                  colorize(file,"white")))
+                dateMessage(paste("Reading List-of-Lists", colName))
                 rv <- parse_ListOfLists_file( file )
             } else if (grepl('(gmt)', format, ignore.case = TRUE) ||
                        grepl('\\.(gmt)$', fname, ignore.case = TRUE)) {
-                dateMessage(paste("Reading lists from GMT file",
-                                  colorize(file,"white")))
+                dateMessage(paste("Reading lists from GMT file", colName))
                 rv <- parse_GMT_file( file=file, ... )
             } else {
                 err(c("Can not make AnnotatedMatrix - unrecognized file type: ",
@@ -1041,6 +1546,8 @@ Converts matrix into a block of GMT-formatted text
                               colorize(objFile,"white")), prefix = "  ")
             saveRDS(rv, objFile)
         }
+        if (is.null(rv)) err(c("Failed to read file:", file), fatal = TRUE)
+
         matrixRaw  <<- rv$matrix
         matrixMD   <<- rv$metadata
         if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
@@ -1053,180 +1560,12 @@ Converts matrix into a block of GMT-formatted text
         cnum       <- as.numeric(ncol(matrixRaw))
         rnum       <- as.numeric(nrow(matrixRaw))
         nnz        <- nnzero(matrixRaw)
-        actionMessage(sprintf("%d x %d matrix, %.2f%% non-zero",
-                              rnum, cnum, 100 * nnz / (cnum * rnum)),
+        pnz        <- smallNumberFormatter( nnz / (cnum * rnum) )
+        actionMessage(sprintf("%d x %d matrix, %s non-zero", rnum, cnum, pnz),
                       prefix = "  ")
         rv
     },
 
-    .readMatrixMTX = function () {
-        
-        ## Parse row and column labels out of the comments in a
-        ## MatrixMarket file. First read the file as a sparse matrix
-        dateMessage(c("Reading Matrix file", colorize(file,"white")))
-        mat <- readMM(file)
-        rv  <- list()
-        ## We will be taking a product, need to turn row/col counts to
-        ## numeric to prevent "NAs produced by integer overflow"
-        ## errors when dealing with large matrices
-        nr  <- as.numeric(nrow(mat))
-        nc  <- as.numeric(ncol(mat))
-        msg <- sprintf("%d x %d, %.3g%% populated", nr, nc,
-                       100 * nnzero(mat) / (nr * nc))
-        ## Check to see if the file includes metadata
-        ## First, find how many rows are comments
-        lastCom <- max(grep("^%", readLines(file)))
-        allCom  <- readLines(file, warn = FALSE, n = lastCom)
-        ## It is possible there are comments later in the file? That
-        ## is, we may have some non-comments in allCom
-        comChk  <- grep("^%", allCom)
-        if (length(comChk) < lastCom) allCom <- allCom[ comChk ]
-        ## Remove leading comment token and leading whitespace
-        allCom <- gsub('^%+\\s*', "", allCom)
-        ## Is a separator defined?
-        sep    <- grep("^Separator\\s+'.+'", allCom)
-        if (length(sep) == 0) {
-            sep <- NA
-        } else if (length(sep) > 1) {
-            err(c("Multiple separators defined in matrix file",
-                  file, sep), fatal = TRUE)
-        } else {
-            sep <- CatMisc::parenRegExp("Separator\\s+\\'([^\\']+)\\'", allCom[sep])
-        }
-        fac    <- grep("^LEVELS\\s+\\[.+\\]", allCom)
-        if (length(fac) == 0) {
-            fac <- NA
-        } else if (length(fac) > 1) {
-            err(c("Multiple factor levels defined in matrix file",
-                  file, fac), fatal = TRUE)
-        } else {
-            ## Not sure why "[^]]" works - I should have to escape the
-            ## internal bracket (eg "[^\\]]" but that does NOT work.
-            facDat <- CatMisc::parenRegExp("LEVELS\\s+\\[([^]]+)\\]\\[([^]]+)\\]",
-                               allCom[fac])
-            rv$levels <- unlist(base::strsplit(facDat[2], facDat[1]))
-        }
-        
-        ## Find the row and column header lines
-        rcPos <- grep("^(Row|Col) Name", allCom)
-        rcLen <- length(rcPos)
-        ## Get any defaults that have been set
-        def <- grep("^DEFAULT\\s+", allCom)
-        params <- list()
-        for (defl in def) {
-            kv <- CatMisc::parenRegExp("DEFAULT\\s+(\\S+)\\s+(\\S.*?)\\s*$", allCom[defl])
-            params[[ tolower(kv[1]) ]] <- kv[2]
-        }
-        rv$params <- params
-        parseRow <- function (x, sep = NA) {
-            ## strsplit() on spaces discards trailing spaces, which
-            ## causes problems for a space-containing metadata token
-            ## (eg the default ' :: ')when the last metadata column is
-            ## empty. So use CatMisc::parenRegExp to get the index number instead:
-
-            indDat <- CatMisc::parenRegExp("^(\\d+)\\s+(.+)", x)
-            if (is.na(sep)) {
-                ## No metadata separator defined
-                indDat
-            } else {
-                ## Split the data section on the separator
-                c(indDat[1], unlist(base::strsplit(indDat[2], sep)) )
-            }
-
-            
-            
-            ## Break on spaces to get index num at front
-            ## This is NOT vectorized, due to unlist()
-            ## s <- unlist(base::strsplit(x, "\\s+"))
-            ## Reconstitute the other data. Note if the metadata had
-            ## space runs in it, these will be collapsed to single
-            ## spaces.
-            ## m <- paste(s[-1], collapse = " ")
-            ## if (!is.na(sep)) m <- unlist(base::strsplit(m, sep))
-            ## c(s[1], m)
-        }
-
-        padRow <- function (x, len = 0) {
-            ## Make sure a vector is at least len long, padding with NAs
-            if (length(x) < len) x[len] <- NA
-            x
-        }
-        rChng <- NULL
-        cChng <- NULL
-        metadata <- data.table::data.table( id = character(), key = "id" )
-        dimNames <- list( Row = NULL, Col = NULL )
-        dimChngs <- list( Row = NULL, Col = NULL )
-        for (i in seq_len(rcLen)) {
-            ## Is this specifying Row or Col, and what are the headers?
-            targDat <- CatMisc::parenRegExp("^(\\S+)\\s+(.+?)\\s*$", allCom[rcPos[i]])
-            what    <- targDat[1] # Row / Col
-            dateMessage(sprintf("Parsing %s names", what), prefix="  ")
-            meta <- targDat[2]
-            if (!is.na(sep))
-                meta <- base::strsplit(meta, sep, fixed = TRUE)[[1]]
-            meta[1] <- "id" # Generally will be "Name", but normalize to "id"
-            ## What are the first and last coordinate rows?
-            s <- rcPos[i] + 1
-            e <- ifelse(i == rcLen, length(allCom), rcPos[i+1] - 1)
-            rows <- allCom[s:e]
-            ## Remove non-coordinate rows
-            isCoord <- grep("^\\d+\\s+\\S", rows)
-            ## Make a (possibly) ragged list
-            ragged  <- lapply(rows[ isCoord ], parseRow, sep = sep)
-            ## Find the maximum number of columns
-            maxCol  <- max(unlist(lapply(ragged, length)))
-            ## Pad and convert to character matrix
-            cmat    <- matrix(unlist(lapply(ragged, padRow, maxCol)),
-                              ncol = maxCol, byrow = TRUE)
-            tmpIndName     <- ".index."
-            colnames(cmat) <- uniqueNames(
-                c(tmpIndName, meta), paste("Metadata headers for",what))$names
-            rownames(cmat) <- uniqueNames(cmat[, "id" ])$names
-            ## The first column are indices in the sparse matrix
-            inds    <- as.integer(cmat[, 1])
-            ## The second column holds the names
-            names <- character()
-            names[ inds ] <- cmat[, 2]
-            mnn <- uniqueNames(names,paste(what, "Names"))
-            dimNames[[ what ]] <- mnn$names
-            dimChngs[[ what ]] <- mnn$changes
-            mlen <- length(meta)
-            if (mlen > 1) {
-                ## Reliably building the DT proved
-                ## non-intuitive. Using the matrix directly with
-                ## as.data.table() seems to be the most reliable
-                ## mechanism.
-
-                ## https://stackoverflow.com/a/10235618
-                ## Convert the matrix to a DT, leaving out the index column
-                tmp <- data.table::as.data.table( cmat[, -1, drop = FALSE],
-                                                 key = "id")
-                rownames(tmp) <- uniqueNames(cmat[, "id" ])$names
-                metadata <- extendDataTable(metadata, tmp)
-                ## Merged DTs don't carry over key:
-                data.table::setkeyv(metadata, "id") 
-            }
-        }
-        ## Set the dimension names
-        rdn <- params$rowdim
-        names(dimNames)[1] <- ifelse(CatMisc::is.something(rdn), rdn, "")
-        cdn <- params$coldim
-        names(dimNames)[2] <- ifelse(CatMisc::is.something(cdn), cdn, "")
-        dimnames(mat) <- dimNames
-
-        ## Now check if there are also sidecar metadata files. We will
-        ## expect them to have the same name as the MatrixMarket file,
-        ## but be additionally suffixed with
-        ## "-metadata<any-other-characters>"
-
-        metadata      <- parseMetadataSidecar( file, metadata )
-        rv$matrix     <- mat
-        rv$metadata   <- metadata
-        rv$colChanges <- dimChngs$Col
-        rv$rowChanges <- dimChngs$Row
-        rv
-     },
-    
      metadata_keys = function ( id = NULL, key = NULL) {
         "\\preformatted{
 Returns a character vector of metadata key names (eg 'Description')
@@ -1256,12 +1595,15 @@ Select metadata by id, key or both
         if (is.null(id) && is.null(key)) return( matrixMD )
         if (!is.null(key)) {
             ## data.table is unhappy if asked for non-existent columns
-            unknown <- setdiff(key, metadata_keys())
+            mkeys   <- metadata_keys()
+            key     <- base::setdiff(key, "id") # Initially assure id is not present
+            unknown <- base::setdiff(key, mkeys)
             if (length(unknown) > 0) {
-                key <- intersect(key, metadata_keys())
+                key <- intersect(key, mkeys)
                 if (verbose) err(c("Request for unknown metadata key(s):",
                                    unknown))
                 if (length(key) == 0) {
+                    ## No more keys survive. Are we done here?
                     key <- NULL
                     if (is.null(id)) return( rv )
                 }
@@ -1269,35 +1611,42 @@ Select metadata by id, key or both
             ## Make sure the id column is included
             useKey <- c("id", key)
         }
-        ## data.table does *not* like numeric keys...
+        ## data.table does *not* like numeric keys... They're treated
+        ## as (fluid) row numbers
         if (!is.null(id)) id <- as.character(id)
 
         if (is.null(id)) {
             ## Key request only
-            rv <- matrixMD[ , useKey, with = FALSE ]
+            rv <- matrixMD[ , useKey, with=FALSE ]
             if (na.rm) {
                 ## Remove null rows. Find NA values in columns:
-                naCol <- sapply(key, function(x) is.na( rv[[ x ]] ) )
+                naCol <- sapply(useKey, function(x) is.na( rv[[ x ]] ) )
                 ## And now find rows that are all() NAs:
                 naRow <- apply(naCol, 1, all)
-                ## ... and remove them:
-                rv <- rv[ naRow, ]
+                if (any(naRow)) {
+                    ## ... and if any columns are all NAs, remove them:
+                    rv <- rv[ !naRow, ]
+                    ## Ok to use logicals when subsetting data.table *rows*
+                }
             }
         } else if (is.null(key)) {
-            ## ID request only
-            rv <- matrixMD[ id, , with = FALSE ]
+            ## ID request only. Do not use with=FALSE !
+            rv <- matrixMD[ id,  ]
             if (na.rm) {
                 ## Remove null columns. Find NA values in columns:
                 cols   <- colnames(rv)
                 naCol1 <- sapply(cols, function(x) is.na( rv[[ x ]] ) )
                 ## And then columns that are all null:
                 naCol2 <- apply(naCol1, 2, all)
-                ## ... and remove them:
-                rv <- rv[ , naCol2 ]
+                if (any(naCol2)) {
+                    ## ... and if any columns are all NAs, remove them:
+                    rv <- rv[ , which(!naCol2), with=FALSE ]
+                    ## Must use column indices or names, and must use with=F !
+                }
             }
         } else {
             ## Both
-            rv <- matrixMD[ id, useKey, with = FALSE ]
+            rv <- matrixMD[ id, useKey, with=FALSE ]
             ## We will not remove either rows or columns, since both
             ## were explicitly requested
         }
@@ -1306,7 +1655,7 @@ Select metadata by id, key or both
         if (drop && length(cns) <= 2) {
             names <- rv[[ "id" ]]
             if (length(cns) == 1) {
-                ## Big batch of nothing
+                ## Big batch of nothing (no metadata cols)
                 rv <- setNames(rep(NA, length(names)), names)
             } else {
                 ## What metadata column do we have?
@@ -1314,6 +1663,7 @@ Select metadata by id, key or both
                 rv   <- setNames(rv[[ mCol[1] ]], names)
             }
         }
+        rv
     },
 
     getRow = function ( x = NA, format = "vector", sort = NA,
@@ -1436,61 +1786,92 @@ Select metadata by id, key or both
 
     show = function (...) { cat( .self$matrixText(...) ) },
 
-    matrixText = function ( pad = "", useObj = NULL, fallbackVar = NULL,
-                          compact = FALSE, color=NULL ) {
+    matrixText = function ( pad = "", useObj=NULL, fallbackVar=NULL,
+                          compact=FALSE, color=NULL ) {
         if (is.null(color)) color <- useColor() # Use EventLogger setting
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         ## Variable name for use in sample methods
         objName <- .self$.selfVarName("myMatrix", fallbackVar)
+        whtName <- doCol(objName, "white")
         msg <- doCol(sprintf("%s sparse matrix\n", class(.self)[1]), "blue")
         ## Even if we read the file from RDS, we will base the
         ## reported age on the original data file (if available)
         src <- ifelse(file.exists(file), file, sprintf("%s.rds", file))
         age <- sprintf("%.1f",difftime(Sys.time(),file.mtime(src),units="days"))
-        msg <- sprintf("%s  Source: %s%s [%s days old]\n",
+        msg <- sprintf("%s    File: %s%s [%s days old]\n",
                        msg, doCol(file, "white"),
                        ifelse(fromRDS, doCol('.rds', "purple"),""),
                        doCol(age,"red"))
-        if (is.factor() && !compact) {
-            ## Report the factor levels
-            indent <- "\n      ";
-            lvl <- paste(doCol(strwrap(paste(lvlVal, collapse = ', '),
-                                          width = 0.7 * getOption("width")),
-                                  "purple"), collapse = indent)
-            msg <- sprintf("%s    %s%s%s\n", msg, doCol(
-                "Values are factors:", "yellow"), indent, lvl)
-        }
-        mNm <- attr(matrixRaw, "matrixName")
         name <- param("name")
         if (CatMisc::is.something(name))
-            msg <- sprintf("%s    Name: \"%s\"\n", msg, doCol(name, "white"))
-        desc <- param("description")
-        if (CatMisc::is.something(desc) && !compact)
-            msg <- sprintf("%s    Desc: %s\n", msg, doCol(desc, "white"))
+            msg <- sprintf("%s    Name: %s\n", msg, doCol(name, "white"))
+        if (!compact) {
+            src <- param("source")
+            if (CatMisc::is.something(src))
+                msg <- paste(msg, sprintf("  Source: %s\n", doCol(src,"white")),
+                             collapse='', sep='')
+            
+            desc <- param("description")
+            if (CatMisc::is.something(desc))
+                msg <- paste(msg, sprintf("    Desc: %s\n",doCol(desc,"white")),
+                             collapse='', sep='')
+            
+            sd <- param("scoredesc")
+            if (CatMisc::is.something(sd))
+                msg <- paste(msg, sprintf("  Scores: %s\n", doCol(sd, "white")),
+                             collapse='', sep='')
+            
+            if (is.factor()) {
+                ## Report the factor levels
+                indent <- "\n      ";
+                lvl <- paste(doCol(strwrap(paste(lvlVal, collapse = ', '),
+                                           width = 0.7 * getOption("width")),
+                                   "purple"), collapse = indent)
+                msg <- sprintf("%s    %s%s%s\n", msg, doCol(
+                      "Values are factors:", "yellow"), indent, lvl)
+            }
+        }
         
         ## If an external "used" matrix is not provided, use internal field:
-        if (!CatMisc::is.def(useObj)) useObj <- matrixUse
-        dimNames <- names(dimnames(matrixRaw))
-        mat <- if (is.null(useObj)) { matrixRaw } else { useObj }
-        nr  <- as.numeric(nrow(mat))
-        nc  <- as.numeric(ncol(mat))
-        nz  <- nnzero(mat)
-        msg <- sprintf("%s  %8d %s", msg, nr, ifelse(CatMisc::is.something(
-            dimNames[1]),dimNames[1],"rows"))
-        rN  <- rownames(mat)
-        if (CatMisc::is.def(rN))
-            msg <- sprintf("%s eg: %s", msg, doCol(substr(paste(rN[1:pmin(3,length(rN))], collapse = ', '), 1, 60), "cyan"))
-        
-        msg <- sprintf("%s\n  %8d %s", msg, nc, ifelse(CatMisc::is.something(
-            dimNames[2]),dimNames[2],"cols"))
-        cN  <- colnames(mat)
-        if (CatMisc::is.def(cN))
-        msg <- sprintf("%s eg: %s", msg, doCol(substr(paste(cN[1:pmin(3,length(cN))], collapse = ', '), 1, 60), "cyan"))
+        mat  <- if (is.null(useObj)) { matObj() } else { useObj }
+        dimNames <- names(dimnames(mat))
+        popr <- populatedRows(mat)
+        nr   <- as.numeric( sum(popr) )
+        popc <- populatedCols(mat)
+        nc   <- as.numeric( sum(popc) )
+        nz   <- nnZero(mat)
 
-        perPop <- sprintf("%.3g%%", 100 * nz / (nr * nc))
-        msg <- sprintf("%s\n  %d non-zero cells (%s)", msg, nz,
-                       doCol(perPop, "red"))
-        msg <- sprintf("%s\n", msg)
+        ## Note number, namespace and examples for rows:
+        rdn  <- dimNames[1]
+        rN   <- rownames(mat)[popr]
+        rblk <- sprintf("  %8d", nr)
+        if (CatMisc::is.something(rdn)) rblk <- paste(rblk, doCol(rdn, "cyan"))
+        rblk <- paste(rblk, "rows")
+        unpr <- sum(!popr)
+        if (unpr > 0) rblk <- paste(rblk, sprintf("(+%d empty)", unpr))
+        rblk <- paste(rblk, "eg:",
+                      doCol(substr(paste(rN[1:pmin(3,length(rN))],
+                                         collapse=', '), 1, 60), "cyan"))
+        msg <- paste(msg, rblk, "\n", sep='')
+
+        ## Note same for columns:
+        cdn  <- dimNames[2]
+        cN   <- colnames(mat)[popc]
+        cblk <- sprintf("  %8d", nc)
+        if (CatMisc::is.something(cdn)) cblk <- paste(cblk, doCol(cdn, "cyan"))
+        cblk <- paste(cblk, "rows")
+        unpc <- sum(!popc)
+        if (unpc > 0) cblk <- paste(cblk, sprintf("(+%d empty)", unpc))
+        cblk <- paste(cblk, "eg:",
+                      doCol(substr(paste(cN[1:pmin(3,length(cN))],
+                                         collapse=', '), 1, 60), "cyan"))
+        msg <- paste(msg, cblk, "\n", sep='')
+
+        ## Note number of non-zero cells
+        perPop <- smallNumberFormatter( nz / (nr * nc))
+        msg <- paste(msg, sprintf("  %d non-zero cells (%s)\n", nz,
+                                  doCol(perPop, "red")))
+
         ## Note if we had to remap one or more R/C names
         changed <- character()
         if (CatMisc::is.def(rowChanges)) changed <- c(changed, doCol(
@@ -1502,23 +1883,24 @@ Select metadata by id, key or both
                       "%s    %s names needed to be altered.\n",
                       msg, paste(changed, collapse = " and "))
         
-        if (!is.null(useObj)) {
+        if (!is.null(matrixUse)) {
             ## Show stats for raw matrix
             ## Numeric conversion to prevent integer overflow on product
-            rnr <- as.numeric(nrow(matrixRaw))
-            rnc <- as.numeric(ncol(matrixRaw))
-            rnz <- nnzero(matrixRaw)
-            rpp <- sprintf("%.3g%%", 100 * rnz / (rnr * rnc))
+            rnr <- as.numeric( sum(populatedRows(matrixRaw)) )
+            rnc <- as.numeric( sum(populatedCols(matrixRaw)) )
+            rnz <- nnZero(matrixRaw)
+            rpp <- smallNumberFormatter( rnz / (rnr * rnc) )
             ## Note the percent change for Use/Raw
             rcD <- doCol(sprintf("%.1f%%x%.1f%%", 100 * nr/rnr,
                                     100 * nc / rnc), "yellow")
-            rzD <- doCol(sprintf("%.1f%%", 100 * nz / rnz), "yellow")
-            msg <- sprintf("%s  %s : %d x %d (%s), %d non-zero (%s; %s survive)\n",
+            rzD <- smallNumberFormatter( nz / rnz )
+            msg <- sprintf("%s  %s : %d x %d (%s), %d non-zero (%s; %s survive filters)\n",
                            msg, doCol("[Raw Matrix]", "red"), rnr, rnc, rcD,
-                           rnz, doCol(rpp, "red"), rzD)
+                           rnz, doCol(rpp, "red"), doCol(rzD, "yellow"))
         }
         mdRow <- ifelse(is.null(matrixMD), 0, nrow(matrixMD))
         if (mdRow != 0 && !compact) {
+            ## Sample metadata values
             mcols <- metadata_keys()
             msg   <- paste(c(msg, doCol(sprintf("  %d IDs have metadata assigned in up to %d keys, eg:\n", mdRow, length(mcols)), "blue"), collapse = ""))
             for (mcol in mcols) {
@@ -1527,244 +1909,126 @@ Select metadata by id, key or both
                 rowNum <- which(notNA)[1]
                 ## OMG ITS SO PAINFUL JUST TO GET A VECTOR
                 exid  <- as.character(matrixMD[ rowNum, "id", with=FALSE][[1]])
-                exval <- matrixMD[ exid, mcol, with = FALSE][[1]]
-                mline <- sprintf('    %s$metadata(key="%s", id="%s") > "%s"\n',
-                                 doCol(objName, "white"),
-                                 doCol(mcol,"red"),
+                exval <- matrixMD[ exid, mcol, with=FALSE][[1]]
+                mline <- sprintf('    %s$metadata(key="%s", id="%s") # %s\n',
+                                 whtName, doCol(mcol,"red"),
                                  doCol(exid, "cyan"),
                                  doCol(exval, "magenta"))
                 msg <- paste(c(msg, mline), collapse ="")
             }
         }
+        if (!compact) msg <- paste(msg, sprintf("%s$help() %s\n", whtName,
+              doCol("# Get more help about this object", "yellow")),
+                             collapse='', sep='')
         ## Left pad if requested
         if (CatMisc::is.def(pad)) msg <-
             paste(c(sprintf("%s%s", pad, unlist(base::strsplit(msg, "\n"))),
                     "\n"), collapse = "\n")
         ## Ending up with extraneous newlines at end
         sub("\n+$", "\n", msg)
+    },
+
+    help = function (color=NULL) {
+        "\\preformatted{
+Show compact help information about the object
+      color - Should output be colorized. Default NULL, which checks
+              $color()
+}"
+        if (is.null(color)) color <- useColor() # Use EventLogger setting
+        doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
+        objName <- .self$.selfVarName("myMatrix")
+        whtName <- doCol(objName, "white")
+        comCol  <- "yellow"
+
+        txt <- sprintf("
+?AnnotatedMatrix   %s
+%s                 %s
+str(%s, max.lev=3) %s
+
+%s
+%s$map( inputIDs ) %s
+
+%s
+%s$autoFilter()                %s
+%s$filterByScore(min,max)      %s
+%s$filterByFactorLevel(levels) %s
+%s$filterByMetadata(key,val)   %s
+%s$rNames(rowNames)            %s
+%s$cNames(colNames)            %s
+%s$filterSummary()             %s
+%s$appliedFilters()            %s
+%s$reset()                     %s
+
+%s
+%s$metadata_keys()   %s         
+%s$metadata(id, key) %s
+
+",
+
+doCol("# Built-in documentation on the class", comCol),
+whtName, doCol("# Summary report of the object", comCol),
+whtName, doCol("# Inspect the object structure", comCol),
+
+doCol("### Primary operation",comCol),
+whtName, doCol("# Pivot inputIDs from one matrix dimension to other", comCol),
+
+doCol("### Filtering the matrix",comCol),
+whtName, doCol("# Apply default filters (from file)", comCol),
+whtName, doCol("# Remove cells failing min and/or max score limits", comCol),
+whtName, doCol("# Keep (or discard) only certain factor levels", comCol),
+whtName, doCol("# Discard rows/cols with matching metadata values", comCol),
+whtName, doCol("# Restrict/reorder rownames", comCol),
+whtName, doCol("# Restrict/reorder colnames", comCol),
+whtName, doCol("# Summarize number of removed rows/cols", comCol),
+whtName, doCol("# Text-representation of filters applied so far", comCol),
+whtName, doCol("# Reset all filters", comCol),
+
+doCol("### Metadata methods", comCol),
+whtName, doCol("# Vector of all metadata keys (tagnames)", comCol),
+whtName, doCol("# Query metadata for ids and/or keys", comCol)
+
+)
+
+        txt <- c(txt, doCol("### Other object methods\n", comCol))
+        cmds <- list(
+            showParameters = "Show currently set parameters",
+            showLog        = "Show events and timing",
+            nnZero         = "Number of non-zero cells",
+            rCounts        = "Row counts = non-zero columns per each row",
+            cCounts        = "Col counts = non-zero rows per each column",
+            rNames         = "With no parameters, show current rownames",
+            cNames         = "With no parameters, show current colnames",
+            populatedRows  = "Logical vector of rows with non-zero data",
+            populatedCols  = "Logical vector of columns with non-zero data",
+            removeEmptyRows = "Prune matrix to remove empty rows",
+            removeEmptyCols = "Prune matrix to remove empty cols",
+            removeEmpty    = "Remove both empty rows and cols",
+            'is.factor'    = "TRUE if matrix is treated as a factor",
+            'as.gmt'       = "Dump current matrix to GMT text format",
+            color          = "Toggle use of crayon (colorized output)",
+            show           = "Pretty-print function, auto-invoked by object"
+            )
+        for (cmd in names(cmds)) {
+            txt <- c(txt, sprintf("%s$%s() %s\n", whtName, cmd,
+                                  doCol(paste("#",cmds[[cmd]]), comCol)))
+        }
+        txt <- c(txt, "\n", doCol("### Object fields\n", comCol))
+        fields <- list(
+            file       = "Path to the matrix source file",
+            matrixRaw  = "Un-filtered sparse matrix as loaded from file",
+            matrixUse  = "Sparse matrix after filtering (null if no filters)",
+            lvlVal     = "Level names for factor matrices",
+            filterLog  = "All filtered-out rows/columns, as a data.frame",
+            matrixMD   = "Metadata data.table, both rows and columns",
+            rowChanges = "Named vector of any row names that needed alteration",
+            colChanges = "Named vector of any col names that needed alteration"
+            )
+        for (field in names(fields)) {
+            txt <- c(txt, sprintf("%s$%s %s\n", whtName, field,
+                                  doCol(paste("#",fields[[field]]), comCol)))
+        }
+        message(paste(txt, collapse='', sep=''))
+        invisible(NULL)
     }
     
 )
-
-### - Functions - ###
-
-#' Take Lowest Thing
-#'
-#' From a list of strings, take the lowest/smallest thing
-#'
-#' @details
-#'
-#' This is a desperation function and should only be used when you
-#' have a character vector and absolutely must reduce it to
-#' "one thing" but you have no real mechanism to do so. It was
-#' designed to address requests to reduce a list of gene accessions
-#' (eg LOC13992, LOC93) to "one gene", but without any other guiding
-#' context. The function will extract the left-most uninterupted
-#' integer that it can find, and pick the smallest. The rationale is
-#' that "LOC93" was probably annotated earlier (longer ago) than
-#' "LOC13200423", and as such is probably the "more common" /
-#' "better annotated" / "more popular" of the two.
-#'
-#' @param x A character vector of strings to pick from
-#'
-#' @return A single string
-#'
-#' @examples
-#'
-#' x <- c("LOC828221", "LOC1234", "LOC39", "HUH?", "LOC39-BETA", "LOC99.243-X")
-#' takeLowestThing(x)
-#' 
-#' @export
-
-takeLowestThing <- function (x) {
-    ## Grab the 'first' full integer out of each string:
-    nums <- as.integer(gsub('[^0-9].*', '', gsub('^[^0-9]+', '', x)))
-    ## Which one(s) are the smallest?
-    inds <- which(nums == min(nums, na.rm=TRUE))
-    ## Sort (alphabetically) and return the 'smallest'
-    sort(x[inds])[1]
-}
-
-#' Unique Names
-#'
-#' Wrapper for make.names and make.unique, with reporting of changes
-#'
-#' @param names Required, a character vector of the names to process
-#' @param rpt Default NULL. If not NULL, will report to STDERR any
-#'     changes that were required. The value of rpt will be used as a
-#'     noun in the message (ie if rpt='gene' the message will be of
-#'     the form "6 genes required alteration: "...)
-#' @param valid Default FALSE, whch will utilize make.unique. If TRUE,
-#'     then make.names( unique=TRUE) will be used instead
-#' @param verbose Default TRUE, which will emit a warning if any names
-#'     needed to be changed
-#'
-#' @return
-#'
-#' A list with two components: "names", the vector of (possibly)
-#' transformed names, and "changes", a named vector where the names
-#' are the new names and the values are the original ones (will only
-#' include altered names)
-#'
-#' @examples
-#'
-#' foo <- c("Apple","Banana","Cherry","Apple")
-#' uniqueNames(foo, rpt="IDs")
-#'
-#' @importFrom crayon bgCyan
-#' 
-#' @export
-
-uniqueNames <- function(names = character(), rpt = NULL,
-                         valid = FALSE, verbose=TRUE ) {
-    ## Normalize names for rows/columns, and also record (and
-    ## optionally report) any differences
-    goodNames <- NULL
-    if (valid) {
-        ## Also make the names valid
-        goodNames <- make.names( names, unique = TRUE )
-    } else {
-        goodNames <- make.unique( names )
-    }
-    changes   <- NULL
-    if (!identical(names, goodNames)) {
-        ## Some changes were made. Note them as a (good)named subset
-        diff    <- goodNames != names
-        changes <- setNames(names[diff], goodNames[diff])
-        if (!is.null(rpt) && verbose) {
-            ## Note the changes to STDERR
-            num <- sum(diff)
-            msg <- crayon::bgCyan(paste(num,rpt,"required alteration"))
-            if (num <= 20) msg <- c(msg, vapply(seq_len(length(changes)),
-                   function (i) {
-                       sprintf("  '%s' -> '%s'",changes[i],
-                               names(changes)[i])
-                   }, ""))
-            message(msg, collapse = "\n")
-        }
-    }
-    list( names = goodNames, changes = changes )
-}
-
-#' Make Temp File
-#'
-#' Internal method to help manage example files in extdata/
-#'
-#' @details
-#'
-#' When matrix files are loaded, a .rds version is generated to aid in
-#' rapid loading in the future. These files are made alongside the
-#' original flat file. This could cause problems if the file is from
-#' inst/extdata, so this method takes a requested file and copies it
-#' to a temporary location before loading.
-#'
-#' @param name Required, the basename of the file
-#'
-#' @examples
-#'
-#' tmpFile <- AnnotatedMatrix::.makeTempFile("Symbol-To-Gene.mtx")
-#'
-
-.makeTempFile <- function(name) {
-    srcDir <- path.package("AnnotatedMatrix")
-    ## When developing with the uncompressed R package, extdata is
-    ## still inside inst/ - detect this scenario and accomodate it:
-    if (file.exists(file.path(srcDir, "inst")))
-        srcDir <- file.path(srcDir, "inst")
-    srcDir <- file.path(srcDir, "extdata")
-    tmpDir <- tempdir()
-    src    <- file.path(srcDir, name)
-    if (!file.exists(src)) stop("Failed to identify source file: ", src)
-    trg <- NA
-    if (dir.exists(src)) {
-        ## Source is a directory, set target to the tmp parent
-        trg <- tmpDir
-        file.copy(src, tmpDir, recursive=TRUE)
-    } else {
-        ## Basic file
-        trg <- file.path(tmpDir, name) 
-        file.copy(src, trg)
-    }
-    sfx    <- gsub('.+\\.', '', name)
-    for (sc in sidecarFiles( src )) {
-        ## Copy sidecars, too
-        file.copy(sc, file.path(tmpDir, basename(sc) ))
-    }
-    trg
-}
-
-#' Extend Data Table
-#'
-#' Append both new rows and new columns from one data.table to another
-#'
-#' @details
-#'
-#' Designed to grow the metadata data.table as both new rows and
-#' columns are added, while keeping both rows and columns
-#' distinct. There may be a more elegant way to do this with native
-#' data.table methods, but I haven't found it, and not for want of
-#' trying.
-#'
-#' Bad things can happen with data.tables if the key column is an
-#' integer - when subsetting, these will generally be interpreted as
-#' row numbers, which will oftenot correlate to the rows holding the
-#' anticipated value, and are also fluid depending on the key(s) being
-#' set on the DT (and perhaps on prior operations?) For this reason,
-#' the key should be a column of type character.
-#'
-#' @param x Required, the 'target' data.table
-#' @param y Required, the 'source' data.table, which will be added to
-#'     or over-write the corresponding rows/columns in x
-#' @param key Default 'id', the column to merge on
-#'
-#' @return A new data.table with new rows and columns merged. Will not
-#'     alter input values.
-#'
-#' @examples
-#'
-#' library('data.table')
-#' ## Again, the key column should be character mode
-#' dt1 <- data.table(a = c("1","2","3"), b = c("apple","banana", "cherry"),
-#'                   key='a')
-#' dt2 <- data.table(a = c("2","4","5"), b = c("BLUEBERRY","DATE","EGGPLANT"),
-#'                   c = c("beep","ding","eek"), key='a')
-#' extendDataTable(dt1, dt2, key='a')
-#'
-#' @importFrom data.table rbindlist setkeyv copy
-#' @export
-
-extendDataTable <- function (x, y, key='id') {
-    ## Find IDs that are already represented
-    oldIds <- base::intersect( y[[key]], x[[key]] )
-    if (length(oldIds) != 0) {
-        ## Add in or update columns for rows that already exist
-
-        ## The update of the rows using rbindlist will generate a
-        ## derived object, but altering columns in the manner below
-        ## will alter the reference pointed to by x. So we will make a
-        ## copy of x to be consistent in behavior (leaving input
-        ## untouched):
-        x <- data.table::copy(x)
-        for (col in colnames(y)) {
-            if (col == key) next
-            newVals <- y[ oldIds, col, with=FALSE ]
-            ## DO WE WANT TO HANDLE NAs SPECIAL?
-            ## That is, do we want to NOT overwrite existing values in x
-            ## when the y value is NA?
-            ## I don't think so ... so fully slotting y into x for these rows
-            x[ oldIds, col ] <- newVals
-        }
-    }
-    ## Find any new IDs:
-    newIds <- base::setdiff( y[[key]], x[[key]] )
-    if (length(newIds) != 0) {
-        ## Append the new rows in bulk
-        x <- data.table::rbindlist(list(x, y[newIds, , on=key]),  
-                                   fill = TRUE, use.names = TRUE)
-        data.table::setkeyv(x, key)
-    }
-
-    ## The update of the columns (oldIds) should be "in place", but
-    ## the rows (newIds) will create a new data.table. Return the result
-    x
-}

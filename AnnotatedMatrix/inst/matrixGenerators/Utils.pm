@@ -300,25 +300,39 @@ sub _mtx_comment_block {
 sub _initial_mtx_block {
     my ($what, $rnum, $cnum, $nznum, 
         $name, $desc,
-        $rnm, $rlnk, $cnm, $clnk, $rowAdj) = @_;
+        $rnm, $rlnk, $cnm, $clnk, $rowAdj, $src) = @_;
     ## Additional adjective describing row namespace (eg a species name)
     $rowAdj = $rowAdj ? "$rowAdj " : "";
-    return "%%MatrixMarket matrix coordinate real general
+    my $rv = "%%MatrixMarket matrix coordinate real general
 % $what relating ${rowAdj}${rnm}s to ${cnm}s
 % $rnum x $cnum sparse matrix with $nznum non-zero cells
-% -- The 'AnnotatedMatrix' package can parse these comments to decorate the matrix --
+% -- The 'AnnotatedMatrix' R package can parse these comments to decorate
+%    the matrix:   myMatrix <- AnnotatedMatrix('path/to/this/file')
 % Separator '$mtxSep'
 %
 %% DEFAULT Name $name
 %% DEFAULT Description $desc
 %
-% Rows are ${rnm}s
-%% DEFAULT RowDim $rnm
-%% DEFAULT RowUrl $rlnk
-% Columns are ${cnm}s
-%% DEFAULT ColDim $cnm
-%% DEFAULT ColUrl $clnk
 ";
+    $rv .= "% Rows are ${rnm}s
+%% DEFAULT RowDim $rnm\n" if ($rnm);
+    $rv .= "%% DEFAULT RowUrl $rlnk\n" if ($rlnk);
+
+    $rv .= "% Columns are ${cnm}s
+%% DEFAULT ColDim $cnm\n" if ($cnm);
+    $rv .= "%% DEFAULT ColUrl $clnk\n" if ($clnk);
+    
+    if ($src) {
+        my $r = ref($src);
+        if ($r && $r eq 'ARRAY') {
+            my $arrSep = ' // ';
+            $src = "[$arrSep][".join($arrSep,@{$src}).']';
+        }
+        $rv .= "%
+% Data source(s):
+%% DEFAULT Source $src\n";
+    }
+    return $rv;
 }
 
 sub _rowcol_meta_comment_block {
@@ -332,14 +346,12 @@ sub _rowcol_meta_comment_block {
 
 sub gene_symbol_stats_block {
     my ($symbols, $ids, $lvls, $scH) = @_;
-    my $comText = &_factor_map_block( $lvls, $scH, "Nomenclature Status");
 
     my (@counts, %statuses, %oddChar);
     foreach my $sdat (values %{$symbols}) {
         my $ngene = ($#{$sdat->{hits}} + 1) / 2;
         $counts[$ngene < 10 ? $ngene : 10 ]++;
     }
-    $comText .= &_mtx_comment_block("", "'UnofficialPreferred' is simply the first Unofficial symbol listed when no Official symbols are available. It holds no special significance and is provided to allow for one symbol to be recovered consistently for loci that lack an Official symbol. Total status counts for this file:","");
 
     my $offSc    = $scH->{uc("Official")};
     my $offAndUn = 0;
@@ -377,15 +389,18 @@ sub gene_symbol_stats_block {
             }
         }
     }
-    # Basic statistics commentary
-    foreach my $stat (sort { $statuses{$b} <=> $statuses{$a} } keys %statuses) {
-       $comText .= sprintf("%% %20s : %6d (score %s)\n", $stat, $statuses{$stat},
-               $scH->{uc($stat)} || "??");
-    }
-   $comText .= sprintf("%% %20s : %6d (Both Official and something else)\n",
+
+    my $comText = &_factor_map_block( $lvls, $scH, "Nomenclature Status", 
+                                      undef, \%statuses );
+    $comText .= &_mtx_comment_block("", "'UnofficialPreferred' is simply the first Unofficial symbol listed when no Official symbols are available. It holds no special significance and is provided to allow for one symbol to be recovered consistently for loci that lack an Official symbol.");
+    # Summary stats:
+    if ($offAndUn || $multiOff) {
+        $comText .= &_mtx_comment_block( "Symbols with multiple statuses:","");
+        $comText .= sprintf("%% %20s : %6d (Both Official and something else)\n",
            "Official + Not", $offAndUn) if ($offAndUn);
-   $comText .= sprintf("%% %20s : %6d ('Official' for 2+ genes! BAD!)\n",
+        $comText .= sprintf("%% %20s : %6d ('Official' for 2+ genes! BAD!)\n",
            "Multiple Official", $multiOff) if ($multiOff);
+    }
 
     $comText .= &_mtx_comment_block("", $bar, "",
 "CAUTION: Some symbols have case/capitalization subtleties. While there are often historical reasons for these case decisions, attempting to extract information from a gene symbol's case is about as reliable as determining the contents of a wrapped present by listening to the noises it makes when shaken. If you are pivoting data from symbols (rather than accessions) you're already working at a significant disadvantage:",
@@ -457,25 +472,46 @@ sub _factorize_levels {
 
 ## Generates the MTX comment block that encodes factor levels
 sub _factor_map_block {
-    my ($factorNames, $valueMap, $what, $comments) = @_;
+    my ($factorNames, $valueMap, $what, $comments, $counts) = @_;
     my $rv = "%
 % $bar
 %
 %% Values should be treated as factors representing $what:
 ";
 
-    my $top = "%% ------     ";
+    my $cnt = "%% Count:     ";
+    my $top = "%% Index:     ";
     my $bot = "%% LEVELS [,][";
     for my $li (0..$#{$factorNames}) {
         my $l = $factorNames->[$li];
         my $v = $valueMap->{uc($l)};
-        $l .= ',' unless ($li == $#{$factorNames});
+        my $fmt = '%'.CORE::length($l).'s';
+        unless ($li == $#{$factorNames}) {
+            $l   .= ',';
+            $fmt .= ' ';
+        }
         $bot .= $l;
-        $top .= sprintf('%-'.CORE::length($l).'s', $v);
+        $top .= sprintf($fmt, $v);
+        $cnt .= sprintf($fmt, $counts ? 
+                        $counts->{$factorNames->[$li]} || "" : "");
     }
+    $rv .= "$cnt\n" if ($counts);
     $rv .= "$top\n";
     $rv .= "$bot]\n";
     map { $rv .= "%% $_\n" } @{$comments} if ($comments);
+    return $rv;
+}
+
+sub _filter_block {
+    my $filt = shift;
+    my $rv = &_mtx_comment_block("", $bar, "", "Default Automatic Filters",
+ "These parameters define filters that will be automatically applied when the matrix is loaded, unless you set autofilter=FALSE. You can also undo them by calling \$reset() after loading", "");
+    
+    foreach my $key (sort keys %{$filt}) {
+        my $v = $filt->{$key};
+        next if (!$v && $v ne '0');
+        $rv .= sprintf("%%%% DEFAULT %s %s\n", $key, $v);
+    }
     return $rv;
 }
 
