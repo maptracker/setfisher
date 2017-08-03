@@ -8,7 +8,7 @@ a Matrix:: 'dgTMatrix' sparse matrix, or NULL if no filters
     have been applied
 }
 \description{
-Internal field holding the filtered Matrix object
+Internal AnnotatedMatrix field holding the filtered Matrix object
 }
 \details{
 This AnnotatedMatrix object field is \code{NULL} if no filters have

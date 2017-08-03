@@ -9,6 +9,30 @@
 Annotated sparse matrix for capturing query lists, identifier
 mappings and ontology lookups
 }
+\details{
+\preformatted{
+## Object creation
+AnnotatedMatrix( help=FALSE ) # Show this help
+
+myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
+
+myAnnMat$help()                 # High-level help
+myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
+}
+
+AnnotatedMatrix is a heavy wrapper around the Matrix package, in
+particular the sparse matrix dgTMatrix class. It was built with an
+eye toward using the MatrixMarket file format, an efficient but
+unfortunately simple (no structured annotation) file format. This
+package will parse information from the comments ('%') of
+MatrixMarket files to generate rich objects for enhanced filtering
+and reporting.
+
+The driving motivation for the package is to support enrichment
+analysis (Fisher's exact test) in a reproducible research
+framework. The package is also very well suited for identifier
+mapping (for example, gene symbols to gene accessions).
+}
 \section{Fields}{
 
 \describe{
@@ -64,24 +88,7 @@ Converts matrix into a block of GMT-formatted text
               path
 }}
 
-\item{\code{autoFilter(recursive = TRUE, verbose = TRUE)}}{\preformatted{
-Will apply filters based on certain parameters. The method is called
-automatically on object instantiation, but can be called manually as
-well. Parameters will generally be set as part of the source data file.
-
-  recursive - Default TRUE, which will result in autoFilter being
-              recursively called until no further changes are made.
-              This can be relevant with row (or column) count filters,
-              where rows that pass on one iteration fail on another,
-              due to zero-ed out cells that previously enabled a count
-              to pass.
-    verbose - Default TRUE, will print a message of how many cells have
-              been affected.
-
-Recognized parameters:
-   MinScore   MaxScore
-   KeepLevel  TossLevel
-}}
+\item{\code{autoFilter(recursive = TRUE, verbose = TRUE, help = FALSE)}}{Automatically apply filters defined in the parameters}
 
 \item{\code{cCounts(obj = NULL, ...)}}{\preformatted{
 Return an integer vector of non-zero rows for each column
@@ -90,17 +97,7 @@ Return an integer vector of non-zero rows for each column
               desired)
 }}
 
-\item{\code{cNames(new = NULL, raw = FALSE, reason = NA)}}{\preformatted{
-Returns the column names of the Matrix
-      new - Optional new set of column names. Normally used to re-order columns.
-            Will be treated as a filter if any columns are excluded
-      raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be used, if available - otherwise the original
-            raw matrix will be used.
-   reason - Default NA; If specified, a text value that will be added to
-            the $filterLog under the 'reason' column if any columns end up
-            removed or added (added columns will be all zeros)
-}}
+\item{\code{cNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set colnames for the matrix}
 
 \item{\code{filterByFactorLevel(x, keep = TRUE, ignore.case = TRUE,
   filterEmpty = FALSE, reason = NA)}}{\preformatted{
@@ -179,7 +176,7 @@ Returns factor levels, if appropriate. If not, returns NULL
   keep.best = FALSE, column.func = max, collapse = NULL,
   collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
   collapse.factor = NULL, integer.factor = FALSE, add.metadata = TRUE,
-  warn = TRUE, append.to = NULL, append.col = 1L)}}{\preformatted{
+  warn = TRUE, append.to = NULL, append.col = 1L, help = FALSE)}}{\preformatted{
 Provide a list of IDs, and map/pivot it from one dimension of the matrix
 to the other, following 'connections' defined by non-zero cells. Returns
 a data.frame with Input and Output columns, plus Score and/or Factor columns.
@@ -249,7 +246,7 @@ unaltered rowname.
               can provide another column number or name.
 }}
 
-\item{\code{matObj(raw = FALSE, transpose = FALSE)}}{See help('matObj', 'AnnotatedMatrix') for detailed usage}
+\item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 
 \item{\code{metadata(id = NULL, key = NULL, na.rm = TRUE, drop = TRUE,
   verbose = TRUE)}}{\preformatted{
@@ -323,22 +320,9 @@ vector of removed IDs.
               the $filterLog under the 'reason' column
 }}
 
-\item{\code{reset()}}{\preformatted{
-Reset any filters that were applied - the 'used' matrix will be the
-original 'raw' one
-}}
+\item{\code{reset(help = FALSE)}}{Reset the matrix to the 'raw' (unfiltered) state}
 
-\item{\code{rNames(new = NULL, raw = FALSE, reason = NA)}}{\preformatted{
-Returns the row names of the Matrix
-      new - Optional new set of row names. Normally used to re-order rows.
-            Will be treated as a filter if any rows are excluded
-      raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be used, if available - otherwise the original
-            raw matrix will be used.
-   reason - Default NA; If specified, a text value that will be added to
-            the $filterLog under the 'reason' column if any rows end up
-            removed or added (added rows will be all zeros)
-}}
+\item{\code{rNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set rownames for the matrix}
 
 \item{\code{show(...)}}{\preformatted{
 A wrapper for showText(). Will be auto-invoked if an EventLogger
@@ -350,10 +334,18 @@ to display log contents.
 
 \examples{
 
-## Load the toy symbol-to-gene mapping matrix
+## In most circumstances you will provide only a file path, but
+## optionally a list of parameters and a flag to turn off autoFilter
+## can be provided as well.
+
+## A toy (small) symbol-to-gene mapping matrix is provided with the
+## package:
 s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
-s2e$help() # Compact reminder of fields and methods
-s2e        # Summary of loaded object
+
+s2e$help()         # Compact reminder of fields and methods
+s2e                # Summary of loaded object
+s2e$map(help=TRUE) # Help for the map() method
+AnnotatedMatrix(help=TRUE) # display this help
 
 ## Load a toy symbol-to-gene mapping matrix and use it to convert
 ## some genes to Entrez Gene IDs

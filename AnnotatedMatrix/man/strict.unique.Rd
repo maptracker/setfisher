@@ -44,3 +44,6 @@ make.unique( fowl )
 strict.unique( fowl )
 
 }
+\seealso{
+\link{make.unique}
+}

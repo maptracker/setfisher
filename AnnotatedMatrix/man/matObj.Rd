@@ -10,12 +10,23 @@ raw=TRUE, then \link{matrixRaw} will be returned}
 
 \item{transpose}{Default \code{FALSE}. if TRUE, then transpose the
 matrix before returning it.}
+
+\item{help}{Default FALSE. If TRUE, show this help and perform no
+other actions.}
 }
 \value{
 a Matrix:: 'dgTMatrix' sparse matrix
 }
 \description{
-Recover the 'current' matrix data
+AnnotatedMatrix object method to recover the 'current' matrix data
+}
+\details{
+\preformatted{
+## Method Usage:
+myAnnMat$matObj( help=TRUE )
+
+obj <- myAnnMat$matObj( raw=FALSE, transpose=FALSE )
+}
 }
 \examples{
 
@@ -24,6 +35,11 @@ s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 ## of the filtered matrix than the raw one:
 Matrix::nnzero(s2e$matObj())         # 180
 Matrix::nnzero(s2e$matObj(raw=TRUE)) # 208
+
+# transpose is included to help you avoid using base::t(), which
+# will de-sparsify the matrix and often result in RAM exhaustion
+head( rownames( s2e$matObj() ) )
+head( rownames( s2e$matObj( transpose=TRUE ) ) )
 
 }
 \seealso{

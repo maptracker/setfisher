@@ -7,7 +7,8 @@
 a Matrix:: 'dgTMatrix' sparse matrix
 }
 \description{
-Internal field holding unaltered (as read from file) Matrix object
+Internal AnnotatedMatrix field holding unaltered (as read from
+file) Matrix object
 }
 \details{
 This AnnotatedMatrix object field is populated directly with matrix

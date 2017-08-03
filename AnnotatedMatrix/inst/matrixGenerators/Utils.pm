@@ -298,9 +298,8 @@ sub _mtx_comment_block {
 }
 
 sub _initial_mtx_block {
-    my ($what, $rnum, $cnum, $nznum, 
-        $name, $desc,
-        $rnm, $rlnk, $cnm, $clnk, $rowAdj, $src) = @_;
+    my ($what, $rnum, $cnum, $nznum, $name, $desc, $scDesc,
+        $rnm, $cnm, $rowAdj) = @_;
     ## Additional adjective describing row namespace (eg a species name)
     $rowAdj = $rowAdj ? "$rowAdj " : "";
     my $rv = "%%MatrixMarket matrix coordinate real general
@@ -310,30 +309,30 @@ sub _initial_mtx_block {
 %    the matrix:   myMatrix <- AnnotatedMatrix('path/to/this/file')
 % Separator '$mtxSep'
 %
-%% DEFAULT Name $name
-%% DEFAULT Description $desc
-%
 ";
-    $rv .= "% Rows are ${rnm}s
-%% DEFAULT RowDim $rnm\n" if ($rnm);
-    $rv .= "%% DEFAULT RowUrl $rlnk\n" if ($rlnk);
-
-    $rv .= "% Columns are ${cnm}s
-%% DEFAULT ColDim $cnm\n" if ($cnm);
-    $rv .= "%% DEFAULT ColUrl $clnk\n" if ($clnk);
-    
-    if ($src) {
-        my $r = ref($src);
-        if ($r && $r eq 'ARRAY') {
-            my $arrSep = ' // ';
-            $src = "[$arrSep][".join($arrSep,@{$src}).']';
-        }
-        $rv .= "%
-% Data source(s):
-%% DEFAULT Source $src\n";
-    }
+    $rv .= &_default_parameter( "Name", $name );
+    $rv .= &_default_parameter( "Description", $desc );
+    $rv .= &_default_parameter( "ScoreDesc", $scDesc );
+    $rv .="%\n";
     return $rv;
 }
+
+sub _dim_block {
+    my $tags = shift || {};
+    my $rv  = "";;
+    my $rnm = $tags->{RowDim} || "";
+    my $cnm = $tags->{ColDim} || "";
+    $rv .= &_default_parameter( "RowDim", $rnm, "Rows are ${rnm}s" );
+    $rv .= &_default_parameter( "RowUrl", $tags->{RowUrl});
+    $rv .= &_default_parameter( "ColDim", $cnm, "Columns are ${cnm}s" );
+    $rv .= &_default_parameter( "ColUrl", $tags->{ColUrl});
+    $rv .= &_default_parameter( "Source", $tags->{Source},
+                                "Data source(s):", " // ");
+    $rv .= &_default_parameter( "Authority", $tags->{Authority});
+    $rv .= "%\n" if ($rv);
+    return $rv;
+}
+
 
 sub _rowcol_meta_comment_block {
     return "%% $bar
@@ -508,10 +507,30 @@ sub _filter_block {
  "These parameters define filters that will be automatically applied when the matrix is loaded, unless you set autofilter=FALSE. You can also undo them by calling \$reset() after loading", "");
     
     foreach my $key (sort keys %{$filt}) {
-        my $v = $filt->{$key};
-        next if (!$v && $v ne '0');
-        $rv .= sprintf("%%%% DEFAULT %s %s\n", $key, $v);
+        $rv .= &_default_parameter( $key, $filt->{$key} );
     }
+    return $rv;
+}
+
+sub _default_parameter {
+    my ($key, $val, $com, $sep) = @_;
+    return "" unless ($key);
+    return "" if (!$val && $val ne "0");
+    if (my $r = ref($val)) {
+        if ($r eq 'ARRAY') {
+            if ($#{$val} == 0) {
+                $val = $val->[0];
+            } else {
+                $sep ||= ',';
+                $val = sprintf("[%s][%s]", $sep, join($sep, @{$val}));
+            }
+        } else {
+            die "Unrecognized filter value '$val'";
+        }
+    }
+    my $rv = "";
+    $rv .= "% $com\n" if ($com);
+    $rv .= sprintf("%%%% DEFAULT %s %s\n", $key, $val);
     return $rv;
 }
 

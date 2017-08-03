@@ -5,25 +5,30 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' Annotated sparse matrix for capturing query lists, identifier
 #' mappings and ontology lookups
 #'
-#' @usage
+#' @details
 #'
-#' AnnotatedMatrix( help=TRUE )
+#' \preformatted{
+#' ## Object creation
+#' AnnotatedMatrix( help=FALSE ) # Show this help
 #'
 #' myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
 #'
 #' myAnnMat$help()                 # High-level help
 #' myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
+#' }
 #'
-#' @details
+#' AnnotatedMatrix is a heavy wrapper around the Matrix package, in
+#' particular the sparse matrix dgTMatrix class. It was built with an
+#' eye toward using the MatrixMarket file format, an efficient but
+#' unfortunately simple (no structured annotation) file format. This
+#' package will parse information from the comments ('%') of
+#' MatrixMarket files to generate rich objects for enhanced filtering
+#' and reporting.
 #'
-#' AnnotatedMatrix objects are self documenting, the $help() method
-#' can be called from the object to provide additional guidance. The
-#' method documentation shown below will be sparse (a limitation of
-#' ROxygen support for RefClass objects), but every method also allows
-#' access to its documentation by passing the parameter
-#' \code{help=TRUE}, eg:
-#'
-#' \code{myMatrix$map( help=TRUE )}
+#' The driving motivation for the package is to support enrichment
+#' analysis (Fisher's exact test) in a reproducible research
+#' framework. The package is also very well suited for identifier
+#' mapping (for example, gene symbols to gene accessions).
 #'
 #' @field file Path to file the matrix was loaded from
 #' @field fromRDS Logical, true if the loaded file was an RDS object
@@ -50,7 +55,7 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' @importFrom data.table data.table as.data.table setkeyv
 #' @importFrom dplyr count
 #' @import Matrix
-#' @importFrom CatMisc is.def is.something
+#' @importFrom CatMisc is.def is.something is.empty.field methodHelp
 #' @import ParamSetI
 #' @importClassesFrom EventLogger EventLogger
 #'
@@ -112,10 +117,9 @@ AnnotatedMatrix$methods(
                           help=FALSE, ... ) {
         "Create a new AnnotatedMatrix object; Invoke with AnnotatedMatrix(...)"
         if (help) {
-            print(methodHelp('myRefClassThing', 'CatMisc',
-                             names(.refClassDef@contains)))
-            message("(an incomplete object will be unavoidably generated and can be ignored)")
-            return(invisible(NA))
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
         }
         callSuper(...)
         if (!CatMisc::is.def(file))
@@ -127,6 +131,7 @@ Name        [character] Short Name assigned to the matrix
 Description [character] Description for the matrix
 ScoreDesc   [Character] Describes what the matrix values (scores) represent
 Source      [character] Primary source, presumably a URL
+Authority   [character] The name of the authority responsible for the data
 
 RowDim      [character] Name for the row dimension
 ColDim      [character] Name for the column dimension
@@ -148,7 +153,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
     
     matObj = function( raw=FALSE, transpose=FALSE, help=FALSE) {
         "Return the current filtered state of the dgTMatrix sparse matrix"
-        if (help) return( methodHelp(match.call(), class(.self),
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         rv <- if (raw || !CatMisc::is.def(matrixUse)) {
                   matrixRaw } else { matrixUse }
@@ -179,7 +184,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
 
     rNames = function(new=NULL, raw=FALSE, reason=NA, help=FALSE) {
         "Get/set rownames for the matrix"
-        if (help) return( methodHelp(match.call(), class(.self),
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         obj   <- matObj(raw)
         if (is.null(new)) {
@@ -235,7 +240,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
 
     cNames = function(new=NULL, raw=FALSE, reason=NA, help=FALSE) {
         "Get/set colnames for the matrix"
-        if (help) return( methodHelp(match.call(), class(.self),
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         obj   <- matObj(raw)
         if (is.null(new)) {
@@ -287,10 +292,10 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         new
     },
 
-    reset = function( help=TRUE ) {
+    reset = function( help=FALSE ) {
         "Reset the matrix to the 'raw' (unfiltered) state"
-        if (help) return( methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return(CatMisc::methodHelp(match.call(), class(.self),
+                                             names(.refClassDef@contains)))
         matrixUse  <<- NULL
         setFilters <<- character()
         filterLog  <<- data.table(id   = character(), metric = character(),
@@ -299,9 +304,9 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         invisible(NA)
     },
 
-    autoFilter = function( recursive=TRUE, verbose=TRUE) {
+    autoFilter = function( recursive=TRUE, verbose=TRUE, help=FALSE) {
         "Automatically apply filters defined in the parameters"
-        if (help) return( methodHelp(match.call(), class(.self),
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         "\\preformatted{
 Will apply filters based on certain parameters. The method is called
@@ -354,8 +359,8 @@ Recognized parameters:
             }
         }
 
-        if (x > 0 && recursive) x <- x + autoFilter( verbose=FALSE )
-        if (x > 0 && verbose) message(c("Automatic filters have masked",x[1],
+        if (x[1] > 0 && recursive) x <- x + autoFilter( verbose=FALSE )
+        if (x[1] > 0 && verbose) message(c("Automatic filters have masked",x[1],
               "cells,",x[2],"rows, and",x[3],"cols"), prefix="[-]",
               bgcolor='cyan', color='yellow')
         invisible(x)
@@ -386,7 +391,7 @@ Returns the count of (cells,rows,cols) zeroed (filtered) out.
             if (numZ > 0) {
                 ## At least some cells were zeroed out
                 obj@x[ fail ] <- 0
-                testTxt <- paste("x <", min)
+                testTxt <- paste("score <", min)
                 numTxt  <- paste(numZ, "Cells")
                 type    <- "Val"
                 ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
@@ -415,7 +420,7 @@ Returns the count of (cells,rows,cols) zeroed (filtered) out.
             if (numZ > 0) {
                 ## At least some cells were zeroed out
                 obj@x[ fail ] <- 0
-                testTxt <- paste("x >", max)
+                testTxt <- paste("score >", max)
                 numTxt  <- paste(numZ, "Cells")
                 ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
                 rv  <- rv + c(numZ, ijz)
@@ -874,7 +879,7 @@ Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
                    collapse.score=NULL,
                    collapse.factor=NULL, integer.factor=FALSE,
                    add.metadata=TRUE, warn=TRUE,
-                   append.to=NULL, append.col=1L
+                   append.to=NULL, append.col=1L, help=FALSE
                    ) {
         "\\preformatted{
 Provide a list of IDs, and map/pivot it from one dimension of the matrix
@@ -946,6 +951,8 @@ unaltered rowname.
               can provide another column number or name.
 }"
 
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         ## If we are appending to another data.frame, always take the
         ## input as the designated pivot column:
         if (!is.null(append.to)) input <- append.to[[ append.col ]]
@@ -1792,6 +1799,9 @@ Select metadata by id, key or both
 
     matrixText = function ( pad = "", useObj=NULL, fallbackVar=NULL,
                           compact=FALSE, color=NULL ) {
+        ## Check for stub object created when calling help on the base class:
+        if (CatMisc::is.empty.field(EvLogObj)) return("")
+
         if (is.null(color)) color <- useColor() # Use EventLogger setting
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         ## Variable name for use in sample methods

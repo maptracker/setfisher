@@ -41,6 +41,9 @@ my $taxa = {
     RGD => 'Rattus norvegicus',
 };
 
+my $auth = "HGNC";
+my $authLong = "$auth ## HUGO Gene Nomenclature Committee";
+
 =head Random Things
 
 =head2 Column: status
@@ -131,11 +134,11 @@ my $vers   = &_datestamp_for_file($loc);
 ##    <ColNamespace> = namespace of the column identifiers
 ##    <Authority> = Entity providing the raw data
 ##    <Version> = Version token (eg GRCh37) or YYYY-MM-DD of source file(s)
-my $fFmt   = sprintf('%s/%%s@%%s_to_%%s@HGNC@%s.mtx', $outDir, $vers);
+my $fFmt   = sprintf('%s/%%s@%%s_to_%%s@%s@%s.mtx', $outDir, $auth, $vers);
 
 warn "
 
-Building pivot matrices from HGNC:
+Building pivot matrices from $auth:
 
    FTP Site: $defFtp
      Source: $src
@@ -236,10 +239,18 @@ sub accession_maps {
             my $tmp = "$trg.tmp";
             open(MTX, ">$tmp") || &death("Failed to write Symbol map", $tmp, $!);
             print MTX &_initial_mtx_block
-                ( "Mapping", $rnum, $cnum, $nznum, "HGNC $nsi-to-$nsj Map",
-                  "Scores are factor levels representing the gene type.",
-                  "$nsi ID", $nsUrl->{$nsi},
-                  "$nsj ID", $nsUrl->{$nsj}, undef, $srcUrl);
+                ( "Mapping", $rnum, $cnum, $nznum, "$auth $nsi-to-$nsj Map",
+                  "Accession conversion from $nsi to $nsj",
+                  "Factor levels representing the gene type",
+                  $nsi, $nsj);
+            
+            print MTX &_dim_block({
+                RowDim    => "$nsi ID",
+                RowUrl    =>  $nsUrl->{$nsi},
+                ColDim    => "$nsj ID",
+                ColUrl    => $nsUrl->{$nsj}, 
+                Authority => $authLong,
+                Source    => $srcUrl });
 
             print MTX &_citation_MTX();
             print MTX &_species_MTX( $meta->{Species} );
@@ -301,16 +312,17 @@ sub symbol_maps {
 
     ## Now build the lookups for the 'main' namespaces
     my @gMetaCols = qw(Symbol Type Description);
+    my $nsi = "Symbol";
     for my $xi (0..$#{$xcol}) {
-        my $ns  = $xcol->[$xi];
-        my $trg = sprintf($fFmt, "Map", "Symbol", $ns);
+        my $nsj  = $xcol->[$xi];
+        my $trg = sprintf($fFmt, "Map", $nsi, $nsj);
         my $meta = {
             Species   => ["Homo sapiens"],
-            Namespace => ["Symbol", $ns],
+            Namespace => [$nsi, $nsj],
         };
         unless (&output_needs_creation($trg)) {
             ## File is already made, and clobber is not set
-            &msg("Keeping existing Symbol map:", $trg);
+            &msg("Keeping existing $nsi map:", $trg);
             &stash($trg, $meta);
             next;
         }
@@ -343,12 +355,21 @@ sub symbol_maps {
 
 
         my $tmp = "$trg.tmp";
-        open(MTX, ">$tmp") || &death("Failed to write Symbol map", $tmp, $!);
+        open(MTX, ">$tmp") || &death("Failed to write $nsi map", $tmp, $!);
         print MTX &_initial_mtx_block
-            ( "Mapping", $rnum, $cnum, $nznum, "HGNC Symbol-to-$ns Map",
-              "Scores are factor levels representing the nomenclature status of the assignment.",
-              "Gene Symbol", $nsUrl->{Symbol},
-              "$ns ID", $nsUrl->{$ns}, undef, $srcUrl);
+            ( "Mapping", $rnum, $cnum, $nznum, "$auth $nsi-to-$nsj Map",
+              "$nsi to $nsj conversion matrix",
+              "Factor levels representing the symbol omenclature status",
+              $nsi, $nsj );
+
+        print MTX &_dim_block({
+            RowDim    => $nsi,
+            RowUrl    =>  $nsUrl->{$nsi},
+            ColDim    => "$nsj ID",
+            ColUrl    => $nsUrl->{$nsj}, 
+            Authority => $authLong,
+            Source    => $srcUrl });
+
 
         print MTX &_citation_MTX();
         print MTX &_species_MTX( ["Homo sapiens"] );
@@ -375,7 +396,7 @@ sub symbol_maps {
         }
         close MTX;
         rename($tmp, $trg);
-        &msg("Generated Symbol to $ns mapping", $trg);
+        &msg("Generated $nsi to $nsj mapping", $trg);
         &stash($trg, $meta);
 
     }
@@ -431,21 +452,21 @@ sub _get_rows {
 }
 
 sub _citation_MTX {
-    return "% 
-%% DEFAULT Citation HGNC Database, HUGO Gene Nomenclature Committee (HGNC), EMBL Outstation - Hinxton, European Bioinformatics Institute, Wellcome Trust Genome Campus, Hinxton, Cambridgeshire, CB10 1SD, UK www.genenames.org. Downloaded on $vers
-%
-";
+    return "%\n". &_default_parameter( "Citation", "HGNC Database, HUGO Gene Nomenclature Committee (HGNC), EMBL Outstation - Hinxton, European Bioinformatics Institute, Wellcome Trust Genome Campus, Hinxton, Cambridgeshire, CB10 1SD, UK www.genenames.org. Downloaded on $vers")."%\n";
 }
 
 sub _species_MTX {
-    my ($tax) = @_;
-    return $tax ?
-        sprintf("%% DEFAULT Species [,][%s]\n",join(',',@{$tax})) : "";
+    return &_default_parameter("Species", shift);
 }
 
 sub stash {
     return unless ($stash);
-    my $exe = `which stash`;
+    my $exe;
+    if (-s $stash) {
+        $exe = $stash;
+    } else {
+        $exe = `which stash`;
+    }
     unless ($exe) {
         warn "
 stash is not installed on your system.
@@ -455,10 +476,11 @@ stash is not installed on your system.
         $stash = 0; # Only warn once
         return;
     }
+    $exe =~ s/\s*[\n\r]+$//;
     my ($file, $mh) = @_;
     $mh ||= {};
     $mh->{MatrixType} ||= "Map",
-    $mh->{Authority}    = "HGNC";
+    $mh->{Authority}    = $auth;
     $mh->{Version}      = $vers;
     $mh->{Format}       = "MatrixMarket";
     $mh->{FileType}     = "AnnotatedMatrix";

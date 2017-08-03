@@ -126,10 +126,12 @@ annotatedMatrixExampleFile <- function () {
 #' inst/ folder. This method detects the presence of "inst" and
 #' includes it in the return path
 #'
+#' @param pkg Default "AnnotatedMatrix", the package name
+#'
 #' @return The path to the package folder, or the inst/ subfolder if
 #'     it exists
 #'
-#' @seealso \link{path.package}
+#' @seealso \link[base]{path.package}
 #'
 #' @export
 
