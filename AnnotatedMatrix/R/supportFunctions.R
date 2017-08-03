@@ -114,6 +114,34 @@ annotatedMatrixExampleFile <- function () {
     .makeTempFile("Symbol-To-Gene.mtx")
 }
 
+#' Development Package Path
+#'
+#' Get the path to package file, including when the package is locally
+#' installed from a local installation
+#'
+#' @details
+#'
+#' When developing with the uncompressed R package, some files are in
+#' different locations. In particular, exdata/ remains inside the
+#' inst/ folder. This method detects the presence of "inst" and
+#' includes it in the return path
+#'
+#' @return The path to the package folder, or the inst/ subfolder if
+#'     it exists
+#'
+#' @seealso \link{path.package}
+#'
+#' @export
+
+inst.path.package <- function(pkg="AnnotatedMatrix") {
+    srcDir <- path.package(pkg)
+    ## When developing with the uncompressed R package, extdata is
+    ## still inside inst/ - detect this scenario and accomodate it:
+    if (file.exists(file.path(srcDir, "inst")))
+        srcDir <- file.path(srcDir, "inst")
+    srcDir
+}
+
 #' Make Temp File
 #'
 #' Internal method to help manage example files in extdata/
@@ -124,22 +152,21 @@ annotatedMatrixExampleFile <- function () {
 #' rapid loading in the future. These files are made alongside the
 #' original flat file. This could cause problems if the file is from
 #' inst/extdata, so this method takes a requested file and copies it
-#' to a temporary location before loading.
+#' to a temporary location before loading. It will also copy sidecar
+#' files used by the 'primary' file.
 #'
 #' @param name Required, the basename of the file
+#' @param pkg Default "AnnotatedMatrix", the package name
+#'
+#' @seealso \link{sidecarFiles}
 #'
 #' @examples
 #'
 #' tmpFile <- AnnotatedMatrix::.makeTempFile("Symbol-To-Gene.mtx")
 #'
 
-.makeTempFile <- function(name) {
-    srcDir <- path.package("AnnotatedMatrix")
-    ## When developing with the uncompressed R package, extdata is
-    ## still inside inst/ - detect this scenario and accomodate it:
-    if (file.exists(file.path(srcDir, "inst")))
-        srcDir <- file.path(srcDir, "inst")
-    srcDir <- file.path(srcDir, "extdata")
+.makeTempFile <- function(name, pkg="AnnotatedMatrix") {
+    srcDir <- file.path(inst.path.package(pkg), "extdata")
     tmpDir <- tempdir()
     src    <- file.path(srcDir, name)
     if (!file.exists(src)) stop("Failed to identify source file: ", src)
@@ -264,6 +291,8 @@ extendDataTable <- function (x, y, key='id') {
 #'
 #' A character vector where all values are unique, and all non-
 #' unique names are altered
+#'
+#' @seealso \link{make.unique}
 #'
 #' @examples
 #'

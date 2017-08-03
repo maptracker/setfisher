@@ -51,8 +51,13 @@ test_that("LoadingMTX", {
 
     ## Filter by row and column names
     s2e$reset()
-    newRow <- c("ZFAT","FlamingMonkeys", "TGN")
+    bogus  <- "FlamingMonkeys"
+    newRow <- c("ZFAT", bogus, "TGN")
     s2e$rNames( newRow )
     expect_identical(s2e$nnZero(), 2L, "Restricted rows")
+    ## Some issues with Matrix falling back to dgCMatrix:
+    expect_identical(class(s2e$matrixUse)[1], "dgTMatrix", "Class safety check")
+    expect_identical(s2e$map(bogus)[bogus, "Score"], 0,
+                     "Verify novel row is recognized (Score = 0 != NA)")
     
 })

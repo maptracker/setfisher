@@ -249,15 +249,7 @@ unaltered rowname.
               can provide another column number or name.
 }}
 
-\item{\code{matObj(raw = FALSE, transpose = FALSE)}}{\preformatted{
-Retrieves the underlying Matrix for this object. Parameters:
-      raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be returned, if it is available. If not
-            available, or if raw is TRUE, then the raw (as loaded from file)
-            Matrix will be returned.
- transpose - Default FALSE. If true, the matrix will be transposed and names
-            will be transfered to the appropriate dimensions
-}}
+\item{\code{matObj(raw = FALSE, transpose = FALSE)}}{See help('matObj', 'AnnotatedMatrix') for detailed usage}
 
 \item{\code{metadata(id = NULL, key = NULL, na.rm = TRUE, drop = TRUE,
   verbose = TRUE)}}{\preformatted{
@@ -331,7 +323,7 @@ vector of removed IDs.
               the $filterLog under the 'reason' column
 }}
 
-\item{\code{reset(asFactor = FALSE)}}{\preformatted{
+\item{\code{reset()}}{\preformatted{
 Reset any filters that were applied - the 'used' matrix will be the
 original 'raw' one
 }}

@@ -5,6 +5,26 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' Annotated sparse matrix for capturing query lists, identifier
 #' mappings and ontology lookups
 #'
+#' @usage
+#'
+#' AnnotatedMatrix( help=TRUE )
+#'
+#' myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
+#'
+#' myAnnMat$help()                 # High-level help
+#' myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
+#'
+#' @details
+#'
+#' AnnotatedMatrix objects are self documenting, the $help() method
+#' can be called from the object to provide additional guidance. The
+#' method documentation shown below will be sparse (a limitation of
+#' ROxygen support for RefClass objects), but every method also allows
+#' access to its documentation by passing the parameter
+#' \code{help=TRUE}, eg:
+#'
+#' \code{myMatrix$map( help=TRUE )}
+#'
 #' @field file Path to file the matrix was loaded from
 #' @field fromRDS Logical, true if the loaded file was an RDS object
 #' @field log EventLogger object holding log (activity) entries
@@ -36,10 +56,18 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #'
 #' @examples
 #'
-#' ## Load the toy symbol-to-gene mapping matrix
+#' ## In most circumstances you will provide only a file path, but
+#' ## optionally a list of parameters and a flag to turn off autoFilter
+#' ## can be provided as well.
+#' 
+#' ## A toy (small) symbol-to-gene mapping matrix is provided with the
+#' ## package:
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
-#' s2e$help() # Compact reminder of fields and methods
-#' s2e        # Summary of loaded object
+#' 
+#' s2e$help()         # Compact reminder of fields and methods
+#' s2e                # Summary of loaded object
+#' s2e$map(help=TRUE) # Help for the map() method
+#' AnnotatedMatrix(help=TRUE) # display this help
 #' 
 #' ## Load a toy symbol-to-gene mapping matrix and use it to convert
 #' ## some genes to Entrez Gene IDs
@@ -80,20 +108,15 @@ AnnotatedMatrix <-
 
 AnnotatedMatrix$methods(
     
-    initialize = function(file=NA, params=NA, autofilter=TRUE, ... ) {
-        "\\preformatted{
-Create a new object using AnnotatedMatrix():
-       file - Required, a path to the file that stores the matrix. See
-              .readMatrix() for details on supported formats
-     params - Optional list of key/value pairs that will be passed to
-              setParamList()
- autofilter - Default TRUE, which will run $autoFilter() after the
-              matrix has parsed. This will apply any default filters
-              defined by the matrix file. Note that you can also use
-              $reset() to undo all filters.
-        ... - dots will also be passed on to setParamList(), as well as to
-              .readMatrix()
-}"
+    initialize = function(file=NA, params=NA, autofilter=TRUE,
+                          help=FALSE, ... ) {
+        "Create a new AnnotatedMatrix object; Invoke with AnnotatedMatrix(...)"
+        if (help) {
+            print(methodHelp('myRefClassThing', 'CatMisc',
+                             names(.refClassDef@contains)))
+            message("(an incomplete object will be unavoidably generated and can be ignored)")
+            return(invisible(NA))
+        }
         callSuper(...)
         if (!CatMisc::is.def(file))
             err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
@@ -123,16 +146,10 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         if (autofilter) autoFilter()
     },
     
-    matObj = function( raw=FALSE, transpose=FALSE) {
-        "\\preformatted{
-Retrieves the underlying Matrix for this object. Parameters:
-      raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be returned, if it is available. If not
-            available, or if raw is TRUE, then the raw (as loaded from file)
-            Matrix will be returned.
- transpose - Default FALSE. If true, the matrix will be transposed and names
-            will be transfered to the appropriate dimensions
-}"
+    matObj = function( raw=FALSE, transpose=FALSE, help=FALSE) {
+        "Return the current filtered state of the dgTMatrix sparse matrix"
+        if (help) return( methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         rv <- if (raw || !CatMisc::is.def(matrixUse)) {
                   matrixRaw } else { matrixUse }
         if (transpose) {
@@ -160,18 +177,10 @@ Retrieves the underlying Matrix for this object. Parameters:
         rv
     },
 
-    rNames = function(new=NULL, raw=FALSE, reason=NA) {
-        "\\preformatted{
-Returns the row names of the Matrix
-      new - Optional new set of row names. Normally used to re-order rows.
-            Will be treated as a filter if any rows are excluded
-      raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be used, if available - otherwise the original
-            raw matrix will be used.
-   reason - Default NA; If specified, a text value that will be added to
-            the $filterLog under the 'reason' column if any rows end up
-            removed or added (added rows will be all zeros)
-}"
+    rNames = function(new=NULL, raw=FALSE, reason=NA, help=FALSE) {
+        "Get/set rownames for the matrix"
+        if (help) return( methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         obj   <- matObj(raw)
         if (is.null(new)) {
             ## Just asking for the current names
@@ -206,42 +215,28 @@ Returns the row names of the Matrix
             ## Instead, extract the known rows:
             both <- intersect(new, now)
             obj  <- obj[ both, , drop=FALSE ]
-            ## ... build a new empty matrix with the new ones. Using
-            ## Matrix() generates a dgeMatrix, we want to keep using
-            ## dgTMatrix instead:
-            m <- new("dgTMatrix", i=integer(), j=integer(),
-                     Dim=c(length(gain), ncol(obj)),
-                     Dimnames = list(gain, NULL))
+            ## ... build a new empty matrix with the new ones.
+            m <- Matrix(0, length(gain), ncol(obj), dimnames = list(gain, NULL))
             ## ... bind them into the known rows, and clean up the order:
             obj  <- rbind(obj, m)[ new, ]
-            matrixUse <<- obj
+            ## Both Matrix() and rbind() generate class 'dgCMatrix'
+            ## objects. Coerce it back to dgTMatrix
+            matrixUse <<- as(obj, "dgTMatrix")
             .filterDetails(id=gain, type="Row", reason=reason,
                           metric="Empty rows added")
         } else {
             ## No new rows, just a reshuffle and/or removal of existing names
             matrixUse <<- obj[ new, , drop=FALSE ]
         }
-        rtxt <- if (CatMisc::is.something(reason)) {
-                    paste("#", reason) } else { NULL }
-        setFilters <<- unique(c(setFilters, paste("ROWORDER",
-            paste(new, collapse=sfSep), rtxt)))
-        
+        .addAppliedFilter("ROWORDER", new, reason)
         ## Just return the provided value back to the user
         new
     },
 
-    cNames = function(new=NULL, raw=FALSE, reason=NA) {
-        "\\preformatted{
-Returns the column names of the Matrix
-      new - Optional new set of column names. Normally used to re-order columns.
-            Will be treated as a filter if any columns are excluded
-      raw - Default FALSE, in which case the filtered Matrix (held in field
-            'matrixUse') will be used, if available - otherwise the original
-            raw matrix will be used.
-   reason - Default NA; If specified, a text value that will be added to
-            the $filterLog under the 'reason' column if any columns end up
-            removed or added (added columns will be all zeros)
-}"
+    cNames = function(new=NULL, raw=FALSE, reason=NA, help=FALSE) {
+        "Get/set colnames for the matrix"
+        if (help) return( methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         obj   <- matObj(raw)
         if (is.null(new)) {
             ## Just asking for the current names
@@ -275,41 +270,39 @@ Returns the column names of the Matrix
             ## Instead, extract the known columns:
             both <- intersect(new, now)
             obj  <- obj[ , both, drop=FALSE ]
-            ## ... build a new empty matrix with the new ones:
-            m <- new("dgTMatrix", i=integer(), j=integer(),
-                     Dim=c(nrow(obj), length(gain)),
-                     Dimnames = list(NULL, gain))
-            ## ... bind them into the known cols, and clean up the order:
+            m <- Matrix(0, nrow(obj), length(gain), dimnames = list(NULL, gain))
+            ## ... bind them into the known rows, and clean up the order:
             obj  <- cbind(obj, m)[ , new ]
-            matrixUse <<- obj
+            ## Both Matrix() and rbind() generate class 'dgCMatrix'
+            ## objects. Coerce it back to dgTMatrix
+            matrixUse <<- as(obj, "dgTMatrix")
             .filterDetails(id=gain, type="Col", reason=reason,
-                          metric="Empty columns added")
+                           metric="Empty columns added")
         } else {
             ## No new columns, just a reshuffle and/or removal of existing names
             matrixUse <<- obj[ , new, drop=FALSE ]
         }
-        rtxt <- if (CatMisc::is.something(reason)) {
-                    paste("#", reason) } else { NULL }
-        setFilters <<- unique(c(setFilters, paste("COLORDER",
-            paste(new, collapse=sfSep), rtxt)))
+        .addAppliedFilter("COLORDER", new, reason)
         ## Just return the provided value back to the user
         new
     },
 
-    reset = function( asFactor=FALSE ) {
-        "\\preformatted{
-Reset any filters that were applied - the 'used' matrix will be the
-original 'raw' one
-}"
+    reset = function( help=TRUE ) {
+        "Reset the matrix to the 'raw' (unfiltered) state"
+        if (help) return( methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         matrixUse  <<- NULL
         setFilters <<- character()
-        filterLog <<- data.table(id   = character(), metric = character(),
-                                 type = character(), reason = character(),
-                                 key = "id")
+        filterLog  <<- data.table(id   = character(), metric = character(),
+                                  type = character(), reason = character(),
+                                  key = "id")
         invisible(NA)
     },
 
-    autoFilter = function( recursive = TRUE, verbose=TRUE) {
+    autoFilter = function( recursive=TRUE, verbose=TRUE) {
+        "Automatically apply filters defined in the parameters"
+        if (help) return( methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         "\\preformatted{
 Will apply filters based on certain parameters. The method is called
 automatically on object instantiation, but can be called manually as
@@ -382,8 +375,6 @@ Returns the count of (cells,rows,cols) zeroed (filtered) out.
         obj <- matObj()
         rv  <- c(0L, 0L, 0L)
         if (filterEmpty) removeEmpty("Empty rows and cols before score filter")
-        rtxt <- if (CatMisc::is.something(reason)) {
-                    paste("#", reason) } else { NULL }
         if (CatMisc::is.something(min)) {
             ## Zero out entries that fall below min and are not already zero
             fail <- if (min > 0) {
@@ -410,7 +401,7 @@ Returns the count of (cells,rows,cols) zeroed (filtered) out.
                     obj <- matObj()
                 }
             }
-            setFilters <<- unique(c(setFilters, paste("SCORE <", min, rtxt)))
+            .addAppliedFilter("SCORE", min, reason, '<')
         }
         if (CatMisc::is.something(max)) {
             ## Zero out entries that are above max and not already zero
@@ -438,7 +429,7 @@ Returns the count of (cells,rows,cols) zeroed (filtered) out.
                     obj <- matObj()
                 }
             }
-            setFilters <<- unique(c(setFilters, paste("SCORE >", max, rtxt)))
+            .addAppliedFilter("SCORE", max, reason, '>')
         }
         if (rv[1] != 0 && !filterEmpty) matrixUse <<- obj
         invisible(rv)
@@ -568,15 +559,11 @@ Returns the number of cells zeroed (filtered) out.
         } else {
             lvls[ xVal ]
         }
-        k <- if (k) {"=="} else {"!="}
+        op <- if (k) {"=="} else {"!="}
         ## The filter text describes failing cells
-        testTxt <- sprintf("Level %s %s", k,
+        testTxt <- sprintf("Level %s %s", op,
                            paste(lnames, collapse=', '))
-        rtxt <- if (CatMisc::is.something(reason)) {
-                    paste("#", reason) } else { NULL }
-        setFilters <<- unique(c(setFilters, paste("LEVELS", k,
-                 paste(lnames, collapse=sfSep), rtxt)))
-
+        .addAppliedFilter("LEVELS", lnames, reason, op)
         
         ## Working with the @x value vector for the sparse
         ## matrix. Determine which values are 'unwanted'
@@ -771,12 +758,10 @@ Returns the number of cells zeroed (filtered) out.
             }
         }
         margTxt <- if(is.null(MARGIN)) { "any" } else { MARGIN }
-        valTxt  <- paste(sprintf('"%s"', val), collapse=sfSep)
-        rtxt    <- if (CatMisc::is.something(reason)) {
-                       paste(" #", reason) } else { "" }
-        setFilters <<- unique(c(setFilters, sprintf(
-           "METADATA %s %s %s [%s/%s]%s%s", colN, type, valTxt,
-           margTxt, op, ifelse(ic, ' ignore.case', ''), rtxt)))
+        .addAppliedFilter("METADATA", val, reason,sprintf("'%s' %s", colN,type),
+                          sprintf("[%s %s%s]", margTxt, op,
+                                  ifelse(ic, ' ignore.case', '')))
+
 
         if (rv[1] != 0) matrixUse <<- obj # Update matrix if changed
         invisible(rv)
@@ -829,7 +814,7 @@ vector of removed IDs.
         ## populatedRows() returns a named logical vector. Take names
         ## from there
         toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) matrixUse <<- obj[ !isEmpty, ]
+        if (length(toss) != 0) matrixUse <<- obj[ !isEmpty, , drop=FALSE]
         invisible(toss)
     },
 
@@ -867,7 +852,7 @@ returns a vector of removed IDs.
         ## populatedCols() returns a named logical vector. Take
         ## names from there
         toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) matrixUse <<- obj[ , !isEmpty]
+        if (length(toss) != 0) matrixUse <<- obj[ , !isEmpty, drop=FALSE]
         invisible(toss)
     },
 
@@ -1396,6 +1381,25 @@ a new token-separated level
         filterLog
     },
 
+    .addAppliedFilter = function (key, val, com=NULL, pre=NULL, pro=NULL) {
+        "\\preformatted{
+Internal method, stores filter text in $setFilters
+      key - A key indicating the filter type, eg 'SCORE' or ''
+      val - Text defining the filter parameters
+      com - Optional comment (reason) for the filter
+      pre - Optional text (eg operator) to go before the values
+      pro - Optional text (eg modifiers) to go after the values
+}"
+        txt <- c(toupper(key))
+        if (CatMisc::is.something(pre)) txt <- c(txt, pre)
+        txt <- c(txt, paste(val, collapse=sfSep))
+        if (CatMisc::is.something(pro)) txt <- c(txt, pro)
+        if (CatMisc::is.something(com)) txt <- c(txt, "##", com)
+        txt <- paste(txt, collapse=' ')
+        if (!is.element(txt, setFilters)) setFilters <<- c(setFilters, txt)
+        txt
+    },
+
     filterSummary = function (reason=TRUE) {
         "\\preformatted{
 Tallies number of filtered objects (generally cells) by filter criteria
@@ -1476,7 +1480,7 @@ Converts matrix into a block of GMT-formatted text
         if (is.null(obj)) obj <- matObj(transpose=transpose, ...)
         ## Only keep rows (sets) with at least one object:
         hasData  <- populatedRows(obj)
-        obj      <- obj[hasData, ]
+        obj      <- obj[hasData, , drop=FALSE]
         setNames <- rownames(obj) # Rows are sets
         memNames <- colnames(obj) # Columns are the potential members
         descr    <- matrixMD[.(setNames), "Description", with=FALSE]
@@ -1703,12 +1707,12 @@ Select metadata by id, key or both
         }
 
         ## Get the rows we are interested in:
-        rv  <- obj[ x, , drop = FALSE]
+        rv  <- obj[ x, , drop=FALSE]
         ## Apply (by "masking" to zero) min/max limits, if requested
         if (!is.na(min)) rv[ rv < min ] <- 0
         if (!is.na(max)) rv[ rv > max ] <- 0
         ## Eliminate all zero cols: https://stackoverflow.com/a/6632287
-        rv  <- rv[ , Matrix::colSums(abs(rv)) != 0, drop = FALSE ]
+        rv  <- rv[ , Matrix::colSums(abs(rv)) != 0, drop=FALSE ]
         
         
         if (fmt == "v") {
@@ -1762,12 +1766,12 @@ Select metadata by id, key or both
             return(rv)
         }
         ## Get the columns we are interested in:
-        rv  <- obj[ , x, drop = FALSE ]
+        rv  <- obj[ , x, drop=FALSE ]
         ## Apply (by "masking" to zero) min/max limits, if requested
         if (!is.na(min)) rv[ rv < min ] <- 0
         if (!is.na(max)) rv[ rv > max ] <- 0
         ## Eliminate rows of all zeros: https://stackoverflow.com/a/6632287
-        rv  <- rv[ Matrix::rowSums(abs(rv)) != 0, , drop = FALSE ]
+        rv  <- rv[ Matrix::rowSums(abs(rv)) != 0, , drop=FALSE ]
         
         if (fmt == "v") {
             ## vector
@@ -1859,7 +1863,7 @@ Select metadata by id, key or both
         cN   <- colnames(mat)[popc]
         cblk <- sprintf("  %8d", nc)
         if (CatMisc::is.something(cdn)) cblk <- paste(cblk, doCol(cdn, "cyan"))
-        cblk <- paste(cblk, "rows")
+        cblk <- paste(cblk, "cols")
         unpc <- sum(!popc)
         if (unpc > 0) cblk <- paste(cblk, sprintf("(+%d empty)", unpc))
         cblk <- paste(cblk, "eg:",
