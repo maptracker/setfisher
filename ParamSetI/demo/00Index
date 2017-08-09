@@ -1,1 +1,2 @@
-objectInheritance   Demonstrating how another RefClass object can inherit EventLogger
+exampleParamSetObject   Defines a toy object that inherits ParamSetI
+objectInheritance       Demonstrating how another RefClass object can inherit EventLogger

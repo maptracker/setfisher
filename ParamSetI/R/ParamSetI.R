@@ -11,7 +11,7 @@
 #'     for reporting R code that utilizes actual variable names being
 #'     used.
 #' 
-#' @import CatMisc
+#' @importFrom CatMisc is.def is.something parenRegExp methodHelp
 #' @importFrom methods new setRefClass
 #' @importClassesFrom EventLogger EventLogger
 #'
@@ -48,36 +48,10 @@ object with ParamSetI()
 
     param = function (key=NA, val=NA, append=FALSE, default=NA,
                       clobber=TRUE, check.class=NULL, is.scalar=NULL,
-                      coerce=TRUE) {
-        "\\preformatted{
-Gets/Sets a parameter. Parameters:
-      key - The name of the parameter. If NA will simply return NA. Key
-            names are case insensitive.
-      val - Optional new value. If not NA, then the parameter value will
-            be set, with behavior modified by some of the flags below
-   append - Default FALSE, which will cause the parameter to be set to
-            'val'. If TRUE, val will be appended to the end of the current
-            vector holding the value for 'key'.
-  default - Optional value to return if the value of 'key' is 'not defined',
-            which corresponds to NA, NULL or zero-length vectors.
-  clobber - Default TRUE, which allows an already-set value to be replaced
-            with 'val'. Using FALSE is primarily used for managing default
-            settings.
- check.class - Default NULL, which will check the parameter definitions
-            and use any class found there. If the value is NA or '', then
-            there will be no class check. Otherwise, is.class() will be
-            tested with the provided class name against the provided
-            'val' to see if it matches. If not,  an error will be reported
-            and 'key' will not be set. The value 'percent' will be
-            interpreted as 'numeric'.
- is.scalar - Default NULL. If TRUE then only val[1] will be taken. If
-            FALSE, then all elements of 'val' to be assigned to 'key'.
-            If NULL, then if val is only a single element, but matches
-            the pattern  '[^]][.+]', then it will be split as a vector
-            - see selfSplittingString()
-   coerce - Default TRUE, which will attempt to coerce 'val' to
-            'check.class' in the event that check.class is not NA
-}"
+                      coerce=TRUE, help=FALSE) {
+        "Get or set a parameter"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (is.na(key)) return( NA )
         ## Always ignore the case of the key:
         key <- tolower(key)
@@ -115,10 +89,11 @@ Gets/Sets a parameter. Parameters:
                             ## is the default since many settings will
                             ## have been grepped out of text files and
                             ## will begin life as characters.
-                            coerced <- try({func <- get(sprintf("as.%s", chk))
-                                func(val) }, silent = TRUE)
+                            suppressWarnings( coerced <-
+                                 try({func <- get(sprintf("as.%s", chk))
+                                     func(val) }, silent=TRUE) )
                         }
-                        if (is.na(coerced)) {
+                        if (any(is.na(coerced))) {
                             err(paste("Can not set parameter",key,"to",
                                       val, ": must be of class", chk))
                             return(NA)
@@ -147,32 +122,28 @@ Gets/Sets a parameter. Parameters:
         rv
     },
 
-    allParams = function( ) {
-        "\\preformatted{
-Returns a vector of all parameter keys, either ones that are set or ones
-that have a definition set.
-}"
+    allParams = function( help=FALSE ) {
+        "Return all parameter keys, including those that are set or just described"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         union(rownames(paramDef), names(paramSet))
     },
 
-    hasParam = function(key=NULL) {
-        "\\preformatted{
-Returns TRUE if the provided key has been set or is in the defaults
-      key - Default NULL, should be the key(s) to check
-}"
+    hasParam = function(key=NULL, help=FALSE) {
+        "Test if one or more parameter keys exist in the object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         ## A parameter always exists if there is a definition for
         ## it. This is done to help avoid falling back to looking for
         ## an object field in some functions.
         if (is.null(key)) return( NA )
-        is.element( tolower(key), allParams() )
+        is.element( tolower(key), tolower(allParams()) )
     },
 
-    paramDefinition = function(key, val=NULL) {
-        "\\preformatted{
-Returns the definition of the parameter, if provided by the code.
-      key - Default NULL, should be the key(s) to check
-      val - Optional new value to assign
-}"
+    paramDefinition = function(key, val=NULL, help=FALSE) {
+        "Return the definitions, if any, for one or more parameter keys"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         lkey <- tolower(key)
         if (!is.null(val)) {
             ## Set new value(s)
@@ -190,12 +161,10 @@ Returns the definition of the parameter, if provided by the code.
         vapply(lkey, function(x) paramDef[x, "description"][1], "")
     },
 
-    paramClass = function(key, val=NULL) {
-        "\\preformatted{
-Returns the allowed class of the parameter, if provided by the code.
-      key - Default NULL, should be the key(s) to check
-      val - Optional new value to assign
-}"
+    paramClass = function(key, val=NULL, help=FALSE) {
+        "Get or set class (storage mode) restrictions of parameters"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         lkey <- tolower(key)
         if (!is.null(val)) {
             ## Set new value(s)
@@ -208,15 +177,10 @@ Returns the allowed class of the parameter, if provided by the code.
         vapply(lkey, function(x) paramDef[x, "class"][1], "")
     },
 
-    paramName = function(key, val=NULL) {
-        "\\preformatted{
-Given a parameter name, returns the name. This is slightly less silly
-than it sounds, since names are handled case-insensitively but can
-carry a specific case for pretty-printing.
-      key - Default NULL, should be the key(s) to check
-      val - Optional new value to assign. Must be a case-insensitive
-            match to key
-}"
+    paramName = function(key, val=NULL, help=FALSE) {
+        "Set the capitalization to use for a parameter name"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         lkey <- tolower(key)
         if (!is.null(val)) {
             ## Set new value(s)
@@ -231,28 +195,20 @@ carry a specific case for pretty-printing.
         vapply(lkey, function(x) paramDef[x, "key"][1], "")
     },
 
-    setParamList = function (params=NULL, ...) {
-        "\\preformatted{
-Set one or more parameters provided by a list object. Parameters:
-   params - The list holding the parameters, with the names as key names
-      ... - dots will be passed to param() for each key/value pair
-}"
+    setParamList = function (params=NULL, help=FALSE, ...) {
+        "Set multiple parameters using a list"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (!is.list(params)) return(NA)
         for (k in names(params)) {
             param(k, params[[k]], ... )
         }
     },
 
-    defineParameters = function(x) {
-        "\\preformatted{
-Set the parameter definitions (human descriptions) by text block.
-   Format of each line is 'keyName [optionalClass] optional description' eg:
-        
-myFirstKey [integer] Number of widgets to consider
-myOtherKey [character] URL for widget lookup
-ThatKey Widget asset key, can be text or numeric
-}"
-        
+    defineParameters = function(x, help=FALSE) {
+        "Bulk set parameter definitions with a block of text"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (!CatMisc::is.def(x)) return(NA)
         lines <- unlist(base::strsplit(x, "[\n\r]+"))
         nl <- length(lines)
@@ -282,13 +238,10 @@ ThatKey Widget asset key, can be text or numeric
         paramDef <<- df
     },
 
-    showParameters = function ( na.rm=TRUE) {
-        "\\preformatted{
-Display available parameters for the object, along with current values
-and definitions. Invisibly returns the same text.
-    na.rm - Default TRUE, which will exclude parameters that have
-            NA, NULL or '' as values.
-}"
+    showParameters = function ( na.rm=TRUE, help=FALSE ) {
+        "Pretty-print parameter names, values and definitions"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         objName <- .selfVarName()
         defFmt  <- paste(c("\n", rep(" ", nchar(objName)[1]), 
                            colorize("# %s", "yellow")), collapse="")
@@ -311,7 +264,7 @@ and definitions. Invisibly returns the same text.
                 ""
             }
             ## ToDo: Note class restrictions?
-            lines <- c(lines, sprintf(fmt, k , v, desc))
+            lines <- c(lines, sprintf(fmt, paramName(k) , v, desc))
             if (CatMisc::is.something(com)) {
                 # There is a comment associated with the value
                 lines <- c(lines, sprintf(defFmt, strwrap(com)))
@@ -323,37 +276,10 @@ and definitions. Invisibly returns the same text.
         invisible(txt)
     },
 
-    .selfVarName = function( def = "myObj", fallbackVar = "" ) {
-        "\\preformatted{
-Tries to extract a 'relevant' variable name for displayed help
-messages. For example, if show is invoked on object fooThing, this
-method is attempting to find the string 'fooThing', so it can show
-directly relevant examples like 'fooThing$setWidth()'
-      def - Default 'myObj', the string to use if the method fails
-            (finding the real object name is not always possible!)
-fallbackVar - Another default object name. To be honest, I forget
-            why this was needed, but it was. For... reasons.
-}"
-        ## In illustrative output I want to include the 'actual'
-        ## variable names for the objects being used. That is, instead
-        ## of showing "myMatrix$metadata('GeneSymbol')" I want the
-        ## code to find the actual variable name the user picked, eg
-        ## "hgu133a$metadata('GeneSymbol')". This will make it easier
-        ## to explore the code with copy-paste
-
-        ## This turns out to be a REAL pain to do. I spent a lot of
-        ## time looking at deparse / sys.call to figure out what the
-        ## "real" variable name was. In particular this approach fails
-        ## inside implicit calls to show(). If show is explicitly
-        ## called - "show(myObject)" - then the variable name can be
-        ## found on the call stack. For some reason if myObject was
-        ## printed (show()n) implicitly by calling just "myObject",
-        ## then the stack "does not go back far enough"
-
-        ## So instead I am going to brute force look at the variable
-        ## space. I am only looking in the global environment (1), and
-        ## there are many ways this might not be quite right, but it
-        ## is close enough. I hope.
+    .selfVarName = function( def="myObj", fallbackVar="", help=FALSE ) {
+        "Determine the variable name of this object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (!CatMisc::is.something(varName)) {
             ## No attempt to find the object yet. Do so just this once
             for (vn in ls(1)) {

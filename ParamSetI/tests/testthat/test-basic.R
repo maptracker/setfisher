@@ -1,54 +1,36 @@
 library("ParamSetI")
-## Set up a toy class to inherit the module:
 
-foo <- setRefClass("foo",
-  fields   = list( x = 'integer' ),
-  contains = c("ParamSetI"))
+## Set up the toy class held in demos:
+demo("exampleParamSetObject", package="ParamSetI", ask=FALSE)
 
-
-foo$methods(
-    initialize = function( x=1L, params=NULL, ... ) {
-        x <<- x
-        ## Set some default parameters, one for a key with a
-        ## definition, the other without one
-        setParamList(list(myNum=2.4, bar=3L))
-        ## Then set any user values based on params
-        callSuper(params=params, ...)
-        defineParameters("
-myNum  [numeric] A number for me
-myInt  [integer] An integer for me
-myChar [character] A string for me
-")
-    })
-
-psObj <- foo()
-psObj2 <- foo( params=list(color='navy', size='medium') )
+psObj  <- ParamSetExample()
+psObj2 <- ParamSetExample( params=list(color='navy', size='medium') )
 
 test_that("Object creation", {
     
-    expect_identical(psObj$allParams(), c("mynum", "myint", "mychar", "bar"),
+    expect_identical(psObj$allParams(), c("inc", "dec", "prod"),
                      "Check recognized params")
     
-    expect_identical(psObj$param("MYNUM"), 2.4, "case-insensitive")
-    expect_identical(psObj$param("bar"), 3L, "default, not defined")
+    expect_identical(psObj$param("INC"), 2L, "case-insensitive")
+    expect_identical(psObj$param("dec"), 3L, "default, not defined")
     expect_identical(psObj$param("lemming"), NA, "unset")
     
-    expect_true(psObj$hasParam("myNum"), "Described and set")
-    expect_true(psObj$hasParam("myInt"), "Described, not set")
+    expect_true(psObj$hasParam("inc"), "Described and set")
+    expect_true(psObj$hasParam("prod"), "Described, not set")
     expect_false(psObj$hasParam("foodles"), "Neither set nor described")
 
     ## Definitions and Class restrictions
-    expect_equivalent(psObj$paramDefinition('mynum'), "A number for me",
+    expect_equivalent(psObj$paramDefinition('inc'), "Increment amount",
                       "Definition recovery")
-    expect_equivalent(psObj$paramClass('mynum'), "numeric",
+    expect_equivalent(psObj$paramClass('prod'), "numeric",
                       "Definition recovery")
 
     ## Name manipulation
-    expect_equivalent(psObj$paramName('mynum'), "myNum",
+    expect_equivalent(psObj$paramName('prod'), "Prod",
                       "Case-preserved name recovery")
-    expect_equivalent(psObj$paramName('mynum', "MyNum"), "MyNum",
+    expect_equivalent(psObj$paramName('inc', "Inc"), "Inc",
                       "Change case of name")
-    expect_equivalent(psObj$paramName('mynum', "CarpeDiem"), "MyNum",
+    expect_equivalent(psObj$paramName('dec', "CarpeDiem"), "dec",
                       "Can't change the name of, uh, name")
 
     ## Passing values on object creation
@@ -57,11 +39,10 @@ test_that("Object creation", {
     expect_identical(psObj2$param("size"), "medium",
                       "New params on init")
     
-    
 })
                    
 test_that("Parameter setting", {
-    oldKey1 <- "myNum"
+    oldKey1 <- "prod"
     newVal1 <- 12.34
     expect_identical(psObj$param(oldKey1, newVal1), newVal1, "Reset value")
     expect_identical(psObj$param(oldKey1), newVal1, "new value persistent")
@@ -73,9 +54,6 @@ test_that("Parameter setting", {
     newVal2 <- "pansy"
     expect_identical(psObj$param(newKey1, newVal2, clobber=FALSE), newVal2,
                      "clobber irrelevant for new keys")
-
-    
-    
 
     vecVal <- c(1.2, 2.3, 3.4)
     newKey2 <- "someScalar"
@@ -90,7 +68,7 @@ test_that("Parameter setting", {
     expect_identical(psObj$param(newKey3), vecVal, "is.scalar override")
     
     
-    oldKey2 <- "myInt"
+    oldKey2 <- "dec"
     notInt  <- 3.14
     asInt   <- as.integer(notInt)
     expect_identical( psObj$param(oldKey2, notInt), asInt, "Default coercion")

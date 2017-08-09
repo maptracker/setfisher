@@ -24,24 +24,11 @@ used.}
 \section{Methods}{
 
 \describe{
-\item{\code{allParams()}}{\preformatted{
-Returns a vector of all parameter keys, either ones that are set or ones
-that have a definition set.
-}}
+\item{\code{allParams(help = FALSE)}}{Return all parameter keys, including those that are set or just described}
 
-\item{\code{defineParameters(x)}}{\preformatted{
-Set the parameter definitions (human descriptions) by text block.
-   Format of each line is 'keyName [optionalClass] optional description' eg:
-        
-myFirstKey [integer] Number of widgets to consider
-myOtherKey [character] URL for widget lookup
-ThatKey Widget asset key, can be text or numeric
-}}
+\item{\code{defineParameters(x, help = FALSE)}}{Bulk set parameter definitions with a block of text}
 
-\item{\code{hasParam(key = NULL)}}{\preformatted{
-Returns TRUE if the provided key has been set or is in the defaults
-      key - Default NULL, should be the key(s) to check
-}}
+\item{\code{hasParam(key = NULL, help = FALSE)}}{Test if one or more parameter keys exist in the object}
 
 \item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{
 Create a new object using EventLogger():
@@ -58,69 +45,18 @@ Create a new object using EventLogger():
 }}
 
 \item{\code{param(key = NA, val = NA, append = FALSE, default = NA,
-  clobber = TRUE, check.class = NULL, is.scalar = NULL, coerce = TRUE)}}{\preformatted{
-Gets/Sets a parameter. Parameters:
-      key - The name of the parameter. If NA will simply return NA. Key
-            names are case insensitive.
-      val - Optional new value. If not NA, then the parameter value will
-            be set, with behavior modified by some of the flags below
-   append - Default FALSE, which will cause the parameter to be set to
-            'val'. If TRUE, val will be appended to the end of the current
-            vector holding the value for 'key'.
-  default - Optional value to return if the value of 'key' is 'not defined',
-            which corresponds to NA, NULL or zero-length vectors.
-  clobber - Default TRUE, which allows an already-set value to be replaced
-            with 'val'. Using FALSE is primarily used for managing default
-            settings.
- check.class - Default NULL, which will check the parameter definitions
-            and use any class found there. If the value is NA or '', then
-            there will be no class check. Otherwise, is.class() will be
-            tested with the provided class name against the provided
-            'val' to see if it matches. If not,  an error will be reported
-            and 'key' will not be set. The value 'percent' will be
-            interpreted as 'numeric'.
- is.scalar - Default NULL. If TRUE then only val[1] will be taken. If
-            FALSE, then all elements of 'val' to be assigned to 'key'.
-            If NULL, then if val is only a single element, but matches
-            the pattern  '[^]][.+]', then it will be split as a vector
-            - see selfSplittingString()
-   coerce - Default TRUE, which will attempt to coerce 'val' to
-            'check.class' in the event that check.class is not NA
-}}
+  clobber = TRUE, check.class = NULL, is.scalar = NULL, coerce = TRUE,
+  help = FALSE)}}{Get or set a parameter}
 
-\item{\code{paramClass(key, val = NULL)}}{\preformatted{
-Returns the allowed class of the parameter, if provided by the code.
-      key - Default NULL, should be the key(s) to check
-      val - Optional new value to assign
-}}
+\item{\code{paramClass(key, val = NULL, help = FALSE)}}{Get or set class (storage mode) restrictions of parameters}
 
-\item{\code{paramDefinition(key, val = NULL)}}{\preformatted{
-Returns the definition of the parameter, if provided by the code.
-      key - Default NULL, should be the key(s) to check
-      val - Optional new value to assign
-}}
+\item{\code{paramDefinition(key, val = NULL, help = FALSE)}}{Return the definitions, if any, for one or more parameter keys}
 
-\item{\code{paramName(key, val = NULL)}}{\preformatted{
-Given a parameter name, returns the name. This is slightly less silly
-than it sounds, since names are handled case-insensitively but can
-carry a specific case for pretty-printing.
-      key - Default NULL, should be the key(s) to check
-      val - Optional new value to assign. Must be a case-insensitive
-            match to key
-}}
+\item{\code{paramName(key, val = NULL, help = FALSE)}}{Set the capitalization to use for a parameter name}
 
-\item{\code{setParamList(params = NULL, ...)}}{\preformatted{
-Set one or more parameters provided by a list object. Parameters:
-   params - The list holding the parameters, with the names as key names
-      ... - dots will be passed to param() for each key/value pair
-}}
+\item{\code{setParamList(params = NULL, help = FALSE, ...)}}{Set multiple parameters using a list}
 
-\item{\code{showParameters(na.rm = TRUE)}}{\preformatted{
-Display available parameters for the object, along with current values
-and definitions. Invisibly returns the same text.
-    na.rm - Default TRUE, which will exclude parameters that have
-            NA, NULL or '' as values.
-}}
+\item{\code{showParameters(na.rm = TRUE, help = FALSE)}}{Pretty-print parameter names, values and definitions}
 }}
 
 \examples{
