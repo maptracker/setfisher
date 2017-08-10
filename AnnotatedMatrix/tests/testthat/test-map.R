@@ -8,7 +8,7 @@ test_that("Basic mapping", {
     expect_identical(v1$Output,
                      c("LOC2617", "LOC2618", "LOC27036"),
                      "Mapped output")
-    expect_identical(v1$Score, c(4,2,2),
+    expect_identical(v1$Score, c(4L,2L,2L),
                      "Mapped score")
     expect_identical(v1$Factor,
                      c("Official", "Unofficial", "Unofficial"),
@@ -37,7 +37,7 @@ test_that("Collapsed mapping", {
     expect_identical(v3$Output,
                      c("LOC2617,LOC2618", "LOC27036"),
                      "Collapsed output")
-    expect_identical(v3$Score, c(5,2),
+    expect_identical(v3$Score, c(5L,2L),
                      "Collapsed score")
     expect_identical(v3$Factor,
                      c("Official,Unofficial", "Unofficial"),

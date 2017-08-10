@@ -17,8 +17,7 @@ s2e$map(c("LOC7038","LOC51248"), collapse="in")
 
 ## We can configure how multiple cells are combined into one:
 s2e$map(c("LOC7038","LOC51248"), collapse="in",
-        collapse.token=' | ', # The text used to separate IDs
-        collapse.factor=max ) # The function used to aggregate scores
+        collapse.token=' | ') # The text used to separate IDs
 
 ## -----------------------------------------------------------------------##
 s2e$message("Dealing with well-behaved maps", bgcolor='cyan')

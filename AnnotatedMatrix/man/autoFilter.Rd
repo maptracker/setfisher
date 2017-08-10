@@ -28,9 +28,9 @@ AnnotatedMatrix object method to apply filters described in parameters
 \details{
 \preformatted{
 ## Method Usage:
-myAnnMat$autoFilter( help=TRUE )
+myObject$autoFilter( help=TRUE )
 
-myAnnMat$autoFilter( recursive=TRUE, verbose=TRUE )
+myObject$autoFilter( recursive=TRUE, verbose=TRUE )
 }
 
 The matrix will recognize several parameters as defining filter
@@ -79,5 +79,5 @@ s2e$showParameters( na.rm=FALSE )
 \seealso{
 \link{filterByScore}, \link{filterByFactorLevel},
     \link{filterByMetadata}, \link{reset}, \link{filterSummary},
-    \link{appliedFilters}, \link{showParameters}
+    \link{appliedFilters}, \link[ParamSetI]{showParameters}
 }

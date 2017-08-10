@@ -1488,9 +1488,11 @@ Select metadata by id, key or both
             rv <- matrixMD[ , useKey, with=FALSE ]
             if (na.rm) {
                 ## Remove null rows. Find NA values in columns:
-                naCol <- sapply(useKey, function(x) is.na( rv[[ x ]] ) )
+                naCol <- sapply(useKey, function(x) is.na( rv[[ x ]] ),
+                                simplify='matrix')
                 ## And now find rows that are all() NAs:
-                naRow <- apply(naCol, 1, all)
+                naRow <- if(is.matrix(naCol)) {
+                             apply(naCol, 1, all) } else { naCol }
                 if (any(naRow)) {
                     ## ... and if any columns are all NAs, remove them:
                     rv <- rv[ !naRow, ]
@@ -1503,9 +1505,11 @@ Select metadata by id, key or both
             if (na.rm) {
                 ## Remove null columns. Find NA values in columns:
                 cols   <- colnames(rv)
-                naCol1 <- sapply(cols, function(x) is.na( rv[[ x ]] ) )
+                naCol1 <- sapply(cols, function(x) is.na( rv[[ x ]] ),
+                                simplify='matrix' )
                 ## And then columns that are all null:
-                naCol2 <- apply(naCol1, 2, all)
+                naCol2 <- if (is.matrix(naCol1)) {
+                              apply(naCol1, 2, all) } else { naCol1 }
                 if (any(naCol2)) {
                     ## ... and if any columns are all NAs, remove them:
                     rv <- rv[ , which(!naCol2), with=FALSE ]
@@ -1532,6 +1536,32 @@ Select metadata by id, key or both
             }
         }
         rv
+    },
+
+    .fieldDescriptions = function ( update=TRUE, help=FALSE ) {
+        "Update object fields to include attributes with brief descriptions"
+        fields <- list(
+            file       = "Path to the matrix source file",
+            fromRDS    = "Logical flag indicating file was read from cached RDS",
+            matrixRaw  = "Un-filtered sparse matrix as loaded from file",
+            matrixUse  = "Sparse matrix after filtering (null if no filters)",
+            matrixMD   = "Metadata data.table, both rows and columns",
+            filterLog  = "All filtered-out rows/columns, as a data.frame",
+            setFilters = "Machine- and human-parsable list of applied filters",
+            lvlVal     = "Level names for factor matrices",
+            rowChanges = "Named vector of any row names that needed alteration",
+            colChanges = "Named vector of any col names that needed alteration"
+        )
+        if (update) {
+            hfmt <- "More information:  help('%s', 'AnnotatedMatrix')  "
+            for (fld in names(fields)) {
+                if (is.null(.self[[fld]])) next # Can't attribute NULL
+                ## The [[ accessor seems to work for fields?
+                attr(.self[[fld]], "Description") <- fields[[fld]]
+                attr(.self[[fld]], "Help") <- sprintf(hfmt,fld)
+            }
+        }
+        fields
     },
 
     show = function (...) { cat( .self$matrixText(...) ) },
@@ -1716,118 +1746,59 @@ Show compact help information about the object
 %s                 %s
 str(%s, max.lev=3) %s
 ",
-doCol("### Annotated Matrix Help - call the below commands for more details","magenta")
+doCol("###
+### Annotated Matrix Help - call the below commands for more details
+###","magenta"),
 doCol("# Built-in documentation on the class", comCol),
 whtName, doCol("# Summary report of the object", comCol),
 whtName, doCol("# Inspect the object structure", comCol))
 
-        
+        noHelp <- c()
         ## Add snippets for each method, broken down by section
         for (sec in names(sections)) {
-            txt <- c(txt, doCol(paste("\n###", sec, "\n"), comCol))
+            txt <- c(txt, doCol(paste("\n############\n###", sec, "\n"),comCol))
             meths <- sections[[ sec ]]
             for (meth in meths) {
-                code <- capture.output(AnnotatedMatrix$methods('filterSummary'))
+                ## Going to see if we can extract the ROxygen
+                ## description string from the method
+                code <- capture.output(AnnotatedMatrix$methods(meth))
                 ## Should not happen, but be safe:
                 if (is.null(code)) next
                 isHelped <- FALSE
                 com <- NA
                 for (line in code) {
-                    h <- CatMisc::parenRegExp('help\\s*=\\s*FALSE', line)
-                    if (!is.na(h[1])) isHelped <- TRUE
+                    ## See if 'help=FALSE' is set - indicates I have
+                    ## tied it into my internalized help framework:
+                    if (grepl('help\\s*=\\s*FALSE', line))  isHelped <- TRUE
                     cm <- CatMisc::parenRegExp('^\\s+"(.+)"\\s*$', line)
                     if (!is.na(cm[1])) {
+                        ## Found a single line quoted string, presume
+                        ## it is description and stop scanning code:
                         com <- cm[1]
                         break
                     }
                 }
-                if (!isHelped) next
+                if (!isHelped) {
+                    noHelp <- c(noHelp, meth)
+                    next
+                }
                 txt <- c(txt, sprintf("%s$%s( help=TRUE )", whtName, meth))
-                if (!is.na(com)) txt <- c(txt, doCol(paste("\n###", com), comCol))
+                if (!is.na(com)) txt <-
+                     c(txt, doCol(paste("\n    #", com), comCol))
                 txt <- c(txt, "\n")
             }
         }
+        if (length(noHelp) > 0) txt <- c(txt,
+              doCol("\n### Methods lacking help", comCol),
+              sprintf("# %s\n", strwrap(paste(noHelp, collapse=' '))))
 
- sprintf("%s
-%s$map( inputIDs ) %s
-
-%s
-%s$autoFilter()                %s
-%s$filterByScore(min,max)      %s
-%s$filterByFactorLevel(levels) %s
-%s$filterByMetadata(key,val)   %s
-%s$rNames(rowNames)            %s
-%s$cNames(colNames)            %s
-%s$filterSummary()             %s
-%s$appliedFilters()            %s
-%s$reset()                     %s
-
-%s
-%s$metadata_keys()   %s         
-%s$metadata(id, key) %s
-
-",
-
-doCol("### Primary operation",comCol),
-whtName, doCol("# Pivot inputIDs from one matrix dimension to other", comCol),
-
-doCol("### Filtering the matrix",comCol),
-whtName, doCol("# Apply default filters (from file)", comCol),
-whtName, doCol("# Remove cells failing min and/or max score limits", comCol),
-whtName, doCol("# Keep (or discard) only certain factor levels", comCol),
-whtName, doCol("# Discard rows/cols with matching metadata values", comCol),
-whtName, doCol("# Restrict/reorder rownames", comCol),
-whtName, doCol("# Restrict/reorder colnames", comCol),
-whtName, doCol("# Summarize number of removed rows/cols", comCol),
-whtName, doCol("# Text-representation of filters applied so far", comCol),
-whtName, doCol("# Reset all filters", comCol),
-
-doCol("### Metadata methods", comCol),
-whtName, doCol("# Vector of all metadata keys (tagnames)", comCol),
-whtName, doCol("# Query metadata for ids and/or keys", comCol)
-
-)
-
-        txt <- c(txt, doCol("### Other object methods\n", comCol))
-        cmds <- list(
-            showParameters = "Show currently set parameters",
-            showLog        = "Show events and timing",
-            nnZero         = "Number of non-zero cells",
-            rCounts        = "Row counts = non-zero columns per each row",
-            cCounts        = "Col counts = non-zero rows per each column",
-            rNames         = "With no parameters, show current rownames",
-            cNames         = "With no parameters, show current colnames",
-            populatedRows  = "Logical vector of rows with non-zero data",
-            populatedCols  = "Logical vector of columns with non-zero data",
-            removeEmptyRows = "Prune matrix to remove empty rows",
-            removeEmptyCols = "Prune matrix to remove empty cols",
-            removeEmpty    = "Remove both empty rows and cols",
-            'is.factor'    = "TRUE if matrix is treated as a factor",
-            'as.gmt'       = "Dump current matrix to GMT text format",
-            color          = "Toggle use of crayon (colorized output)",
-            show           = "Pretty-print function, auto-invoked by object"
-            )
-        for (cmd in names(cmds)) {
-            txt <- c(txt, sprintf("%s$%s() %s\n", whtName, cmd,
-                                  doCol(paste("#",cmds[[cmd]]), comCol)))
-        }
-        txt <- c(txt, "\n", doCol("### Object fields\n", comCol))
-        fields <- list(
-            file       = "Path to the matrix source file",
-            matrixRaw  = "Un-filtered sparse matrix as loaded from file",
-            matrixUse  = "Sparse matrix after filtering (null if no filters)",
-            lvlVal     = "Level names for factor matrices",
-            filterLog  = "All filtered-out rows/columns, as a data.frame",
-            matrixMD   = "Metadata data.table, both rows and columns",
-            rowChanges = "Named vector of any row names that needed alteration",
-            colChanges = "Named vector of any col names that needed alteration"
-            )
+        txt <- c(txt, doCol("\n### Object fields\n", comCol))
+        fields <- .fieldDescriptions( )
         for (field in names(fields)) {
-            txt <- c(txt, sprintf("%s$%s %s\n", whtName, field,
+            txt <- c(txt, sprintf("str(%s$%s) %s\n", whtName, field,
                                   doCol(paste("#",fields[[field]]), comCol)))
         }
         message(paste(txt, collapse='', sep=''))
         invisible(NULL)
     }
-    
 )

@@ -1,7 +1,7 @@
 Package: AnnotatedMatrix
 Title: Parse rich metadata out of structured comments in Matrix files
-Version: 1.13
-Date: 2017-07-26
+Version: 1.14
+Date: 2017-08-03
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
 Maintainer: Charles Tilford <cran@agent.fastmail.com>
@@ -10,12 +10,14 @@ Depends:
     R (>= 3.1)
 Imports:
     methods,
-    CatMisc,
+    CatMisc (>= 0.8),
     EventLogger,
-    ParamSetI,
+    ParamSetI (>= 1.12),
     crayon,
     data.table,
     dplyr,
+    reshape2,
+    testthat,
     Matrix
 License: GPL-2
 Encoding: UTF-8

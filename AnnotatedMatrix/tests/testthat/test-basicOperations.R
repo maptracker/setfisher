@@ -9,7 +9,7 @@ test_that("Temp file copy", {
                      "annotatedMatrixExampleFile check")
 })
 
-s2e <- AnnotatedMatrix(symFile)
+s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 test_that("Object properties", {
     expect_identical("AnnotatedMatrix", class(s2e)[1],
                      "Proper class generated")
@@ -73,25 +73,13 @@ test_that("Matrix recovery and transposition", {
 
 test_that("Vector extraction from columns and rows", {
     s2e$reset()
-    expect_identical(s2e$getRow("AIS"), c("LOC367", "LOC8626", "LOC260402"),
+    expect_identical(s2e$map("AIS", via='row')$Output,
+                     c("LOC367", "LOC8626", "LOC260402"),
                      "Recover columns for row")
-    expect_identical(s2e$getCol("LOC7038"), c("TG", "TGN", "AITD3"),
-                     "Recover columns for row")
-    
-})
-
-test_that("matrix extraction from columns and rows", {
-    s2e$reset()
-    expect_identical(s2e$getRow("AIS"), c("LOC367", "LOC8626", "LOC260402"),
-                     "Recover columns for row")
-    expect_identical(s2e$getCol("LOC7038"), c("TG", "TGN", "AITD3"),
+    expect_identical(s2e$map("LOC7038", via='col')$Output,
+                     c("TG", "TGN", "AITD3"),
                      "Recover columns for row")
     
-    mChk <- matrix(c(2,2), ncol=1,
-                   dimnames=(list("Entrez ID" = c("LOC7128","LOC28935"),
-                                  "Gene Symbol" = c("A20"))))
-    expect_identical(mChk, as.matrix(s2e$getRow("A20", format='matrix')),
-                     "Matrix recovery of a row")
 })
 
 test_that("Information output", {

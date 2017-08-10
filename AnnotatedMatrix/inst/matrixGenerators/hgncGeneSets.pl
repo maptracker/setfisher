@@ -84,7 +84,6 @@ require Utils;
 our ($args, $clobber, $ftp, $tmpDir, $maxAbst, $bar);
 
 my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
-my $stash    = $args->{stash};
 
 &mkpath([$outDir]);
 
@@ -136,6 +135,17 @@ my $vers   = &_datestamp_for_file($loc);
 ##    <Version> = Version token (eg GRCh37) or YYYY-MM-DD of source file(s)
 my $fFmt   = sprintf('%s/%%s@%%s_to_%%s@%s@%s.mtx', $outDir, $auth, $vers);
 
+## Stash deduplicated file store - not on all systems
+my $stashMeta = {
+    Authority  => $auth,
+    Version    => $vers,
+    MatrixType => "Map",
+    FileType   => "AnnotatedMatrix",
+    Format     => "MatrixMarket",
+};
+
+
+
 warn "
 
 Building pivot matrices from $auth:
@@ -183,7 +193,7 @@ sub accession_maps {
             unless (&output_needs_creation($trg)) {
                 ## File is already made, and clobber is not set
                 &msg("Keeping existing accession map:", $trg);
-                &stash($trg, $meta);
+                &stash($trg, { %{$stashMeta}, %{$meta} });
                 next;
             }
 
@@ -250,6 +260,7 @@ sub accession_maps {
                 ColDim    => "$nsj ID",
                 ColUrl    => $nsUrl->{$nsj}, 
                 Authority => $authLong,
+                Version   => $vers,
                 Source    => $srcUrl });
 
             print MTX &_citation_MTX();
@@ -279,8 +290,7 @@ sub accession_maps {
             close MTX;
             rename($tmp, $trg);
             &msg("Generated $nsi to $nsj mapping", $trg);
-            &stash($trg, $meta);
-            
+            &stash($trg, { %{$stashMeta}, %{$meta} });
         }
     }
 
@@ -323,7 +333,7 @@ sub symbol_maps {
         unless (&output_needs_creation($trg)) {
             ## File is already made, and clobber is not set
             &msg("Keeping existing $nsi map:", $trg);
-            &stash($trg, $meta);
+            &stash($trg, { %{$stashMeta}, %{$meta} });
             next;
         }
 
@@ -368,6 +378,7 @@ sub symbol_maps {
             ColDim    => "$nsj ID",
             ColUrl    => $nsUrl->{$nsj}, 
             Authority => $authLong,
+            Version   => $vers,
             Source    => $srcUrl });
 
 
@@ -397,8 +408,7 @@ sub symbol_maps {
         close MTX;
         rename($tmp, $trg);
         &msg("Generated $nsi to $nsj mapping", $trg);
-        &stash($trg, $meta);
-
+        &stash($trg, { %{$stashMeta}, %{$meta} });
     }
 
 }
@@ -459,44 +469,3 @@ sub _species_MTX {
     return &_default_parameter("Species", shift);
 }
 
-sub stash {
-    return unless ($stash);
-    my $exe;
-    if (-s $stash) {
-        $exe = $stash;
-    } else {
-        $exe = `which stash`;
-    }
-    unless ($exe) {
-        warn "
-stash is not installed on your system.
-    Unless you were really expecting it to be there, this is not an error.
-
-";
-        $stash = 0; # Only warn once
-        return;
-    }
-    $exe =~ s/\s*[\n\r]+$//;
-    my ($file, $mh) = @_;
-    $mh ||= {};
-    $mh->{MatrixType} ||= "Map",
-    $mh->{Authority}    = $auth;
-    $mh->{Version}      = $vers;
-    $mh->{Format}       = "MatrixMarket";
-    $mh->{FileType}     = "AnnotatedMatrix";
-    my @meta;
-    while (my ($k, $v) = each %{$mh}) {
-        $k =~ s/[:,]+/_/g;
-        my @vals = ($v);
-        if (ref($v)) {
-            my %u = map { $_ => 1 } @{$v};
-            @vals = sort keys %u;
-        }
-        foreach my $val (@vals) {
-            $val =~ s/[:,]+/_/g;
-            push @meta, "$k:$val";
-        }
-    }
-    my $cmd = "$exe add --metadata '".join(',', @meta)."' \"$file\"";
-    warn "$cmd\n";
-}

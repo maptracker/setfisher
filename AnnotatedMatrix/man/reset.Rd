@@ -16,9 +16,9 @@ AnnotatedMatrix object method to revert any applied filters
 \details{
 \preformatted{
 ## Method Usage:
-myAnnMat$reset( help=TRUE )
+myObject$reset( help=TRUE )
 
-myAnnMat$reset()
+myObject$reset()
 }
 
 AnnotatedMatrix stores two matrices: \link{matrixRaw}, which

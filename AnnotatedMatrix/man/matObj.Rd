@@ -23,9 +23,9 @@ AnnotatedMatrix object method to recover the 'current' matrix data
 \details{
 \preformatted{
 ## Method Usage:
-myAnnMat$matObj( help=TRUE )
+myObject$matObj( help=TRUE )
 
-obj <- myAnnMat$matObj( raw=FALSE, transpose=FALSE )
+obj <- myObject$matObj( raw=FALSE, transpose=FALSE )
 }
 }
 \examples{

@@ -23,11 +23,11 @@ test_that("LoadingMTX", {
     
     ## Filter by factor levels
     s2e$reset()
-    expect_identical(s2e$getCol("LOC7038"), c("TG", "TGN", "AITD3"),
+    expect_identical(s2e$map("LOC7038")$Output, c("TG", "TGN", "AITD3"),
                      "Unfiltered data")
     s2e$filterByFactorLevel("Official")
     
-    expect_identical(s2e$getCol("LOC7038"), c("TG"),
+    expect_identical(s2e$map("LOC7038")$Output, c("TG"),
                      "Official symbols only")
 
     ## Filter by metadata text
@@ -37,7 +37,7 @@ test_that("LoadingMTX", {
                       c("LOC7038", "LOC57623", "LOC387580"),
                       "Symbol with scruffy link")
     ## Remove genes with "{Deprecated}" in the description:
-    s2e$filterByMetadata(key="Description", val="{Deprecated}")
+    s2e$filterByMetadata(key="Description", keep=FALSE, val="{Deprecated}")
     expect_equivalent(unclass(s2e$map(sym, format="vector")),
                       c("LOC7038", "LOC57623"),
                       "Symbol with scruffy link, unscrufified")
@@ -57,7 +57,7 @@ test_that("LoadingMTX", {
     expect_identical(s2e$nnZero(), 2L, "Restricted rows")
     ## Some issues with Matrix falling back to dgCMatrix:
     expect_identical(class(s2e$matrixUse)[1], "dgTMatrix", "Class safety check")
-    expect_identical(s2e$map(bogus)[bogus, "Score"], 0,
+    expect_identical(s2e$map(bogus)[bogus, "Score"], 0L,
                      "Verify novel row is recognized (Score = 0 != NA)")
     
 })

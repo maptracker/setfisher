@@ -90,62 +90,18 @@ Converts matrix into a block of GMT-formatted text
 
 \item{\code{autoFilter(recursive = TRUE, verbose = TRUE, help = FALSE)}}{Automatically apply filters defined in the parameters}
 
-\item{\code{cCounts(obj = NULL, ...)}}{\preformatted{
-Return an integer vector of non-zero rows for each column
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well (so you can select the raw matrix if
-              desired)
-}}
+\item{\code{cCounts(obj = NULL, help = FALSE, ...)}}{Return the counts of non-zero rows for each column}
 
 \item{\code{cNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set colnames for the matrix}
 
 \item{\code{filterByFactorLevel(x, keep = TRUE, ignore.case = TRUE,
-  filterEmpty = FALSE, reason = NA)}}{\preformatted{
-For factor matrices, filter out values by factor level.
-Returns the number of cells zeroed (filtered) out.
-          x - A vector of factor levels to remove, either integers or
-              character values
-       keep - Default TRUE, which will result in keeping only the values
-              that match x. If FALSE, the values in x are excluded.
- ignore.case - Default TRUE, which allows factor levels to be match
-              while disregarding capitalization
- filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
-              remove rows and columns that are only zeros
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
-}}
+  filterEmpty = FALSE, reason = NA, help = FALSE)}}{Zero-out cells in the matrix that fail factor criteria}
 
-\item{\code{filterByMetadata(key, val, MARGIN = NULL, type = "like", op = "or",
-  reason = NA)}}{\preformatted{
-Zero out rows or columns that have metadata matching certain values
-Returns the number of cells zeroed (filtered) out.
-        key - The metadata key/tag/column to match
-        val - The value(s) to match
-     MARGIN - Default NULL, which will test matched IDs against both rows
-              and columns. Can also be 1, row, 2 or col
-       type - Default 'like'. Recognized values are:
-                like = Finds matches of word/phrase anywhere in text
-                regexp = Per 'like', but will interpret as regular expression
-                equal  = Finds only full exact matches
-              In addition, 'case' can be added to any type to force
-              case-sensitive matches.
-         op - Default 'or', which will count a match if any of the values
-              Alternative is 'and', which requires all values to match.
-              'any' and 'all' are also acceptible.
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
-}}
+\item{\code{filterByMetadata(key, val, MARGIN = NULL, keep = TRUE, type = "like",
+  op = "or", filterEmpty = FALSE, reason = NA, help = FALSE)}}{Zero-out rows or columns that match metadata criteria}
 
-\item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA)}}{\preformatted{
-Apply filters to the current matrix to zero-out cells failing thresholds.
-Returns the count of (cells,rows,cols) zeroed (filtered) out.
-        min - Minimum allowed value. Cells below this will be set to zero
-        max - Maximum allowed value. Cells above it will be set to zero
- filterEmpty - Default FALSE; If true, then the matrix will be 'shrunk' to
-              remove rows and columns that are only zeros
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
-}}
+\item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA,
+  help = FALSE)}}{Filter matrix cells by simple numeric tests}
 
 \item{\code{filterSummary(reason = TRUE)}}{\preformatted{
 Tallies number of filtered objects (generally cells) by filter criteria
@@ -175,76 +131,8 @@ Returns factor levels, if appropriate. If not, returns NULL
 \item{\code{map(input = NULL, via = NULL, format = "data.frame", ignore.case = TRUE,
   keep.best = FALSE, column.func = max, collapse = NULL,
   collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
-  collapse.factor = NULL, integer.factor = FALSE, add.metadata = TRUE,
-  warn = TRUE, append.to = NULL, append.col = 1L, help = FALSE)}}{\preformatted{
-Provide a list of IDs, and map/pivot it from one dimension of the matrix
-to the other, following 'connections' defined by non-zero cells. Returns
-a data.frame with Input and Output columns, plus Score and/or Factor columns.
-
-If collapse='out', rownames will be set to the Output column. Otherwise,
-if an input ID results in a unique row, the rowname will be that input ID.
-Other-otherwise, the rowname will be the input ID plus '#1', '#2' etc for
-each row with that ID. Non-unique input IDs will never generate an
-unaltered rowname.
-
-      input - A vector of 'input' IDs. Required, unless append.to is set, in
-              which case it will be taken from that table using append.col
-        via - Specify if the input matches the 'rows' or 'columns' of the
-              matrix. If NULL (default) then your input will be compared to
-              the row and column names, and the one with the most matches
-              will be chosen (defaulting to 'row' in the event of equal matches)
-     format - Default 'data.frame', specifies the output format. Can also be:
-                 Vector: Will return a named character vector, with values
-                         corresponding to $Output and names as $Input
- ignore.case - Default TRUE, which ignores the capitilazation of IDs
-  keep.best - Default FALSE. If TRUE, then only the top-scored cell(s) will
-              be kept
- column.func - Default max. If ignore.case is true, it is possible that an
-              input ID can match multiple matrix IDs. In this case, multiple
-              matching rows will be returned for one ID. column.func is
-              applied to reduce this to a single row.
-   collapse - Default FALSE, which will cause every pairwise connection to be
-              reported. If 'in', then the Input column of the data.frame will be
-              unique - any input value that results in multiple output values
-              will result in the Output IDs and Score being 'collapsed' to a
-              single value (see the collapse.* options below). A value of 'out'
-              will do the same, but causes the Output column to be unique, and
-              Input and Score are collapsed.
- collapse.name - Default NULL, which will cause multiple names to be
-              concatenated into a single value using paste(). Alternatively,
-              a user function can be provided. This package also includes the
-              crude utility function takeLowestThing() (see documentation).
- collapse.token - Default ',', a string used to concatenate collapsed IDs
-              when using paste (collapse.name=NULL)
- collapse.score - Default NULL. Optional function to apply to the $Score
-              column when two or more rows are being collapsed into one. The
-              function should take a numeric vector as input and return a
-              single numeric value. If NULL, the function will be mean(),
-              unless the matrix is a pseudo-factor, in which case the object
-              method $.autoLevel() will be used. This will generate new
-              'hybrid' factors as needed. collapse.token will be used as the
-              string to join factors into a new level name.
- integer.factor - Default FALSE, which will cause the Score column to be absent
-              and a Factor column (with level values as characters) to be
-              present instead. If TRUE then ONLY a Score column (representing
-              integer values, perhaps including new likely-meaningless hybrid
-              values from $.autoLevel()) will be added. If NULL, then both
-              Score and Factor columns are present.
- add.metadata - Default TRUE, which will add all metadata columns that have
-              at least some information. FALSE will prevent adding metadata,
-              and a character vector will add those specific columns (which
-              is up to the user to confirm they exist in the metadata store)
-       warn - Default TRUE, which will show warning text if matches failed to
-              be made for the input. This information is also always captured
-              in attributes attached to the returned data.frame
-  append.to - Default NULL. If a data.frame-compliant object, it will become
-              the return value, with the mapped columns being added on.
-              If collapse='out' then the Output column will be used to
-              merge, otherwise the Input column will be utilized. The merge
-              column from the provided data.frame is set with append.col
- append.col - The column to use in append.to for merging. Default is 1,
-              can provide another column number or name.
-}}
+  integer.factor = NULL, add.metadata = TRUE, warn = TRUE,
+  append.to = NULL, append.col = 1L, help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
 
 \item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 
@@ -268,57 +156,19 @@ Select metadata by id, key or both
 Returns a character vector of metadata key names (eg 'Description')
 }}
 
-\item{\code{nnZero(obj = NULL, ...)}}{\preformatted{
-Return the count of non-zero elements in the matrix. This is essentially
-the number of 'live connections' currently stored.
-cell
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well (so you can select the raw matrix if
-              desired)
-}}
+\item{\code{nnZero(obj = NULL, help = FALSE, ...)}}{Return the count of non-zero elements in the matrix}
 
-\item{\code{populatedCols(obj = NULL, ...)}}{\preformatted{
-Return a logical vector indicating which columns have at least one non-zero
- cell
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well (so you can select the raw matrix if
-              desired)
-}}
+\item{\code{populatedCols(obj = NULL, help = FALSE, ...)}}{Determine which columns have at least one non-zero assignment}
 
-\item{\code{populatedRows(obj = NULL, ...)}}{\preformatted{
-Return a logical vector indicating which rows have at least one non-zero
-cell
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well (so you can select the raw matrix if
-              desired)
-}}
+\item{\code{populatedRows(obj = NULL, help = FALSE, ...)}}{Determine which rows have at least one non-zero assignment}
 
-\item{\code{rCounts(obj = NULL, ...)}}{\preformatted{
-Return an integer vector of non-zero columns for each row
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well (so you can select the raw matrix if
-              desired)
-}}
+\item{\code{rCounts(obj = NULL, help = FALSE, ...)}}{Return the counts of non-zero columns for each row}
 
-\item{\code{removeEmpty(reason = NA)}}{\preformatted{
-Remove all empty rows and columns. Invisibly returns a vector of removed IDs.
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
-}}
+\item{\code{removeEmpty(reason = NA, help = FALSE)}}{Remove all rows and columns that consist only of zeroes}
 
-\item{\code{removeEmptyCols(reason = NA)}}{\preformatted{
-Remove all empty columns (those that only contain zeros). Invisibly
-returns a vector of removed IDs.
-     reason - Default NA; If specified, a text value that will be added
-              to the $filterLog under the 'reason' column
-}}
+\item{\code{removeEmptyCols(reason = NA, help = FALSE)}}{Remove all rows that consist only of zeroes}
 
-\item{\code{removeEmptyRows(reason = NA)}}{\preformatted{
-Remove all empty rows (those that only contain zeros). Invisibly returns a
-vector of removed IDs.
-     reason - Default NA; If specified, a text value that will be added to
-              the $filterLog under the 'reason' column
-}}
+\item{\code{removeEmptyRows(reason = NA, help = FALSE)}}{Remove all rows that consist only of zeroes}
 
 \item{\code{reset(help = FALSE)}}{Reset the matrix to the 'raw' (unfiltered) state}
 

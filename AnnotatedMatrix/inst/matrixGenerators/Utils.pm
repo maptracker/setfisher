@@ -22,6 +22,7 @@ our $args = &parseargs({
 
 our $tmpDir   = $args->{tmpdir}; $tmpDir =~ s/\/+$//;
 our $clobber  = $args->{clobber} || 0;
+my  $stash    = $args->{stash};
 our $maxAbst  = 150;
 &mkpath([$tmpDir]) if ($tmpDir);
 
@@ -579,6 +580,44 @@ sub gzfh {
     return $fh;
 }
 
+sub stash {
+    return unless ($stash);
+    my $exe;
+    if (-s $stash) {
+        $exe = $stash;
+    } else {
+        $exe = `which stash`;
+    }
+    unless ($exe) {
+        warn "
+stash is not installed on your system.
+    Unless you were really expecting it to be there, this is not an error.
+
+";
+        $stash = 0; # Only warn once
+        return;
+    }
+    $exe =~ s/\s*[\n\r]+$//;
+    my $file = shift;
+    if (-l
+    my $mh   = shift || {};
+    my @meta;
+    while (my ($k, $v) = each %{$mh}) {
+        $k =~ s/[:,]+/_/g;
+        my @vals = ($v);
+        if (ref($v)) {
+            my %u = map { $_ => 1 } @{$v};
+            @vals = sort keys %u;
+        }
+        foreach my $val (@vals) {
+            $val =~ s/[:,]+/_/g;
+            push @meta, "$k:$val";
+        }
+    }
+    my $cmd = "$exe add --metadata '".join(',', @meta)."' \"$file\"";
+    warn "$cmd\n";
+}
 
 
 1;
+
