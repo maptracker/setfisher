@@ -7,7 +7,7 @@
 \title{Remove Empty Rows and Columns}
 \arguments{
 \item{reason}{Default NA, optional human-readable text that will be
-included with the \link{setFitlers} entry.}
+included with the \link{setFilters} entry.}
 
 \item{help}{Default FALSE. If TRUE, show this help and perform no
 other actions.}

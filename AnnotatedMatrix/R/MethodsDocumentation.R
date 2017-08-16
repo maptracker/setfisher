@@ -33,9 +33,7 @@
 #' @seealso \link{fromRDS}, \link{.readMatrix}
 #'
 #' @examples
-#'
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#'
+#' 
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #' s2e$file
 #' 
@@ -58,14 +56,16 @@ NULL
 #' file. Similarly, if the RDS file is older than the original
 #' sources, it will be regenerated from source.
 #'
+#' \preformatted{
+#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
+#' }
+#'
 #' @return A character vector with a single value
 #'
 #' @seealso \link{file}, \link{.readMatrix}
 #'
 #' @examples
 #' 
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#'
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #' s2e$fromRDS
 #' 
@@ -84,14 +84,17 @@ NULL
 #' data from the source file, and is unaltered. It allows filters to
 #' be cleared using \link{reset}.
 #'
+#' \preformatted{
+#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
+#' ## Use methods instead, in this case $matObj()
+#' ## ALTERING THIS FIELD WILL LEAD TO CHAOS. PLEASE DON'T.
+#' }
+#'
 #' @return a Matrix:: 'dgTMatrix' sparse matrix
 #'
 #' @seealso \link{matObj}, \link{matrixUse}, \link{reset}
 #'
 #' @examples
-#'
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#' ## Use methods instead, in this case $matObj()
 #'
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #' str(s2e$matrixRaw)
@@ -114,15 +117,18 @@ NULL
 #' matrixRaw. Using \link{reset} will reset all filters by setting
 #' matrixUse to \code{NULL}.
 #'
+#' \preformatted{
+#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
+#' ## Use methods instead, in this case $matObj()
+#' ## ALTERING THIS FIELD WILL LEAD TO CHAOS. PLEASE DON'T.
+#' }
+#'
 #' @return a Matrix:: 'dgTMatrix' sparse matrix, or NULL if no filters
 #'     have been applied
 #'
 #' @seealso \link{matObj}, \link{matrixRaw}, \link{reset}
 #'
 #' @examples
-#'
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#' ## Use methods instead, in this case $matObj()
 #'
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #' # Example matrix has an autofilter, so matrixUse is populated:
@@ -134,7 +140,7 @@ NULL
 #' 
 NULL
 
-#' Matrix Metadata
+#' Matrix Metadata Object
 #'
 #' Internal AnnotatedMatrix field holding metadata about row and column entries
 #'
@@ -147,14 +153,15 @@ NULL
 #' \code{data.table} (this may be a bad idea - I may split the field
 #' later into matrixMdRow and matrixMdCol)
 #'
+#' \preformatted{
+#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
+#' ## Use methods instead, in this case $metadata()
+#' }
 #' @return a data.table object
 #'
 #' @seealso \link{metadata}
 #'
 #' @examples
-#'
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#' ## Use methods instead, in this case $metadata()
 #'
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #' str(s2e$matrixMD)
@@ -178,9 +185,16 @@ NULL
 #' matrixRaw. Using \link{reset} will reset all filters by setting
 #' matrixUse to \code{NULL}.
 #'
+#' \preformatted{
+#' ## THIS FIELD SHOULD NOT BE MODIFIED BY THE USER OR OTHER CODE
+#' ## Doing so will probably not cause problems, but I can't conceive
+#' ## how it might help anything, either
+#' }
+#'
 #' @return A data.table
 #'
-#' @seealso \link{reset}, \link{filterSummary}
+#' @seealso \link{reset}, \link{filterSummary}, \link{setFilters},
+#'     \link{appliedFilters},
 #'
 #' @examples
 #'
@@ -194,6 +208,99 @@ NULL
 #' s2e$filterLog[ s2e$filterLog$id == "p51", ]
 #' # Yes; Provide Frank with guidance on avoiding sketchy gene symbols
 #' 
+NULL
+
+#' Set Filters
+#'
+#' Internal AnnotatedMatrix field holding a character vector
+#' describing filters that have been set
+#'
+#' @name setFilters
+#'
+#' @details
+#'
+#' Each operation applied to the matrix to filter out values will add
+#' a new string to this field. The string will be both (somewhat)
+#' human-intelligible, as well as being machine-parsable. The
+#' intention of the field is to allow reapplication of some or all of
+#' the filters, as well as serialize the filters in an ASCII format
+#' that can be stored with output of analyses.
+#'
+#' \preformatted{
+#' ## THIS FIELD SHOULD NOT BE MODIFIED BY THE USER OR OTHER CODE
+#' ## Doing so will probably not cause problems, but I can't conceive
+#' ## how it might help anything, either
+#' }
+#'
+#' @return A character vector
+#'
+#' @seealso \link{appliedFilters}, \link{filterSummary}
+#'
+#' @examples
+#'
+#' # The example matrix includes some automatic filters:
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$setFilters
+NULL
+
+#' Matrix Level Values
+#'
+#' Internal AnnotatedMatrix field holding factor levels (names)
+#'
+#' @name lvlVal
+#'
+#' @details
+#'
+#' AnnotatedMatrix objects can be defined as a "pseudo-factor" by
+#' setting factor level names that will be associated with numeric
+#' values of the matrix. These level names are held in the
+#' \code{lvlVal} field. If the field is populated the matrix will be
+#' presumed to be a factor.
+#'
+#' \preformatted{
+#' ## THIS FIELD SHOULD NOT BE MODIFIED BY THE USER OR OTHER CODE
+#' ## DOING SO COULD LEAD TO CONFUSION / CRASHES
+#' }
+#' 
+#' @return A character vector of level values
+#'
+#' @seealso \link{is.factor}, \link{levels}
+#'
+#' @examples
+#'
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$lvlVal
+NULL
+
+#' Changed Row and Column Names
+#'
+#' Internal AnnotatedMatrix fields tracking row and column names that
+#' needed to be changed when building the object
+#'
+#' @name rowcolchanges
+#' @aliases rowChanges colChanges
+#' @method rowChanges AnnotatedMatrix
+#' @method colChanges AnnotatedMatrix
+#' 
+#'
+#' @details
+#'
+#' Row and column names on the matrix must be unique. Some input
+#' formats do not contain this restriction. If any dimension names
+#' need to be altered to force them to be unique, those changes will
+#' be captured here. The values are named character vectors, where the
+#' value of the vector represents the original name, and the names
+#' represent the uniquely-renamed values.
+#'
+#' \preformatted{
+#' ## THIS FIELD SHOULD NOT BE MODIFIED BY THE USER OR OTHER CODE
+#' ## Doing so will probably not cause problems, but I can't conceive
+#' ## how it might help anything, either
+#' }
+#' 
+#' @return A named character vector
+#'
+#' @seealso \link{rNames}, link{cNames}, link{uniqueNames}
 NULL
 
 #' Get Matrix Object
@@ -289,7 +396,7 @@ NULL
 #'
 #' @return A character vector of row names
 #'
-#' @seealso \link{reset}
+#' @seealso \link{reset}, \link{rowChanges}, \link{colChanges}
 #'
 #' @examples
 #'
@@ -433,7 +540,8 @@ NULL
 #'
 #' Internal AnnotatedMatrix object method to tally filtered rows and cols
 #'
-#' @name .detailZeroedRowCol
+#' @name DOTdetailZeroedRowCol
+#' @aliases .detailZeroedRowCol
 #' @method .detailZeroedRowCol AnnotatedMatrix
 #' 
 #' @details
@@ -865,7 +973,7 @@ NULL
 #' and \code{$removeEmptyCols()}
 #'
 #' @param reason Default NA, optional human-readable text that will be
-#'     included with the \link{setFitlers} entry.
+#'     included with the \link{setFilters} entry.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
@@ -1084,7 +1192,8 @@ NULL
 #'
 #' Internal AnnotatedMatrix object method to generate new hybrid factor levels
 #'
-#' @name .autoLevel
+#' @name DOTautoLevel
+#' @aliases .autoLevel
 #' @method .autoLevel AnnotatedMatrix
 #' 
 #' @details
@@ -1118,7 +1227,8 @@ NULL
 #'
 #' Internal AnnotatedMatrix object method to add filtered names to the log
 #'
-#' @name .filterDetails
+#' @name DOTfilterDetails
+#' @aliases .filterDetails
 #' @method .filterDetails AnnotatedMatrix
 #' 
 #' @details
@@ -1147,7 +1257,8 @@ NULL
 #'
 #' Internal AnnotatedMatrix object method to extend the list of applied filters
 #'
-#' @name .addAppliedFilter
+#' @name DOTaddAppliedFilter
+#' @aliases .addAppliedFilter
 #' @method .addAppliedFilter AnnotatedMatrix
 #' 
 #' @details
@@ -1180,19 +1291,27 @@ NULL
 #' 
 #' @details
 #' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$appliedFilters( help=TRUE )
+#'
+#' myObject$appliedFilters( new=NULL )
+#' }
+#'
 #' Each time a method is run that filters the matrix, the criteria
 #' used are serialized as a text snippet, and the snippet is added to
-#' the \link{setFitlers} vector. These snippets can be used as a
+#' the \link{setFilters} vector. These snippets can be used as a
 #' record of filtering operations. In addition, some or all of them
-#' can be passed to this function to re-run the filters (ASPIRATIONAL
-#' FEATURE, NOT YET AVAILABLE).
+#' can be passed to this function to re-run the filters
+#'
+#' (LOADING = ASPIRATIONAL FEATURE, NOT YET AVAILABLE).
 #'
 #' @param new Default NULL, optional character vector of new filters
 #'     to apply. NOT YET IMPLEMENTED
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
-#' @return The \link{setFitlers} field, a character vector
+#' @return The \link{setFilters} field, a character vector
 #'     added to \link{setFilters}
 #'
 #' @seealso \link{setFilters}, \link{filterByScore},
@@ -1203,8 +1322,304 @@ NULL
 #' @examples
 #' 
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
-#' 
-#' 
-#'
+#' ## The sample file has automated filters applied to it:
+#' s2e$appliedFilters()
+NULL
 
+#' Filter Summary
+#'
+#' AnnotatedMatrix object method to summarize filters applied to the matrix
+#'
+#' @name filterSummary
+#' @method filterSummary AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$filterSummary( help=TRUE )
+#'
+#' myObject$filterSummary( reason=TRUE )
+#' }
+#'
+#' Returns a data.frame that has been classed to allow a pretty-print
+#' summary of the filters applied and the number of rows or columns
+#' that have been 'removed' by each filter.
+#'
+#' @param reason Default TRUE, which will cluster the filter summary
+#'     by reason and type. If FALSE, then only type will be used to
+#'     cluster the summary.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A data.frame classed as 'mapFilter'. Will be pretty-printed
+#'     with \link{print.mapFilter}.
+#'
+#' @seealso \link{setFilters}, \link{filterByScore},
+#'     \link{filterByFactorLevel}, \link{filterByMetadata},
+#'     \link{rNames}, \link{cNames}, \link{reset},
+#'     \link{appliedFilters},
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' fs <- s2e$filterSummary( )
+#' fs
+#' str(fs)
+NULL
+
+#' Matrix is Factor
+#'
+#' AnnotatedMatrix object method indicating if the matrix is a factor or not
+#'
+#' @name is.factor
+#' @method is.factor AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$is.factor( help=TRUE )
+#'
+#' myObject$is.factor( )
+#' }
+#'
+#' \link{Matrix} matrices do not support factorized content, at least
+#' at the time this package was developed. AnnotatedMatrix maintains
+#' some metadata to allow integer matrices to be treated as factors
+#' with named levels. This method will indicate if the \link{lvlVal}
+#' field has ben set.
+#'
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A single logical value, TRUE if \link{lvlVal} is defined
+#'     with one or more levels, otherwise FALSE.
+#'
+#' @seealso \link{lvlVal}, \link{levels}
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$is.factor( )
+#' s2e$levels()
+NULL
+
+#' Matrix Levels
+#'
+#' AnnotatedMatrix object method returning the factor levels (names)
+#'
+#' @name levels
+#' @method levels AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$levels( help=TRUE )
+#'
+#' myObject$levels( )
+#' }
+#'
+#' If the matrix is flagged as being a factor (by having \link{lvlVal}
+#' set), this function will return the factor levels (names).
+#'
+#' @param asFactor Default FALSE, in which case factor level names
+#'     only will be returned. If TRUE, then the returned value will be
+#'     a formal factor object.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return NULL if the matrix is not a factor, or a character vector
+#'     of level names, or a factor if \code{asFactor} is TRUE.
+#'
+#' @seealso \link{lvlVal}, \link{is.factor}
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$levels()
+#' str( s2e$levels( asFactor=TRUE ) )
+NULL
+
+#' As GMT
+#'
+#' AnnotatedMatrix object method to represent matrix as GMT format
+#'
+#' @name as.gmt
+#' @method as.gmt AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$as.gmt( help=TRUE )
+#'
+#' myObject$as.gmt( obj=NULL, transpose=FALSE, file=NULL, ...)
+#' }
+#'
+#' Will represent the matrix as GMT format, a simple flat file format
+#' that allows for basic metadata (names and descriptions).
+#'
+#' @param obj Default NULL, the matrix object to serialize. If NULL,
+#'     will call \link{matObj} to recover the current filtered matrix.
+#' @param transpose Default FALSE, which will treat rows as sets and
+#'     columns as set members. TRUE will instead treat the columns as
+#'     sets.
+#' @param file Default NULL. If not NULL, will be treated as a file
+#'     path and passed to \link{cat}.
+#' @param ... Will be passed to \link{matObj}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return The GMT text, invisibly if file is not NULL
+#'
+#' @seealso \href{http://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/Data_formats#GMT:_Gene_Matrix_Transposed_file_format_.28.2A.gmt.29}{GMT Format at Broad Institute}
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' ## Generate GMT data for the symbols associated for each gene in
+#' ## the example:
+#' s2e$as.gmt( transpose=TRUE )
+NULL
+
+#' Read Matrix Data
+#'
+#' Internal AnnotatedMatrix object method to parse file contents
+#'
+#' @name DOTreadMatrix
+#' @aliases .readMatrix
+#' @method .readMatrix AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' Internal method, should not be called directly
+#' 
+#' This method will take the \link{file} field as a file path and
+#' attempt to parse it as a matrix. Once parsed, the method will
+#' create a serailized \link[=readRDS]{RDS} object. Future attempts to
+#' parse the matrix file will recognize the RDS object and quickly
+#' parse it instead.
+#'
+#' @param format Default "" (empty string). Optional format name, if
+#'     empty the format will be deduced by the file suffix.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A list containing the \link{Matrix} object, metadata as a
+#'     \link{data.table}, \link{rowChanges} and \link{colChanges},
+#'     levels as \link{lvlVal}, and any default parameters parsed from
+#'     the file.
+#'
+#' @seealso The individual format parsing functions:
+#'     \link{parse_MatrixMarket_file}, link{filesToMTX},
+#'     link{parse_ListOfLists_file}, link{parse_Text_file},
+#'     link{parse_GMT_file}
+NULL
+
+#' Metadata Keys
+#'
+#' AnnotatedMatrix object method to return all metadata keys
+#'
+#' @name metadata_keys
+#' @method metadata_keys AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$metadata_keys( help=TRUE )
+#'
+#' myObject$metadata_keys( )
+#' }
+#'
+#' Return all keys (tag names) from the internal metadata table. The
+#' \code{id} column will be excluded from the result.
+#'
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A character vector of metadata column names
+#'
+#' @seealso \link{metadata}, \link{matrixMD}
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' ## Two keys assigned to the example matrix:
+#' s2e$metadata_keys()
+NULL
+
+#' Metadata Keys
+#'
+#' AnnotatedMatrix object method to recover metadata assigned to rows or columns
+#'
+#' @name metadata
+#' @method metadata AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$metadata( help=TRUE )
+#'
+#' myObject$metadata(id=NULL, key=NULL, na.rm=TRUE, drop=TRUE, verbose=TRUE )
+#' }
+#'
+#' Query metadata associated with rows and/or columns, based on IDs
+#' and/or keys
+#'
+#' @param id Default NULL. Optional vector of specific IDs to query
+#' @param key Default NULL. Optional vector of keys / tags to query
+#' @param na.rm Default TRUE, which will cause rows or columns that
+#'     are entirely NA to be removed.
+#' @param drop Default TRUE, which will cause a named vector to be
+#'     returned if only one column of metadata is present. Otherwise a
+#'     data.table will be returned.
+#' @param verbose Default TRUE, which will warn about certain issues
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#' 
+#' @return If drop=TRUE and zero or one columns of metadata a present,
+#'     a named character vector. Otherwise a data.table
+#'
+#' @seealso \link{metadata_keys}, \link{matrixMD}
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$metadata(c("LOC9588","LOC7038","LOC3921"))
+#' s2e$metadata(key="Symbol")
+NULL
+
+#' Field Descriptions
+#'
+#' Internal AnnotatedMatrix object method providing descriptive text
+#' to object fields
+#'
+#' @name DOTfieldDescriptions
+#' @aliases .fieldDescriptions
+#' @method .fieldDescriptions AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' Internal method, should not be called directly
+#' 
+#' Helper method that adds descriptive attributes to the fields held
+#' by the object. This is an attempt to make the object
+#' self-documenting. Two fields are added: "Description", which
+#' provides a one-sentance description of the field, and "Help", which
+#' is a copy-and-pastable \link{help} command to recover the man page
+#' for the field
+#'
+#' @param update Default TRUE, which will modify the internal object
+#'     field to have the two attached objects.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A list, with field variable names as names, and descriptive
+#'     text as values.
+#' @seealso \link{help}
+NULL
 

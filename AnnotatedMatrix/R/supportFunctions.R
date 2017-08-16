@@ -11,14 +11,17 @@
 #' designed to address requests to reduce a list of gene accessions
 #' (eg LOC13992, LOC93) to "one gene", but without any other guiding
 #' context. The function will extract the left-most uninterupted
-#' integer that it can find, and pick the smallest. The rationale is
-#' that "LOC93" was probably annotated earlier (longer ago) than
-#' "LOC13200423", and as such is probably the "more common" /
-#' "better annotated" / "more popular" of the two.
+#' integer that it can find, and then pick the one that is numerically
+#' smallest. The rationale is that "LOC93" was probably annotated
+#' earlier (longer ago) than "LOC13200423", and as such is more likely
+#' to be the "more common" / "higher expressed" / "better annotated" /
+#' "more popular" of the two.
 #'
 #' @param x A character vector of strings to pick from
 #'
 #' @return A single string
+#'
+#' @seealso \link{map}
 #'
 #' @examples
 #'
@@ -148,6 +151,9 @@ inst.path.package <- function(pkg="AnnotatedMatrix") {
 #'
 #' Internal method to help manage example files in extdata/
 #'
+#' @name DOTmakeTempFile
+#' @aliases .makeTempFile
+#'
 #' @details
 #'
 #' When matrix files are loaded, a .rds version is generated to aid in
@@ -164,7 +170,7 @@ inst.path.package <- function(pkg="AnnotatedMatrix") {
 #'
 #' @examples
 #'
-#' tmpFile <- AnnotatedMatrix::.makeTempFile("Symbol-To-Gene.mtx")
+#' tmpFile <- AnnotatedMatrix:::.makeTempFile("Symbol-To-Gene.mtx")
 #'
 
 .makeTempFile <- function(name, pkg="AnnotatedMatrix") {
@@ -372,7 +378,7 @@ print.mapResult <- function (x, ...) {
 #' @param ... Additional parameters, passed on to message()
 #'
 #' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
-#' s2e$filterSummary(fs)
+#' s2e$filterSummary( )
 #'
 #' @importFrom CatMisc is.something
 #' @importFrom crayon red yellow magenta cyan

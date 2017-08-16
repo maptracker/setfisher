@@ -14,7 +14,10 @@ mappings and ontology lookups
 ## Object creation
 AnnotatedMatrix( help=FALSE ) # Show this help
 
+## In general:
 myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
+## Specific toy example matrix:
+myAnnMat <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 
 myAnnMat$help()                 # High-level help
 myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
@@ -70,23 +73,9 @@ make.unique() if (valid = FALSE)}
 \section{Methods}{
 
 \describe{
-\item{\code{appliedFilters(new = NULL)}}{\preformatted{
-Filters applied to matrix so far, represented as text that can be read
-both by humans and computationally.
-      new - Provide new filters to apply, using the same format.
-            Designed to allow a snapshot of the filter state to be
-            reapplied to the matrix after a $reset()
-}}
+\item{\code{appliedFilters(new = NULL, help = FALSE)}}{Get applied filters as a vector of readable/parsable strings}
 
-\item{\code{as.gmt(obj = NULL, transpose = FALSE, file = NULL, ...)}}{\preformatted{
-Converts matrix into a block of GMT-formatted text
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well. Alternatively a Matrix can be provided.
-  transpose - Default FALSE, which will presume that the rows are sets. If TRUE,
-              then columns will be taken as sets
-       file - Default NULL, if defined then the output will be written to that
-              path
-}}
+\item{\code{as.gmt(obj = NULL, transpose = FALSE, file = NULL, help = FALSE, ...)}}{Convert the active matrix into GMT text representation}
 
 \item{\code{autoFilter(recursive = TRUE, verbose = TRUE, help = FALSE)}}{Automatically apply filters defined in the parameters}
 
@@ -103,12 +92,7 @@ Converts matrix into a block of GMT-formatted text
 \item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA,
   help = FALSE)}}{Filter matrix cells by simple numeric tests}
 
-\item{\code{filterSummary(reason = TRUE)}}{\preformatted{
-Tallies number of filtered objects (generally cells) by filter criteria
-and optionally reason. Returns a data frame
-   reason - Default TRUE, which includes the reason text in the count
-            grouping
-}}
+\item{\code{filterSummary(reason = TRUE, help = FALSE)}}{Human-readable overview of filters and counts of rows/cols removed}
 
 \item{\code{help(color = NULL)}}{\preformatted{
 Show compact help information about the object
@@ -116,17 +100,9 @@ Show compact help information about the object
               $color()
 }}
 
-\item{\code{is.factor()}}{\preformatted{
-TRUE if the matrix is a pseudo-factor (levels have been defined),
-otherwise FALSE
-}}
+\item{\code{is.factor(help = FALSE)}}{TRUE if the matrix is a pseudo-factor, otherwise FALSE}
 
-\item{\code{levels(asFactor = FALSE)}}{\preformatted{
-Returns factor levels, if appropriate. If not, returns NULL
- asFactor - Default FALSE, which will return an ordered character vector of the
-            level values (names). If true, a factor will be returned with
-            appropriate levels assigned
-}}
+\item{\code{levels(asFactor = FALSE, help = FALSE)}}{Returns factor levels, if appropriate. If not, returns NULL}
 
 \item{\code{map(input = NULL, via = NULL, format = "data.frame", ignore.case = TRUE,
   keep.best = FALSE, column.func = max, collapse = NULL,
@@ -137,24 +113,9 @@ Returns factor levels, if appropriate. If not, returns NULL
 \item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 
 \item{\code{metadata(id = NULL, key = NULL, na.rm = TRUE, drop = TRUE,
-  verbose = TRUE)}}{\preformatted{
-Select metadata by id, key or both
-         id - Optional vector of IDs to query. If not provided, all IDs
-              will be returned. Bear in mind that the metadata holds both
-              row and column IDs mixed together
-        key - Optional vector of key/tag names, if not provided then all
-              available ones will be returned.
-      na.rm - Default TRUE, which will remove NA values from returned
-              results. Does not apply when both id and key are specified.
-       drop - Default TRUE. If FALSE, the return value will be a data.table
-              If TRUE, and zero or one metadata columns are present, then
-              a named vector is returned.
-    verbose - Default TRUE, which will warn about certain issues
-}}
+  verbose = TRUE, help = FALSE)}}{Recover metadata for specific IDs and/or columns}
 
-\item{\code{metadata_keys(id = NULL, key = NULL)}}{\preformatted{
-Returns a character vector of metadata key names (eg 'Description')
-}}
+\item{\code{metadata_keys(help = FALSE)}}{Get all metadata keys as a character vector}
 
 \item{\code{nnZero(obj = NULL, help = FALSE, ...)}}{Return the count of non-zero elements in the matrix}
 

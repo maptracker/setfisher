@@ -1,5 +1,6 @@
 use strict;
 use Data::Dumper;
+use File::Basename;
 use File::Path 'mkpath';
 use POSIX 'strftime';
 use File::Listing 'parse_dir';
@@ -8,6 +9,7 @@ use Net::FTP;
 use LWP::UserAgent;
 
 our ($defaultArgs, $defTmp, $ftp, $ua);
+my $codeDir     = dirname($0);
 our $bar        = "- " x 20;
 our $mtxSep     = " :: ";
 
@@ -20,26 +22,60 @@ our $args = &parseargs({
     clobber  => 0,
     verify_hostname => 0,  });
 
+my  $stash    = $args->{stash};
+my  %tasks    = ();
 our $tmpDir   = $args->{tmpdir}; $tmpDir =~ s/\/+$//;
 our $clobber  = $args->{clobber} || 0;
-my  $stash    = $args->{stash};
 our $maxAbst  = 150;
+our $outDir   = $args->{dir} || "";
+$outDir =~ s/\/+$//;
+
 &mkpath([$tmpDir]) if ($tmpDir);
 
 # die Dumper($args);
 
 sub parseargs {
-    ## Command line argument parsing
-    my $rv = $_[0] || {};
-    my $i = 0;
+    ## Argument parsing
+    my %rv;
+    ## Normalize the defaults
+    while (my ($k,$v) = each %{ $_[0] || {} }) {
+        $k =~ s/^\-//;
+        $rv{lc($k)} = $v if ($k && defined $v);
+    }
+
+    # Configuration files, both in the generators folder and the
+    # user's home folder
+    my @cFiles = map { sprintf("%s/.matrixGenerators.conf", $_) }
+    ( $codeDir,  $ENV{HOME} || "UnSeThOmE");
+    foreach my $cFile (@cFiles) {
+        next unless (-s $cFile);
+        ## A configuration file is present
+        if (open(CF, "<$cFile")) {
+            while (<CF>) {
+                next if (/^#/);
+                s/[\n\r]+$//;
+                if (/^\s*(.+?)\s*=\s*(.+?)\s*$/) {
+                    my ($k, $v) = ($1, $2);
+                    $k =~ s/^\-//;
+                    $rv{lc($k)} = $v if ($k && defined $v);
+                }
+            }
+            close CF;
+        } else {
+            &err("Failed to read configuration file '$cFile'", $!);
+        }
+    }
+    
+    ## Command line options
+    my $i  = 0;
     while ($i <= $#ARGV) {
         my $key = lc($ARGV[$i]);
         $key =~ s/^\-+//;
         my $val = $i < $#ARGV && $ARGV[$i+1] !~ /^\-/ ? $ARGV[++$i] : 1;
-        $rv->{$key} = $val;
+        $rv{$key} = $val;
         $i++;
     }
-    return $rv;
+    return \%rv;
 }
 
 sub msg {
@@ -114,9 +150,11 @@ sub fetch_url {
         ## parsing is ~90 seconds per file on my system. Close and
         ## reinitialize to be assured of a 'live' connection:
         undef $ftp; &_ftp();
+        my $tmp = "$dest.tmp";
         while ($pending) {
-            $ftp->get($uReq, $dest);
-            if (-s $dest) {
+            $ftp->get($uReq, $tmp) || &death("Failed to FTP file", $uReq, $ftp->message);
+            if (-s $tmp) {
+                rename($tmp, $dest);
                 &msg("Downloaded $uReq:", $dest);
                 if ($uReq =~ /(.+)\/([^\/]+)$/) {
                     ## Try to get remote timestamp
@@ -580,6 +618,184 @@ sub gzfh {
     return $fh;
 }
 
+## See README.md in the matrixGenerators folder for more information
+## on file formats and directory structure
+
+sub file_name {
+    my ($type, $mod, $ns1, $ns2, $auth, $vers) = @_;
+    my $file = $type.'@';
+    $file .= "$mod-" if ($mod);
+    $file .= sprintf("%s_to_%s@%s@%s.mtx", $ns1, $ns2, $auth, $vers);
+    return $file;
+}
+
+sub primary_path {
+    return &primary_folder(@_).'/'.&file_name(@_);
+}
+
+sub primary_folder {
+    my ($auth, $vers);
+    if ($#_ == 1) {
+        # Just two arguments
+        ($auth, $vers) = @_;
+    } elsif ($#_ == 5) {
+        # Full arguments ($type, $mod, $ns1, $ns2, $auth, $vers)
+        ($auth, $vers) = ($_[4], $_[5]);
+    }
+    my $aDir = sprintf('%s/byAuthority', $outDir );
+    my $dir  = sprintf('%s/%s/%s',$aDir, $auth, $vers);
+    unless ($tasks{PrimaryFolder}++) {
+        ## Make sure folder exists, add README
+        &mkpath([$dir]);
+        &copy_template_file("byAuthorityReadme.md", "$aDir/README.md");
+    }
+    return $dir;
+}
+
+sub symlinked_paths {
+    my ($type, $mod, $ns1, $ns2, $auth, $vers) = @_;
+    ## Name of symlink is just the file:
+    my $lnk   = &file_name(@_);
+    ## Target is up three levels, then into byAuthority:
+    my $targ  = sprintf("../../../byAuthority/%s/%s/%s", $auth, $vers, $lnk);
+    my $nsDir = sprintf('%s/byNamespace', $outDir );
+    unless ($tasks{Symlinks}++) {
+        # Set up the namespace folder
+         &mkpath([$nsDir]);
+         &copy_template_file("byNamespaceReadme.md", "$nsDir/README.md");
+    }
+
+    ## Set up namespace hierarchy
+    foreach my $np ([$ns1, $ns2], [$ns2, $ns1]) {
+        my ($nsa, $nsb) = @{$np};
+        my $nd = "$nsDir/$nsa";
+        unless ($tasks{"NS-$nsa"}++) {
+            &mkpath([$nd]);
+            my $rdm = "$nd/README.md";
+            unless (-s $rdm) {
+                if (open(RDM, ">$rdm")) {
+                    print RDM "# Namespace $nsa
+
+This folder holds matrix files that have the `$nsa` namespace assigned
+to _either_ their row _or_ column dimensions. The files themselves
+will be in one of the subfolders, which describe the other namespace.
+
+";
+                    close RDM;
+                } else {
+                    &err("Failed to create namespace readme", $rdm, $!);
+                }
+            }
+        }
+
+        ## Make the second namespace layer
+        $nd = "$nd/$nsb";
+        unless ($tasks{"NS-$nsa-$nsb"}++) {
+            &mkpath([$nd]);
+            my $rdm = "$nd/README.md";
+            unless (-s $rdm) {
+                if (open(RDM, ">$rdm")) {
+                    print RDM "# Namespace Pair $nsa + $nsb
+
+This folder holds matrix files with both the `$nsa` and `$nsb`
+namespaces, irrespective of whether one is in rows or columns. The
+files are actually symbolic links back to the [byAuthority][BA]
+directory.
+
+\[BA\]: ../../../byAuthority
+
+";
+                    close RDM;
+                } else {
+                    &err("Failed to create namespace readme", $rdm, $!);
+                }
+            }
+        }
+
+        ## Make link
+        my $nLnk = "$nd/$lnk";
+        my $ok = symlink($targ, $nLnk);
+        ## We also want to link to the RDS serializations
+        symlink("$targ.rds", "$nLnk.rds");
+    }
+
+    ### TODO : Find older files, move them to an "archive" folder
+}
+
+sub copy_template_file {
+    my ($template, $dest, $header) = @_;
+    my $tf = "$codeDir/$template";
+    
+    unless (-s $tf) {
+        &err( "Can not copy template '$template' - file not found", $tf);
+        return undef;
+    }
+    if (-s $dest && ((-M $dest) < (-M $tf))) {
+        ## Destination file exists and is more recent than template
+        return 0;
+    }
+    if (open(IN, "<$tf")) {
+        if (open(OUT, ">$dest")) {
+            my $ok = 0;
+            while (<IN>) {
+                ## Horizontal rule marks start of actual template
+                if (/^---/ && !$ok) {
+                    $ok = 1;
+                    print OUT "$header\n\n" if ($header);
+                    next;
+                }
+                print OUT $_ if ($ok);
+            }
+            close OUT;
+        } else {
+            &err("Failed to copy tempate", $dest, $!);
+        }
+        close IN;
+    } else {
+        &err("Failed to read template file", $tf, $!);
+    }
+}
+
+sub parse_filename {
+    my $file = shift || "";
+    my %rv = (file => $file );
+    if ($file =~ /(.+)\.rds$/i) {
+        $file = $1;
+        $rv{rds} = 1;
+    }
+    $file =~ s/\.mtx$//i;
+    my @bits = split('@', $file);
+    if ($#bits == 3) {
+        $rv{type} = $bits[0];
+        $rv{auth} = $bits[2];
+        $rv{vers} = $bits[3];
+        my $nstxt = $bits[1];
+        if ($nstxt =~ /^(.+)\-(.+)$/) {
+            # Modifier / Adjective, eg "Human-Symbol_to_UniProt"
+            $rv{mod} = $1;
+            $nstxt   = $2;
+        }
+        my @ns = split('_to_', $nstxt);
+        if ($#ns == 1) {
+            $rv{rows} = $ns[0];
+            $rv{cols} = $ns[1];
+        } else {
+            $rv{error} = "Namespace '$nstxt' parse failure";
+        }
+    } else {
+        $rv{error} = "Expected 4 fields, found ".($#bits+1);
+    }
+    return \%rv
+}
+
+sub post_process {
+    ## Sets symlinks and runs stash, if available
+    my $meta = pop @_;
+    my $trg  = &primary_path(@_);
+    &stash($trg, $meta);
+    &symlinked_paths( @_ );
+}
+
 sub stash {
     return unless ($stash);
     my $exe;
@@ -599,7 +815,8 @@ stash is not installed on your system.
     }
     $exe =~ s/\s*[\n\r]+$//;
     my $file = shift;
-    if (-l
+    ## Do not stash links:
+    return if (-l $file);
     my $mh   = shift || {};
     my @meta;
     while (my ($k, $v) = each %{$mh}) {

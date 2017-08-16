@@ -2,7 +2,7 @@ library("AnnotatedMatrix")
 
 s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 
-test_that("LoadingMTX", {
+test_that("Matrix filters", {
     afCon <- 180L
     expect_identical(afCon, s2e$nnZero(),
                      "Valid number of auto-filtered connections")
@@ -59,5 +59,17 @@ test_that("LoadingMTX", {
     expect_identical(class(s2e$matrixUse)[1], "dgTMatrix", "Class safety check")
     expect_identical(s2e$map(bogus)[bogus, "Score"], 0L,
                      "Verify novel row is recognized (Score = 0 != NA)")
+
     
+    ## Applied filters field
+    s2e$reset()
+    s2e$autoFilter()
+    af <- s2e$appliedFilters()
+    sf <- s2e$setFilters
+    expect_identical(af, sf, "Method without args should just be setFilters")
+    expect_identical(length(af), 2L, "Two automatic filters")
+    expect_identical(af[1], "LEVELS == Unknown ## Unknown status = uncertain provenance in MapTracker", "First example filter")
+
+    
+   
 })

@@ -11,7 +11,10 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' ## Object creation
 #' AnnotatedMatrix( help=FALSE ) # Show this help
 #'
+#' ## In general:
 #' myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
+#' ## Specific toy example matrix:
+#' myAnnMat <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #'
 #' myAnnMat$help()                 # High-level help
 #' myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
@@ -356,28 +359,43 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         "Internal method to tally rows and columns zeroed out during filtering"
         if (help) return(CatMisc::methodHelp(match.call(), class(.self),
                                              names(.refClassDef@contains)))
-        ## What rows / columns were affected?
+        ## What rows / columns were affected by this operation? i=row, j=col
         ij   <- which( fail )
-        ## Check if any rows are now totally zeroed out
-        i    <- unique( obj@i[ ij ] )
-        iBye <- vapply(i, function(xi) all(obj@x[ obj@i == xi ] == 0), TRUE)
-        ibs <- sum(iBye)
-        ## +1 -> Because Matrix Row/Col are zero-indexed!
-        if (ibs > 0) {
+        ## Which triples are currently nonzero?
+        nonZ <- obj@x != 0
+
+        ## The steps below (find non-zero triples, find impacted
+        ## triples, identifiy impacted with no survivors) are chosen
+        ## because other approaches with vapply were very slow.
+        
+        ## Which rows have at least one nonzero entry?
+        iOk  <- unique(obj@i[ nonZ ])
+        ## Which rows were impacted by the current operation?
+        iHit <- unique( obj@i[ ij ] )
+        ## Remove the ones that still have an active row somewhere:
+        iBye <- setdiff(iHit, iOk)
+        iNum <- length(iBye)
+        if (iNum > 0) {
             ## Some rows are now all zero because of the filter
-            ids <- rownames(obj)[ i[iBye] + 1 ]
+            ## +1 -> Because Matrix Row/Col are zero-indexed!
+           ids <- rownames(obj)[ iBye + 1 ]
             .filterDetails(id=ids, type="Row", metric=metric, reason=reason)
         }
-        ## Check the columns
-        j    <- unique( obj@j[ ij ] )
-        jBye <- vapply(j, function(xj) all(obj@x[ obj@j == xj ] == 0), TRUE)
-        jbs  <- sum(jBye)
-        if (jbs > 0) {
-            ## Some rows are now all zero because of the filter
-            ids <- colnames(obj)[ j[jBye] + 1 ]
+        
+        ## Which cols have at least one nonzero entry?
+        jOk  <- unique(obj@j[ nonZ ])
+        ## Which cols were impacted by the current operation?
+        jHit <- unique( obj@j[ ij ] )
+        ## Remove the ones that still have an active row somewhere:
+        jBye <- setdiff(jHit, jOk)
+        jNum <- length(jBye)
+        if (jNum > 0) {
+            ## Some cols are now all zero because of the filter
+            ## +1 -> Because Matrix Row/Col are zero-indexed!
+            ids <- colnames(obj)[ jBye + 1 ]
             .filterDetails(id=ids, type="Col", metric=metric, reason=reason)
         }
-        c(ibs, jbs)
+        c(iNum, jNum) # Return counts of zeroed-out rows,cols
     },
 
     filterByScore = function( min=NA, max=NA, filterEmpty=FALSE, reason=NA,
@@ -1264,13 +1282,22 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         txt
     },
 
-    filterSummary = function (reason=TRUE) {
-        "\\preformatted{
-Tallies number of filtered objects (generally cells) by filter criteria
-and optionally reason. Returns a data frame
-   reason - Default TRUE, which includes the reason text in the count
-            grouping
-}"
+    appliedFilters = function (new=NULL, help=FALSE) {
+        "Get applied filters as a vector of readable/parsable strings"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        if (!is.null(new)) {
+            err("
+ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
+")
+        }
+        setFilters
+    },
+
+    filterSummary = function (reason=TRUE, help=FALSE) {
+        "Human-readable overview of filters and counts of rows/cols removed"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
 
         rv <- if (reason) {
             dplyr::count(filterLog, metric, type, reason)
@@ -1292,37 +1319,17 @@ and optionally reason. Returns a data frame
         rv
     },
 
-    appliedFilters = function (new=NULL) {
-        "\\preformatted{
-Filters applied to matrix so far, represented as text that can be read
-both by humans and computationally.
-      new - Provide new filters to apply, using the same format.
-            Designed to allow a snapshot of the filter state to be
-            reapplied to the matrix after a $reset()
-}"
-        if (!is.null(new)) {
-            err("
-ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
-")
-        }
-        setFilters
+    is.factor = function (help=FALSE) {
+        "TRUE if the matrix is a pseudo-factor, otherwise FALSE"
+         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+       CatMisc::is.something(lvlVal)
     },
 
-    is.factor = function () {
-        "\\preformatted{
-TRUE if the matrix is a pseudo-factor (levels have been defined),
-otherwise FALSE
-}"
-        CatMisc::is.something(lvlVal)
-    },
-
-    levels = function( asFactor=FALSE ) {
-        "\\preformatted{
-Returns factor levels, if appropriate. If not, returns NULL
- asFactor - Default FALSE, which will return an ordered character vector of the
-            level values (names). If true, a factor will be returned with
-            appropriate levels assigned
-}"
+    levels = function( asFactor=FALSE, help=FALSE ) {
+        "Returns factor levels, if appropriate. If not, returns NULL"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (is.factor()) {
             if (asFactor) { factor(lvlVal) } else { lvlVal }
         } else {
@@ -1330,17 +1337,10 @@ Returns factor levels, if appropriate. If not, returns NULL
         }
     },
 
-    as.gmt = function( obj=NULL, transpose=FALSE, file=NULL, ... ) {
-        "\\preformatted{
-Converts matrix into a block of GMT-formatted text
-        obj - Default NULL, which will recover the matrix from matObj(),
-              passing ... as well. Alternatively a Matrix can be provided.
-  transpose - Default FALSE, which will presume that the rows are sets. If TRUE,
-              then columns will be taken as sets
-       file - Default NULL, if defined then the output will be written to that
-              path
-}"
-        ## http://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/Data_formats#GMT:_Gene_Matrix_Transposed_file_format_.28.2A.gmt.29
+    as.gmt = function( obj=NULL, transpose=FALSE, file=NULL, help=FALSE, ... ) {
+        "Convert the active matrix into GMT text representation"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (is.null(obj)) obj <- matObj(transpose=transpose, ...)
         ## Only keep rows (sets) with at least one object:
         hasData  <- populatedRows(obj)
@@ -1363,9 +1363,10 @@ Converts matrix into a block of GMT-formatted text
         }
     },
 
- 
-
-    .readMatrix = function ( format = "", ... ) {
+    .readMatrix = function ( format = "", help=FALSE, ... ) {
+        "Internal method to read matrix data from a variety of formats"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         if (!CatMisc::is.def(file)) err("AnnotatedMatrix objects must define 'file' when created", fatal = TRUE)
         objFile  <- paste(file,'rds', sep = '.')
         rdsOk    <- rdsIsCurrent( file )
@@ -1434,30 +1435,19 @@ Converts matrix into a block of GMT-formatted text
         rv
     },
 
-     metadata_keys = function ( id = NULL, key = NULL) {
-        "\\preformatted{
-Returns a character vector of metadata key names (eg 'Description')
-}"
+    metadata_keys = function ( help=FALSE ) {
+        "Get all metadata keys as a character vector"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         ## Exclude the id column
         base::setdiff(names(matrixMD), "id")
-     },
+    },
 
-     metadata = function ( id=NULL, key=NULL, na.rm=TRUE, drop=TRUE,
-                          verbose=TRUE) {
-        "\\preformatted{
-Select metadata by id, key or both
-         id - Optional vector of IDs to query. If not provided, all IDs
-              will be returned. Bear in mind that the metadata holds both
-              row and column IDs mixed together
-        key - Optional vector of key/tag names, if not provided then all
-              available ones will be returned.
-      na.rm - Default TRUE, which will remove NA values from returned
-              results. Does not apply when both id and key are specified.
-       drop - Default TRUE. If FALSE, the return value will be a data.table
-              If TRUE, and zero or one metadata columns are present, then
-              a named vector is returned.
-    verbose - Default TRUE, which will warn about certain issues
-}"
+    metadata = function ( id=NULL, key=NULL, na.rm=TRUE, drop=TRUE,
+                          verbose=TRUE, help=FALSE) {
+        "Recover metadata for specific IDs and/or columns"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
         rv <- NULL
         ## All metadata if neither key nor id is specified
         if (is.null(id) && is.null(key)) return( matrixMD )
@@ -1491,8 +1481,17 @@ Select metadata by id, key or both
                 naCol <- sapply(useKey, function(x) is.na( rv[[ x ]] ),
                                 simplify='matrix')
                 ## And now find rows that are all() NAs:
-                naRow <- if(is.matrix(naCol)) {
-                             apply(naCol, 1, all) } else { naCol }
+                naRow <- if (is.matrix(naCol)) {
+                    ## sapply honored our request to stay a matrix
+                    apply(naCol, 1, all)
+                } else if (nrow(rv) <= 1) {
+                    ## rv was 0-1 rows, use it as the mask
+                    all(is.na(naCol))
+                } else {
+                    ## So we must have had a single column, the vector
+                    ## is our mask
+                    naCol
+                }
                 if (any(naRow)) {
                     ## ... and if any columns are all NAs, remove them:
                     rv <- rv[ !naRow, ]
@@ -1507,9 +1506,17 @@ Select metadata by id, key or both
                 cols   <- colnames(rv)
                 naCol1 <- sapply(cols, function(x) is.na( rv[[ x ]] ),
                                 simplify='matrix' )
-                ## And then columns that are all null:
+                ## And then columns that are all NAs:
                 naCol2 <- if (is.matrix(naCol1)) {
-                              apply(naCol1, 2, all) } else { naCol1 }
+                    ## sapply honored our request to stay a matrix
+                    apply(naCol1, 2, all)
+                } else if (nrow(rv) <= 1) {
+                    ## rv was 0-1 rows, use it as the mask
+                    naCol1
+                } else {
+                    ## So we must have had a single column
+                    all(is.na(naCol1))
+                }
                 if (any(naCol2)) {
                     ## ... and if any columns are all NAs, remove them:
                     rv <- rv[ , which(!naCol2), with=FALSE ]
@@ -1540,6 +1547,8 @@ Select metadata by id, key or both
 
     .fieldDescriptions = function ( update=TRUE, help=FALSE ) {
         "Update object fields to include attributes with brief descriptions"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
         fields <- list(
             file       = "Path to the matrix source file",
             fromRDS    = "Logical flag indicating file was read from cached RDS",
@@ -1553,7 +1562,7 @@ Select metadata by id, key or both
             colChanges = "Named vector of any col names that needed alteration"
         )
         if (update) {
-            hfmt <- "More information:  help('%s', 'AnnotatedMatrix')  "
+            hfmt <- " help('%s', 'AnnotatedMatrix') # More information on field "
             for (fld in names(fields)) {
                 if (is.null(.self[[fld]])) next # Can't attribute NULL
                 ## The [[ accessor seems to work for fields?
@@ -1732,9 +1741,11 @@ Show compact help information about the object
 
         ## Organization of primary methods:
         sections <- list(
-            "Primary Operation" = c("map"),
-            "Filtering the Matrix" = c("filterByScore", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "reset", "autoFilter", "filterSummary", "appliedFilters"),
+            "Primary Operation" = c("map", "as.gmt"),
+            "Filtering the Matrix" = c("filterByScore", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "reset", "autoFilter", "filterSummary", "appliedFilters"),
+            "Matrix Information" = c("rCounts", "cCounts","populatedRows", "populatedCols", "nnZero"),
             "Metadata" = c("metadata", "metadata_keys"),
+            "Parameter Management" = c("param", "showParameters", "allParams", "defineParameters","paramClass", "paramDefinition", "paramName", "setParamList" ),
             "Internal Methods" = allMeth[ grepl('^\\.', allMeth) ])
         ## Everything else:
         sections[["Other Methods"]] <- setdiff(allMeth, unname(unlist(sections)))
@@ -1789,7 +1800,7 @@ whtName, doCol("# Inspect the object structure", comCol))
             }
         }
         if (length(noHelp) > 0) txt <- c(txt,
-              doCol("\n### Methods lacking help", comCol),
+              doCol("\n### Methods lacking help\n", comCol),
               sprintf("# %s\n", strwrap(paste(noHelp, collapse=' '))))
 
         txt <- c(txt, doCol("\n### Object fields\n", comCol))

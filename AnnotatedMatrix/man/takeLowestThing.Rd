@@ -22,14 +22,18 @@ have a character vector and absolutely must reduce it to
 designed to address requests to reduce a list of gene accessions
 (eg LOC13992, LOC93) to "one gene", but without any other guiding
 context. The function will extract the left-most uninterupted
-integer that it can find, and pick the smallest. The rationale is
-that "LOC93" was probably annotated earlier (longer ago) than
-"LOC13200423", and as such is probably the "more common" /
-"better annotated" / "more popular" of the two.
+integer that it can find, and then pick the one that is numerically
+smallest. The rationale is that "LOC93" was probably annotated
+earlier (longer ago) than "LOC13200423", and as such is more likely
+to be the "more common" / "higher expressed" / "better annotated" /
+"more popular" of the two.
 }
 \examples{
 
 x <- c("LOC828221", "LOC1234", "LOC39", "HUH?", "LOC39-BETA", "LOC99.243-X")
 takeLowestThing(x)
 
+}
+\seealso{
+\link{map}
 }

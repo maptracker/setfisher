@@ -18,6 +18,23 @@ directly; Instead, use \link{matObj}, as it will by default provide
 matrixUse if filters are applied, or will fallback to
 matrixRaw. Using \link{reset} will reset all filters by setting
 matrixUse to \code{NULL}.
+
+\preformatted{
+## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
+## Use methods instead, in this case $matObj()
+## ALTERING THIS FIELD WILL LEAD TO CHAOS. PLEASE DON'T.
+}
+}
+\examples{
+
+s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+# Example matrix has an autofilter, so matrixUse is populated:
+str(s2e$matrixUse)
+# Resetting filters will also clear $matrixUse, until new filters
+# are applied.
+s2e$reset()
+str(s2e$matrixUse)
+
 }
 \seealso{
 \link{matObj}, \link{matrixRaw}, \link{reset}

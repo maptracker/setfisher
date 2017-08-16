@@ -68,5 +68,5 @@ s2e$matObj()           # A much smaller matrix!
 
 }
 \seealso{
-\link{reset}
+\link{reset}, \link{rowChanges}, \link{colChanges}
 }

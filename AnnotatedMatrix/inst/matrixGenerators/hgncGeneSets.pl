@@ -1,7 +1,6 @@
 #!/usr/bin/perl -w
 
 use strict;
-my $scriptDir;
 our $defTmp = "/tmp/hgncGeneSets";
 my $defFtp = "ftp.ebi.ac.uk";
 my $defSym = "Unknown,Unofficial,UnofficialPreferred,Interim,Official";
@@ -72,23 +71,19 @@ our $defaultArgs = {
     ftp        => $defFtp,
     symlevels  => $defSym,
     typelevels => $defTyp,
-    dir        => ".",
 };
 
+my $scriptDir;
 BEGIN {
     use File::Basename;
     $scriptDir = dirname($0);
 }
 use lib "$scriptDir";
 require Utils;
-our ($args, $clobber, $ftp, $tmpDir, $maxAbst, $bar);
 
-my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
+our ($args, $outDir, $clobber, $ftp, $tmpDir, $maxAbst, $bar);
 
-&mkpath([$outDir]);
-
-
-if ($args->{h} || $args->{help}) {
+if ($args->{h} || $args->{help} || !$outDir) {
     warn "
 Usage:
 
@@ -97,9 +92,14 @@ package. It will recover information from the HUGO Gene Nomenclature
 Committee (HGNC) FTP site and build annotated MatrixMarket files from
 the data recovered there.
 
+Required Arguments:
+
+      -dir Output directory that will contain generated matrix and
+           metadata files
+
 Optional Arguments:
 
-      -dir Default '.'.  Output directory that will contain generated
+      -dir Required. Output directory that will contain generated
            matrix and metadata files
 
       -ftp Default '$defFtp'. Domain of EBI's FTP site
@@ -118,6 +118,11 @@ Optional Arguments:
            database, if available.
 
 ";
+
+    warn "
+Please provide the directory path to store matrix files using -dir
+" unless ($outDir);
+
     exit;
 }
 
@@ -125,15 +130,6 @@ my $src    = "pub/databases/genenames/new/tsv/hgnc_complete_set.txt";
 my $srcUrl = join('/', "ftp:/", $args->{ftp}, $src);
 my $loc    = &fetch_url($src);
 my $vers   = &_datestamp_for_file($loc);
-
-## File format is:
-## <Type>@<RowNamespace>_to_<ColNamespace>@<Authority>@<Version>.mtx
-##    <Type> = Type of Matrix, generally Map or Ontology
-##    <RowNamespace> = namespace of the row identifiers
-##    <ColNamespace> = namespace of the column identifiers
-##    <Authority> = Entity providing the raw data
-##    <Version> = Version token (eg GRCh37) or YYYY-MM-DD of source file(s)
-my $fFmt   = sprintf('%s/%%s@%%s_to_%%s@%s@%s.mtx', $outDir, $auth, $vers);
 
 ## Stash deduplicated file store - not on all systems
 my $stashMeta = {
@@ -184,16 +180,19 @@ sub accession_maps {
         my $nsi = $xcol->[$i];
         for my $j (($i+1)..$nsNum) {
             my $nsj = $xcol->[$j];
-            my $trg = sprintf($fFmt, "Map", $nsi, $nsj);
+            my $mod = $taxa->{$nsi} || $taxa->{$nsj} ? "" : "Human";
             my %tax = map { ($taxa->{$_} || "Homo sapiens") => 1 } ($nsi, $nsj);
             my $meta = {
                 Species   => [sort keys %tax],
                 Namespace => [$nsi, $nsj],
             };
+            my $fmeta = { %{$stashMeta}, %{$meta} };
+            my @fbits = ("Map", $mod, $nsi, $nsj, $auth, $vers);
+            my $trg   = &primary_path(@fbits);
             unless (&output_needs_creation($trg)) {
                 ## File is already made, and clobber is not set
                 &msg("Keeping existing accession map:", $trg);
-                &stash($trg, { %{$stashMeta}, %{$meta} });
+                &post_process( @fbits, $fmeta );
                 next;
             }
 
@@ -255,9 +254,9 @@ sub accession_maps {
                   $nsi, $nsj);
             
             print MTX &_dim_block({
-                RowDim    => "$nsi ID",
-                RowUrl    =>  $nsUrl->{$nsi},
-                ColDim    => "$nsj ID",
+                RowDim    => $nsi,
+                RowUrl    => $nsUrl->{$nsi},
+                ColDim    => $nsj,
                 ColUrl    => $nsUrl->{$nsj}, 
                 Authority => $authLong,
                 Version   => $vers,
@@ -265,9 +264,18 @@ sub accession_maps {
 
             print MTX &_citation_MTX();
             print MTX &_species_MTX( $meta->{Species} );
-            print MTX &_filter_block({
-                KeepLevel => "[,][ncRNA,ProteinCoding] ## Most applications will want to work with coding and 'typical' ncRNA genes"
-                                     });
+
+            ## Set factor level filters:
+            if ($nsi eq 'IMGT' || $nsj eq 'IMGT') {
+                ## IMGT is almost all "Other"
+                print MTX &_filter_block({
+                    TossLevel => "Pseudogene ## Most data are in category 'Other'", })
+
+            } else {
+                print MTX &_filter_block({
+                    KeepLevel => "[,][ncRNA,ProteinCoding] ## Most applications will want to work with coding and 'typical' ncRNA genes",
+                                         });
+            }
 
             print MTX &_factor_map_block( $lvls, $scH, "Gene Type", undef,
                                           \%seenLvl);
@@ -290,7 +298,7 @@ sub accession_maps {
             close MTX;
             rename($tmp, $trg);
             &msg("Generated $nsi to $nsj mapping", $trg);
-            &stash($trg, { %{$stashMeta}, %{$meta} });
+            &post_process( @fbits, $fmeta );
         }
     }
 
@@ -325,15 +333,18 @@ sub symbol_maps {
     my $nsi = "Symbol";
     for my $xi (0..$#{$xcol}) {
         my $nsj  = $xcol->[$xi];
-        my $trg = sprintf($fFmt, "Map", $nsi, $nsj);
+        my $mod = $taxa->{$nsi} || $taxa->{$nsj} ? "" : "Human";
         my $meta = {
             Species   => ["Homo sapiens"],
             Namespace => [$nsi, $nsj],
         };
+        my $fmeta = { %{$stashMeta}, %{$meta} };
+        my @fbits = ("Map", $mod, $nsi, $nsj, $auth, $vers);
+        my $trg   = &primary_path(@fbits);
         unless (&output_needs_creation($trg)) {
             ## File is already made, and clobber is not set
             &msg("Keeping existing $nsi map:", $trg);
-            &stash($trg, { %{$stashMeta}, %{$meta} });
+            &post_process( @fbits, $fmeta );
             next;
         }
 
@@ -374,8 +385,8 @@ sub symbol_maps {
 
         print MTX &_dim_block({
             RowDim    => $nsi,
-            RowUrl    =>  $nsUrl->{$nsi},
-            ColDim    => "$nsj ID",
+            RowUrl    => $nsUrl->{$nsi},
+            ColDim    => $nsj,
             ColUrl    => $nsUrl->{$nsj}, 
             Authority => $authLong,
             Version   => $vers,
@@ -408,7 +419,7 @@ sub symbol_maps {
         close MTX;
         rename($tmp, $trg);
         &msg("Generated $nsi to $nsj mapping", $trg);
-        &stash($trg, { %{$stashMeta}, %{$meta} });
+        &post_process( @fbits, $fmeta );
     }
 
 }

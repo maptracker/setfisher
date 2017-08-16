@@ -14,6 +14,18 @@ file) Matrix object
 This AnnotatedMatrix object field is populated directly with matrix
 data from the source file, and is unaltered. It allows filters to
 be cleared using \link{reset}.
+
+\preformatted{
+## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
+## Use methods instead, in this case $matObj()
+## ALTERING THIS FIELD WILL LEAD TO CHAOS. PLEASE DON'T.
+}
+}
+\examples{
+
+s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+str(s2e$matrixRaw)
+
 }
 \seealso{
 \link{matObj}, \link{matrixUse}, \link{reset}

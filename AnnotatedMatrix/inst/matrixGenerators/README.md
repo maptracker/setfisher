@@ -16,3 +16,67 @@ files to create.
   ftp.ncbi.nih.gov to make canonical mapping matrices for Entrez and
   RefSeq identifiers. Desirable to run `pubMedExtractor.pl` first in
   order to have PubMed metadata available.
+
+
+### File Format
+
+Files contain metadata that describe their provenance, but also have
+this information embedded in the file name itself. The general format
+is:
+
+```
+<Type>@<Adjective>-<RowNamespace>_to_<ColNamespace>@<Authority>@<Version>.mtx
+# for example:
+Map@EntrezGene_to_EnsemblGene@HGNC@2017-07-26.mtx
+```
+
+The fields are:
+
+* `<Type>` = Type of Matrix, generally Map or Ontology
+* `<Adjective>-` = __OPTIONAL__ adjective modifying the namespace
+  conversion. This is primarily anticipated to be a species identifier
+  such as "Human" or "Mouse", eg "Human-EntrezGene_to_EnsemblGene"
+* `<RowNamespace>` = namespace of the row identifiers
+* `<ColNamespace>` = namespace of the column identifiers
+* `<Authority>` = Entity providing the raw data
+* `<Version>` = Version token (eg GRCh37) or YYYY-MM-DD of source file(s)
+
+So for `Map@EntrezGene_to_EnsemblGene@HGNC@2017-07-26.mtx`, this is an
+identifier Map (enabling conversion from one namespace to the other)
+utilizing data provided by the HGNC on `2017-07-26`, mapping between
+EntrezGene IDs and EnsemblGene IDs.
+
+Yes, `@` is a little odd - it was chosen as a field separator because:
+
+* It is legal in file names on both Windows and *nix systems
+* It is unlikely to appear within the values of any fields, in
+  particular the <Version> field, which for genome builds taps into a
+  wide array of characters
+
+### Directory structure
+
+The generators will build a directory structure along the following
+lines, where `<dir>` is the directory specified by your -dir
+parameter.
+
+```
+<dir>/
+  byAuthority/
+    HGNC/
+      2017-01-01/
+        # files
+    Entrez/
+      2017-02-03/
+        # files
+  byNamespace
+    EntrezGene/
+      EnsemblGene/
+        # symlinks to ../../../byAuthority
+      RGD/
+        # symlinks to ../../../byAuthority
+    RGD/
+      EntrezGene/
+        # symlinks to ../../../byAuthority
+
+```
+

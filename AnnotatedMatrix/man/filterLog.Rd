@@ -18,6 +18,12 @@ directly; Instead, use \link{matObj}, as it will by default provide
 matrixUse if filters are applied, or will fallback to
 matrixRaw. Using \link{reset} will reset all filters by setting
 matrixUse to \code{NULL}.
+
+\preformatted{
+## THIS FIELD SHOULD NOT BE MODIFIED BY THE USER OR OTHER CODE
+## Doing so will probably not cause problems, but I can't conceive
+## how it might help anything, either
+}
 }
 \examples{
 
@@ -33,5 +39,6 @@ s2e$filterLog[ s2e$filterLog$id == "p51", ]
 
 }
 \seealso{
-\link{reset}, \link{filterSummary}
+\link{reset}, \link{filterSummary}, \link{setFilters},
+    \link{appliedFilters},
 }
