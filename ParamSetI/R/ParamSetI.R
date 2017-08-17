@@ -43,6 +43,8 @@ object with ParamSetI()
         ... - dots will also be passed on to setParamList()
 }"
         callSuper(...)
+        paramDef <<- data.frame(key=character(), class=character(),
+                                description=character(), stringsAsFactors=FALSE)
         setParamList( params=params, ... )
     },
 
@@ -54,12 +56,13 @@ object with ParamSetI()
                                      names(.refClassDef@contains)) )
         if (is.na(key)) return( NA )
         ## Always ignore the case of the key:
-        key <- tolower(key)
+        lkey <- tolower(key)
         if (is.null(val)) {
             ## Clear the field
-            paramSet[[key]] <<- val
+            paramSet[[lkey]] <<- val
         } else if (any(!is.na(val))) {
             ## Setting a new value
+            .addParamKey(key) # Update key column if the requested keys are new
             if (is.null(is.scalar)) {
                 val <- selfSplittingString( val )
             } else if (is.scalar) {
@@ -68,7 +71,7 @@ object with ParamSetI()
                 ## allows a preference-ordered list to be provided.
                 val <- val[ !is.na(val) ][1]
             }
-            if (clobber || !CatMisc::is.def(paramSet[[ key ]])) {
+            if (clobber || !CatMisc::is.def(paramSet[[ lkey ]])) {
                 ## setting clobber to false prevents the value from
                 ## being set if one already exists (used for mananging
                 ## default settings)
@@ -76,7 +79,7 @@ object with ParamSetI()
                 ## Check type of value if a class check was requested
                 ## or is stored in the parameter definitions.
                 chk <- if (is.null(check.class)) {
-                           paramDef[key, "class"] } else { check.class }
+                           paramDef[lkey, "class"] } else { check.class }
                 if (CatMisc::is.something(chk)) {
                     ## 'percent' is a conveinence class to help with
                     ## automated value reporting.
@@ -102,18 +105,18 @@ object with ParamSetI()
                         val <- coerced
                     }
                 }
-                if (append && CatMisc::is.def(paramSet[[ key ]])) {
+                if (append && CatMisc::is.def(paramSet[[ lkey ]])) {
                     ## append flag will extend an existing value
-                    paramSet[[ key ]] <<- c(paramSet[[ key ]], val)
+                    paramSet[[ lkey ]] <<- c(paramSet[[ lkey ]], val)
                 } else {
                     ## Set the value; NULL can be used to clear the field
-                    paramSet[[key]] <<- val
+                    paramSet[[lkey]] <<- val
                 }
             }
         }
         rv <- NA
-        if (hasParam(key) && CatMisc::is.def(paramSet[[key]])) {
-            rv <- paramSet[[key]]
+        if (hasParam(lkey) && CatMisc::is.def(paramSet[[lkey]])) {
+            rv <- paramSet[[lkey]]
         } else if (CatMisc::is.def(default)) {
             ## a default value is specified in the event that a
             ## parameter is not set
@@ -140,6 +143,21 @@ object with ParamSetI()
         is.element( tolower(key), tolower(allParams()) )
     },
 
+    .addParamKey = function(key) {
+        "Make sure that keys are in the definitions table"
+        if (!CatMisc::is.something(key)) return(NA)
+        lkey <- tolower(key)
+        ## Vectorized to allow multiple values in key. If
+        ## paramDef$key settings already exist, they will be reset to
+        ## themselves. Otherwise the value in argument key will be used
+        paramDef[lkey, "key"] <<- ifelse(is.na(paramDef[lkey, "key"]),
+                                         key, paramDef[lkey, "key"])
+        ## Also update rownames as needed
+        isna  <- is.na(rownames(paramDef))
+        rownames(paramDef)[isna] <<- tolower(paramDef[isna, "key"])
+        sum(isna)
+    },
+
     paramDefinition = function(key, val=NULL, help=FALSE) {
         "Return the definitions, if any, for one or more parameter keys"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
@@ -148,9 +166,7 @@ object with ParamSetI()
         if (!is.null(val)) {
             ## Set new value(s)
             paramDef[lkey, "description"] <<- val
-            ## Update key column if the requested keys are new
-            paramDef[lkey, "key"] <<- ifelse(is.na(paramDef[lkey, "key"]),
-                                             key, paramDef[lkey, "key"])
+            .addParamKey(key) # Update key column if the requested keys are new
         }
         ## A "naked" NA is storage mode "logical", which behaves
         ## differently than strings or integers when subsetting (it
@@ -169,9 +185,7 @@ object with ParamSetI()
         if (!is.null(val)) {
             ## Set new value(s)
             paramDef[lkey, "class"] <<- val
-            ## Update key column if the requested keys are new
-            paramDef[lkey, "key"] <<- ifelse(is.na(paramDef[lkey, "key"]),
-                                             key, paramDef[lkey, "key"])
+            .addParamKey(key) # Update key column if the requested keys are new
         }
         ## As above, cumbersome vapply to defend against boolean NA
         vapply(lkey, function(x) paramDef[x, "class"][1], "")
@@ -211,31 +225,21 @@ object with ParamSetI()
                                      names(.refClassDef@contains)) )
         if (!CatMisc::is.def(x)) return(NA)
         lines <- unlist(base::strsplit(x, "[\n\r]+"))
-        nl <- length(lines)
-        keys <- cls <- desc <- rep("", nl)
-        nk <- 0
         for (line in lines) {
             keyDat <- CatMisc::parenRegExp("^\\s*(\\S+)(.*)", line)
             key    <- keyDat[1]
             if (CatMisc::is.def(key)) {
-                nk <- nk + 1
-                keys[nk] <- key
                 clsDat <- CatMisc::parenRegExp("^\\s*\\[\\s*(\\S+)\\s*\\](.*)",
                                                keyDat[2])
                 if (CatMisc::is.def(clsDat[1])) {
-                    cls[nk] <- tolower(clsDat[1])
+                    paramClass(key, clsDat[1])
                     keyDat[2] <- clsDat[2]
                 }
                 dscDat <-  CatMisc::parenRegExp("^\\s*(.+?)\\s*$", keyDat[2])
-                if (CatMisc::is.def(dscDat[1])) desc[nk] <- dscDat[1]
+                if (CatMisc::is.def(dscDat[1])) paramDefinition(key, dscDat[1])
             }
         }
-        nks <- seq_len(nk)
-        df  <- data.frame(
-            key = keys[nks], class = cls[nks], description = desc[nks],
-            stringsAsFactors=FALSE)
-        rownames(df) <- tolower(keys[nks])
-        paramDef <<- df
+        paramDef
     },
 
     showParameters = function ( na.rm=TRUE, help=FALSE ) {

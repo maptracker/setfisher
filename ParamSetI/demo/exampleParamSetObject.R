@@ -17,10 +17,11 @@ ParamSetExample <- setRefClass("ParamSetExample",
 ParamSetExample$methods(
     initialize = function( x=1L, params=NULL, ... ) {
         x <<- x
-        ## Set some default parameters:
-        setParamList(list(inc=2L,dec=3L))
-        ## Then set any user values based on params
+        ## Initialize parameters with any user values
         callSuper(params=params, ...)
+        ## Set some default parameters:
+        setParamList(list(inc=2L,dec=3L), clobber=FALSE)
+        ## Set some definitions
         defineParameters("
 inc    [integer] Increment amount
 dec    [integer] Decrement amount
