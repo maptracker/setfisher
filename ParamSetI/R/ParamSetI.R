@@ -4,6 +4,18 @@
 #'
 #' Inherited class holding parameter manipulation functions
 #'
+#' @details
+#' 
+#' \preformatted{
+#' ## Object creation
+#' ParamSetI( help=TRUE ) # Show this help
+#'
+#' ## In general:
+#' myPS <- ParamSetI( params=NA, paramDefinitions=NA, ...)
+#'
+#' myPS$ANYMETHOD( help=TRUE ) # Each method has detailed help available
+#' }
+#'
 #' @field paramSet List holding key-value pairs used by an object
 #' @field paramDef List holding parameter definitions and class
 #'     restrictions
@@ -34,17 +46,19 @@ ParamSetI <-
 
 ParamSetI$methods(
 
-    initialize = function(params=NA, ... ) {
-        "\\preformatted{
-Create a new object. Not called directly, but invoked when building an
-object with ParamSetI()
-     params - Optional list of key/value pairs that will be passed to
-              setParamList()
-        ... - dots will also be passed on to setParamList()
-}"
+    initialize = function(params=NA, paramDefinitions=NA, help=FALSE, ... ) {
+        "Create a new ParamSetI object; Invoked with ParamSetI(...)"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
         callSuper(...)
         paramDef <<- data.frame(key=character(), class=character(),
                                 description=character(), stringsAsFactors=FALSE)
+        ## Define parameters first, in case there are class restrictions set:
+        defineParameters( paramDefinitions )
+        ## Set any parameters that have been passed
         setParamList( params=params, ... )
     },
 

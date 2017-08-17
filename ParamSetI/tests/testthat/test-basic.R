@@ -8,7 +8,7 @@ psObj2 <- ParamSetExample( params=list(color='navy', size='medium') )
 
 test_that("Object creation", {
     
-    expect_identical(psObj$allParams(), c("inc", "dec", "prod"),
+    expect_identical(psObj$allParams(), c("inc", "dec", "prod", "quack"),
                      "Check recognized params")
     
     expect_identical(psObj$param("INC"), 2L, "case-insensitive")

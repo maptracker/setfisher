@@ -8,6 +8,17 @@
 \description{
 Inherited class holding parameter manipulation functions
 }
+\details{
+\preformatted{
+## Object creation
+ParamSetI( help=TRUE ) # Show this help
+
+## In general:
+myPS <- ParamSetI( params=NA, paramDefinitions=NA, ...)
+
+myPS$ANYMETHOD( help=TRUE ) # Each method has detailed help available
+}
+}
 \section{Fields}{
 
 \describe{

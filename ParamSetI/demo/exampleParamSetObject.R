@@ -16,17 +16,16 @@ ParamSetExample <- setRefClass("ParamSetExample",
 ## Set the ParamSetExample-Class methods:
 ParamSetExample$methods(
     initialize = function( x=1L, params=NULL, ... ) {
-        x <<- x
         ## Initialize parameters with any user values
-        callSuper(params=params, ...)
-        ## Set some default parameters:
-        setParamList(list(inc=2L,dec=3L), clobber=FALSE)
-        ## Set some definitions
-        defineParameters("
+        callSuper(params=params, paramDefinitions="
 inc    [integer] Increment amount
 dec    [integer] Decrement amount
 Prod   [numeric] A mysterious value that is not initially set
-")
+Quack A class-less parameter
+", ...)
+        ## Set some default parameters:
+        setParamList(list(inc=2L,dec=3L), clobber=FALSE)
+        x <<- x
     },
     inc = function( val ) {
         "Increment x by the 'inc' parameter."
