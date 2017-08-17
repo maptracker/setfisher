@@ -9,7 +9,7 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #'
 #' \preformatted{
 #' ## Object creation
-#' AnnotatedMatrix( help=FALSE ) # Show this help
+#' AnnotatedMatrix( help=TRUE ) # Show this help
 #'
 #' ## In general:
 #' myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
@@ -17,7 +17,7 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' myAnnMat <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #'
 #' myAnnMat$help()                 # High-level help
-#' myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
+#' myAnnMat$ANYMETHOD( help=TRUE ) # Each method has detailed help available
 #' }
 #'
 #' AnnotatedMatrix is a heavy wrapper around the Matrix package, in
@@ -61,7 +61,6 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' @import Matrix
 #' @importFrom CatMisc is.def is.something is.empty.field methodHelp
 #' @import ParamSetI
-#' @importClassesFrom EventLogger EventLogger
 #'
 #' @examples
 #'
@@ -111,7 +110,7 @@ AnnotatedMatrix <-
                     rowChanges = "character",
                     colChanges = "character"
                     ),
-                contains = c("EventLogger", "ParamSetI")
+                contains = c("ParamSetI")
                 )
 
 
@@ -125,15 +124,10 @@ AnnotatedMatrix$methods(
                                        names(.refClassDef@contains)) )
             return(NA)
         }
-        callSuper(...)
-        if (!CatMisc::is.def(file))
-            err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
-        file    <<- file
-        fromRDS <<- FALSE
-        defineParameters("
+        callSuper( params=params, paramDefinitions="
 Name        [character] Short Name assigned to the matrix
 Description [character] Description for the matrix
-ScoreDesc   [Character] Describes what the matrix values (scores) represent
+ScoreDesc   [character] Describes what the matrix values (scores) represent
 Source      [character] Primary source, presumably a URL
 Authority   [character] The name of the authority responsible for the data
 
@@ -147,9 +141,11 @@ MaxScore    [numeric] Maximum score recognized by $autoFilter()
 KeepLevel   [character] List of preserved factor levels recognized by $autoFilter()
 TossLevel   [character] List of discarded factor levels recognized by $autoFilter()
 TossMeta    [character] Metadata value filter recognized by $autoFilter()
-
-")
-        setParamList( params=params, ... )
+", ...)
+        if (!CatMisc::is.def(file))
+            err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
+        file    <<- file
+        fromRDS <<- FALSE
         .readMatrix( ... )
         reset()
         if (autofilter) autoFilter()
@@ -557,8 +553,10 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         
         ## Working with the @x value vector for the sparse
         ## matrix. Determine which values are 'unwanted'
-        fail <- is.element(obj@x, xVal) & obj@x != 0
-        if (keep) fail <- !fail
+        fail <- is.element(obj@x, xVal)
+        ## If our selection is being kept, we need to invert the mask
+        ## AND not consider entries already zero:
+        if (keep) fail <- !fail & obj@x != 0
         numZ <- sum( fail )
         if (numZ > 0) {
             # if (filterEmpty) removeEmpty("Empty rows and cols prior to factor filter")
@@ -1721,11 +1719,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
     },
 
     help = function (color=NULL) {
-        "\\preformatted{
-Show compact help information about the object
-      color - Should output be colorized. Default NULL, which checks
-              $color()
-}"
+        "Display high-level help about all object methods"
         if (is.null(color)) color <- useColor() # Use EventLogger setting
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         objName <- .self$.selfVarName("myMatrix")
@@ -1742,10 +1736,12 @@ Show compact help information about the object
         ## Organization of primary methods:
         sections <- list(
             "Primary Operation" = c("map", "as.gmt"),
-            "Filtering the Matrix" = c("filterByScore", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "reset", "autoFilter", "filterSummary", "appliedFilters"),
-            "Matrix Information" = c("rCounts", "cCounts","populatedRows", "populatedCols", "nnZero"),
+            "Filtering the Matrix" = c("filterByScore", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "removeEmpty", "reset", "autoFilter", "filterSummary", "appliedFilters"),
+            "Matrix Information" = c("rCounts", "cCounts","populatedRows", "populatedCols", "nnZero", "is.factor", "levels"),
             "Metadata" = c("metadata", "metadata_keys"),
-            "Parameter Management" = c("param", "showParameters", "allParams", "defineParameters","paramClass", "paramDefinition", "paramName", "setParamList" ),
+            "Parameter Management" = c("param", "showParameters", "allParams", "defineParameters","paramClass", "paramDefinition", "paramName", "setParamList", "hasParam" ),
+            "Event Logging" = c("message","showLog","verbose","useColor" ),
+            "SKIP" = c("actionMessage","dateMessage","debugMessage","err"),
             "Internal Methods" = allMeth[ grepl('^\\.', allMeth) ])
         ## Everything else:
         sections[["Other Methods"]] <- setdiff(allMeth, unname(unlist(sections)))
@@ -1755,6 +1751,7 @@ Show compact help information about the object
 %s
 ?AnnotatedMatrix %s
 %s                 %s
+%s$showLog()       %s
 str(%s, max.lev=3) %s
 ",
 doCol("###
@@ -1762,11 +1759,13 @@ doCol("###
 ###","magenta"),
 doCol("# Built-in documentation on the class", comCol),
 whtName, doCol("# Summary report of the object", comCol),
+whtName, doCol("# Show logged events with timing", comCol),
 whtName, doCol("# Inspect the object structure", comCol))
 
         noHelp <- c()
         ## Add snippets for each method, broken down by section
         for (sec in names(sections)) {
+            if (sec == "SKIP") next
             txt <- c(txt, doCol(paste("\n############\n###", sec, "\n"),comCol))
             meths <- sections[[ sec ]]
             for (meth in meths) {
@@ -1809,7 +1808,7 @@ whtName, doCol("# Inspect the object structure", comCol))
             txt <- c(txt, sprintf("str(%s$%s) %s\n", whtName, field,
                                   doCol(paste("#",fields[[field]]), comCol)))
         }
-        message(paste(txt, collapse='', sep=''))
+        base::message(paste(txt, collapse='', sep=''))
         invisible(NULL)
     }
 )

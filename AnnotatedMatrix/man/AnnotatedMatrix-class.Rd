@@ -12,7 +12,7 @@ mappings and ontology lookups
 \details{
 \preformatted{
 ## Object creation
-AnnotatedMatrix( help=FALSE ) # Show this help
+AnnotatedMatrix( help=TRUE ) # Show this help
 
 ## In general:
 myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
@@ -20,7 +20,7 @@ myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
 myAnnMat <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 
 myAnnMat$help()                 # High-level help
-myAnnMat$ANYMETHOD( help=TRUE ) # Detailed help for all methods
+myAnnMat$ANYMETHOD( help=TRUE ) # Each method has detailed help available
 }
 
 AnnotatedMatrix is a heavy wrapper around the Matrix package, in
@@ -94,11 +94,9 @@ make.unique() if (valid = FALSE)}
 
 \item{\code{filterSummary(reason = TRUE, help = FALSE)}}{Human-readable overview of filters and counts of rows/cols removed}
 
-\item{\code{help(color = NULL)}}{\preformatted{
-Show compact help information about the object
-      color - Should output be colorized. Default NULL, which checks
-              $color()
-}}
+\item{\code{help(color = NULL)}}{Display high-level help about all object methods}
+
+\item{\code{initialize(params = NA, paramDefinitions = NA, help = FALSE, ...)}}{Create a new ParamSetI object; Invoked with ParamSetI(...)}
 
 \item{\code{is.factor(help = FALSE)}}{TRUE if the matrix is a pseudo-factor, otherwise FALSE}
 
@@ -135,12 +133,7 @@ Show compact help information about the object
 
 \item{\code{rNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set rownames for the matrix}
 
-\item{\code{show(...)}}{\preformatted{
-A wrapper for showText(). Will be auto-invoked if an EventLogger
-object is evaluated in the shell, UNLESS the object has a higher-
-precedence show() function of its own. In that case, use showLog()
-to display log contents.
-}}
+\item{\code{show(...)}}{A wrapper for showLog}
 }}
 
 \examples{
