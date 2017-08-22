@@ -452,3 +452,29 @@ smallNumberFormatter <- function(x) {
     ifelse(x < 0.001, sprintf("1/%d", signif(1/x, digits=4)),
            sprintf("%.2f%%", 100 * x)))
 }
+
+#' Normalize percent
+#'
+#' Convert text percentages (eg "4%") to numbers based on a denominator
+#'
+#' @details
+#'
+#' Used to parse parameters that can be absolutely defined (eg 53) or
+#' relatively defined as a percentage (eg "2.5%"). For the latter will
+#' require a denominator to be provided as well
+#'
+#' @importFrom CatMisc parenRegExp
+#'
+#' @examples
+#'
+#' normalizePercent( c("5", "0.02", "5%", "0.02%"), 1000)
+#' normalizePercent( 1:10 ) # Numbers are left alone
+#' 
+
+normalizePercent <- function (x, denom=as.numeric(NA)) {
+    isPerc <- CatMisc::parenRegExp("^([0-9\\.]+)%", x)
+    ## Can end up with a bunch of coercions to NA inside the ifelse -
+    ## this is normal and don't want to bother user with them:
+    suppressWarnings( ifelse( is.na(isPerc), as.numeric(x),
+                             as.numeric(isPerc) * denom / 100) )
+}

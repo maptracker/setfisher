@@ -344,6 +344,21 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             }
         }
 
+        ## Count filters
+        for (mm in c("Min", "Max")) {
+            for (rc in c("Row", "Col")) {
+                ## eg "MinColCount"
+                filtCnt <- param(sprintf("%s%sCount", mm, rc))
+                if (!CatMisc::is.something(filtCnt)) next
+                r <- attr(filtCnt,"comment")
+                if (mm == 'Min') {
+                    x <- x + filterByCount(min=filtCnt, MARGIN=rc, reason=r)
+                } else {
+                    x <- x + filterByCount(max=filtCnt, MARGIN=rc, reason=r)
+                }
+            }
+        }
+
         if (x[1] > 0 && recursive) x <- x + autoFilter( verbose=FALSE )
         if (x[1] > 0 && verbose) message(c("Automatic filters have masked",x[1],
               "cells,",x[2],"rows, and",x[3],"cols"), prefix="[-]",
@@ -459,6 +474,90 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             .addAppliedFilter("SCORE", max, reason, '>')
         }
         if (rv[1] != 0 && !filterEmpty) matrixUse <<- obj
+        invisible(rv)
+    },
+
+    filterByCount = function(MARGIN, min=NULL, max=NULL, relative=TRUE,
+                             reason=NA, help=FALSE) {
+        rv     <- c(0L, 0L, 0L)
+        counts <- NULL
+        ## Which dimension is being filtered?
+        if (grepl('(1|row)', MARGIN, ignore.case=TRUE)) {
+            MARGIN <- 'Row'
+            counts <- rCounts()
+        } else if (grepl('(2|col)', MARGIN, ignore.case=TRUE)) {
+            MARGIN <- 'Col'
+            counts <- cCounts()
+        } else {
+            err("$filterByCount(MARGIN) should be one of 1,2,row,col",
+                fatal=TRUE)
+        }
+
+        ## `counts` is generic at this point, it is either for "row"
+        ## or "col" depending on `MARGIN`. I will be using "element"
+        ## to generically refer to the 'things' in counts
+
+        ## If relative is true, then we will consider '%' requests
+        ## against the number of elements that are currently
+        ## populated. Otherwise we will consider all elements from the
+        ## dimension
+        denom <- if (relative) { sum(counts != 0) } else { length(counts) }
+        obj   <- matObj()
+        
+        if (!is.null(min)) {
+            x <- normalizePercent(min)[1]
+            ## Elements below the request
+            fail <- counts < x && counts != 0
+            numE <- sum(fail)
+            if (numE > 0) {
+                ## At least some elements have failed due to the filter
+                testTxt <- sprintf("%s count < %s", MARGIN, min)
+                inds  <- which(fail) - 1 # indicies in Matrix are zero-indexed!
+                numZ  <- sum( counts[ fail ] ) # Number of cells impacted
+                ## Identify the actual cells being zeroed out:
+                cells <- if (MARGIN == 'Row') {
+                    is.element(obj@i, inds) & obj@x != 0
+                } else {
+                    is.element(obj@j, inds) & obj@x != 0                    
+                }
+                ## Safety check
+                if (sum(cells) != numZ) err("Sanity count mismatch for filterByCount", prefix="[CODE ERROR]")
+                obj@x[ cells ] <- 0
+                ijz <- .detailZeroedRowCol( obj, cells, testTxt, reason )
+                rv  <- rv + c(numZ, ijz)
+            }
+        }
+
+        if (!is.null(max)) {
+            x <- normalizePercent(max)[1]
+            ## Elements below the request
+            fail <- counts > x && counts != 0
+            numE <- sum(fail)
+            if (numE > 0) {
+                ## At least some elements have failed due to the filter
+                testTxt <- sprintf("%s count > %s", MARGIN, max)
+                inds  <- which(fail) - 1 # indicies in Matrix are zero-indexed!
+                numZ  <- sum( counts[ fail ] ) # Number of cells impacted
+                ## Identify the actual cells being zeroed out:
+                cells <- if (MARGIN == 'Row') {
+                    is.element(obj@i, inds) & obj@x != 0
+                } else {
+                    is.element(obj@j, inds) & obj@x != 0                    
+                }
+                ## Safety check
+                if (sum(cells) != numZ) err("Sanity count mismatch for filterByCount", prefix="[CODE ERROR]")
+                obj@x[ cells ] <- 0
+                ijz <- .detailZeroedRowCol( obj, cells, testTxt, reason )
+                rv  <- rv + c(numZ, ijz)
+            }
+        }
+        
+        debugMessage("STILL WORKING ON filterByCount")
+### TO DO
+        ## TEST
+        ## DOCUMENT
+
+        if (rv[1] != 0) matrixUse <<- obj
         invisible(rv)
     },
 
