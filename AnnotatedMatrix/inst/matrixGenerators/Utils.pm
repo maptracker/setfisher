@@ -8,7 +8,7 @@ use IO::Uncompress::Gunzip;
 use Net::FTP;
 use LWP::UserAgent;
 
-our ($defaultArgs, $defTmp, $ftp, $ua);
+our ($defaultArgs, $defTmp, $ua);
 my $codeDir     = dirname($0);
 our $bar        = "- " x 20;
 our $mtxSep     = " :: ";
@@ -51,16 +51,23 @@ sub parseargs {
         next unless (-s $cFile);
         ## A configuration file is present
         if (open(CF, "<$cFile")) {
+            my @captured;
             while (<CF>) {
                 next if (/^#/);
                 s/[\n\r]+$//;
                 if (/^\s*(.+?)\s*=\s*(.+?)\s*$/) {
                     my ($k, $v) = ($1, $2);
                     $k =~ s/^\-//;
-                    $rv{lc($k)} = $v if ($k && defined $v);
+                    if ($k && defined $v) {
+                        $rv{lc($k)} = $v;
+                        push @captured, $k;
+                    }
                 }
             }
             close CF;
+            my $num = $#captured +1;
+            &msg(sprintf("Loaded %d settings %sfrom %s", $num, 
+                 $num ? '('.join(', ', @captured).') ' : '', $cFile));
         } else {
             &err("Failed to read configuration file '$cFile'", $!);
         }
@@ -91,9 +98,8 @@ sub death { &err(@_); die " -- "; }
 
 sub _ftp {
     ## http://perlmeme.org/faqs/www/ftp_file_list.html
-    return $ftp if ($ftp);
-    my $site = $args->{ftp};
-    $ftp = Net::FTP->new($site) ||
+    my $site = shift || $args->{ftp};
+    my $ftp = Net::FTP->new($site) ||
         &death("Failed to connect to FTP", $site, $!);
     my $pass = $site =~ /ncbi/ ? $args->{email} : "";
     $ftp->login("anonymous", $pass) ||
@@ -140,6 +146,12 @@ sub local_file {
     return "$tmpDir/$dReq";
 }
 
+sub ftp_url {
+    my ($uReq, $domain) = @_;
+    $domain ||= $args->{ftp};
+    return join('/', "ftp:/", $domain, $uReq);
+}
+
 sub fetch_url {
     my ($uReq, $dReq) = @_;
     my $dest = &local_file( @_ );
@@ -149,10 +161,16 @@ sub fetch_url {
         ## For NCBI it looks like the timeout is 60 seconds, and
         ## parsing is ~90 seconds per file on my system. Close and
         ## reinitialize to be assured of a 'live' connection:
-        undef $ftp; &_ftp();
+        my $site;
+        if ($uReq =~ /\/\/([^\/]+)\/(.+)/) {
+            $site = $1;
+            $uReq = $2;
+        }
+        my $ftp = &_ftp($site);
         my $tmp = "$dest.tmp";
         while ($pending) {
-            $ftp->get($uReq, $tmp) || &death("Failed to FTP file", $uReq, $ftp->message);
+            $ftp->get($uReq, $tmp) || 
+                &death("Failed to FTP file", $uReq, $ftp->message);
             if (-s $tmp) {
                 rename($tmp, $dest);
                 &msg("Downloaded $uReq:", $dest);
@@ -573,6 +591,10 @@ sub _default_parameter {
     return $rv;
 }
 
+sub _species_MTX {
+    return &_default_parameter("Species", shift);
+}
+
 sub _datestamp_for_file {
     my $file = shift;
     if ($file =~ /v(\d{4}-\d{2}-d{2})/) {
@@ -813,13 +835,36 @@ stash is not installed on your system.
         $stash = 0; # Only warn once
         return;
     }
-    $exe =~ s/\s*[\n\r]+$//;
-    my $file = shift;
-    ## Do not stash links:
-    return if (-l $file);
-    my $mh   = shift || {};
+    $exe     =~ s/\s*[\n\r]+$//;
+    my ($file, $metaHash) = @_;
+
+    unless ($tasks{StashWarn}++) {
+        warn "
+
+Preparing to stash your files...
+" ;
+        my $sv = `$exe --validate`;
+        if ($sv =~ /is valid/) {
+            warn "   You are still authenticated\n";
+        } else {
+            warn "   Please provide your credentials:\n";
+            system("$exe --refresh");
+        }
+        warn "\n";
+    }
+
+    unless (-l $file) {
+        ## File has not been stashed yet, do so and replace with symlink
+        my $cmd = "$exe add --symlink --json \"$file\"";
+        my $stashRv = `$cmd`;
+    }
+    die "Failed to stash file\n  $file\n  " unless (-l $file);
+    my $targ = readlink($file);
+    my $chksum = basename($targ); $chksum =~ s/\..+$//;
+
+    ## Add/update metadata
     my @meta;
-    while (my ($k, $v) = each %{$mh}) {
+    while (my ($k, $v) = each %{$metaHash || {}}) {
         $k =~ s/[:,]+/_/g;
         my @vals = ($v);
         if (ref($v)) {
@@ -831,8 +876,18 @@ stash is not installed on your system.
             push @meta, "$k:$val";
         }
     }
-    my $cmd = "$exe add --metadata '".join(',', @meta)."' \"$file\"";
-    warn "$cmd\n";
+    if ($#meta != -1) {
+        my $cmd = "$exe metadata --json --metadata '". 
+            join(',', @meta)."' $chksum";
+        my $stashRv = `$cmd`;
+    }
+    
+    ## Add groups, if requested
+    if (my $grp = $args->{stashgroups} || $args->{stashgroup}) {
+        my $cmd = "$exe acl --json --groups $grp $chksum";
+        my $stashRv = `$cmd`;
+    }
+    warn "    Stash: $chksum\n";
 }
 
 

@@ -3,9 +3,9 @@
 use strict;
 my $scriptDir;
 our $defTmp = "/tmp/entrezGeneSets";
-my $defFtp = "ftp.ncbi.nih.gov";
-my $defEC  = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
-my $defSym = "Unknown,Unofficial,UnofficialPreferred,Interim,Official";
+my $defFtp  = "ftp.ncbi.nih.gov";
+my $defSym  = "Unknown,Unofficial,UnofficialPreferred,Interim,Official";
+my $defEC   = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
 
 ## RefSeq Status codes:
 ## https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
@@ -26,24 +26,25 @@ BEGIN {
 }
 use lib "$scriptDir";
 require Utils;
-our ($args, $clobber, $ftp, $tmpDir, $maxAbst);
-my ($dbh, $getPMID, $bfdbh, $bfClear, $bfSet);
+our ($args, $outDir, $clobber, $tmpDir, $maxAbst, $bar);
+my ($dbh, $getPMID, $bfdbh, $bfClear, $bfSet, %tasks);
 
 use DBI;
 use DBD::SQLite;
 use Archive::Tar;
 use XML::Twig;
 
-my $geneIdUrl  = 'https://www.ncbi.nlm.nih.gov/gene/%s'; # For integer IDs
-my $symUrl     = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D';
-my $locLinkUrl = 'https://www.ncbi.nlm.nih.gov/gene/?term=%s'; # For LOC###
-my $bar        = "- " x 20;
+my $sources = {
+    GeneInfo    => "gene/DATA/gene_info.gz",
+    Gene2RefSeq => "gene/DATA/gene2refseq.gz",
+    Gene2PubMed => "gene/DATA/gene2pubmed.gz",
+    Gene2GO     => "gene/DATA/gene2go.gz",
+    Taxonomy    => "pub/taxonomy/taxdump.tar.gz",
+    GO          => "ftp://ftp.geneontology.org/go/ontology/go.obo",
+};
 
-my $outDir   = $args->{dir};    $outDir =~ s/\/+$//;
-
-&mkpath([$outDir]);
-
-my $taxDat   = &extract_taxa_info( $args->{species} || $args->{taxa} );
+my $vers       = &fetch_all_files();
+my $taxDat     = &extract_taxa_info( $args->{species} || $args->{taxa} );
 
 if ($taxDat->{error} || $args->{h} || $args->{help}) {
     warn "
@@ -109,16 +110,28 @@ Optional Arguments:
         if ($taxDat->{error});
     exit;
 }
-my ($geneMeta);
+my ($geneMeta, $goMeta);
+my @stndMeta  = qw(Symbol Type Description);
+my $nsUrl = {
+    Symbol      => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
+    EntrezGene  => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
+    LocusLink   => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
+    PubMed      => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
+};
 
 my $taxid = $taxDat->{taxid};
 my $dbf   = $args->{pubmeddb};
 $dbf      = "$outDir/simplePubMed.sqlite"
     if (!$dbf && -s "$outDir/simplePubMed.sqlite");
 
+my $auth     = "Entrez";
+my $authLong = "$auth ## Data repository at the National Center for Biotechnology Information";
 
+
+
+&msg("'Release' version: $vers");
 &msg("Working directory:", $tmpDir);
-&msg("Output directory:", $outDir);
+&msg("Output directory:",  $outDir);
 # &backfill_pubmed(21413195);
 
 ## Summarize the species we are going to parse
@@ -147,21 +160,68 @@ push @taxBits, "File token: $specID";
 
 &msg("Target species:", @taxBits);
 
-&make_metadata_file();
-&ontology_pubmed();
+
+
+## Stash deduplicated file store - not on all systems
+my $stashMeta = {
+    Authority  => $auth,
+    Version    => $vers,
+    MatrixType => "Map",
+    FileType   => "AnnotatedMatrix",
+    Format     => "MatrixMarket",
+};
+
+
+
+
+&make_entrez_metadata_file();
 &map_symbol();
 &map_locuslink();
-&map_refseq();
 &ontology_go();
+die;
+&map_refseq();
+&ontology_pubmed();
 
-sub make_metadata_file {
-    my $src  = "gene/DATA/gene_info.gz";
-    my $vers = &_datestamp_for_file(&fetch_url($src));
+sub fetch_all_files {
+    ## The files being used here are not part of a unified
+    ## release. Each specific source file will be versioned with its
+    ## date stamp from the FTP server that it was recovered
+    ## from. However, we are also organizing the files under a single
+    ## version. For this reason, today's date will be taken as the
+    ## "release version", and all files will be bulk recovered at once
+    ## to try to get a semblance of consistency.
+    &msg("Downloading source files");
+    foreach my $tag (sort keys %{$sources}) {
+        my $src   = $sources->{$tag};
+        my $fVers = &_datestamp_for_file(&fetch_url($src));
+        &msg("    $tag :  $fVers");
+    }
+    my ($sec,$min,$hour,$mday,$mon,$year) = localtime();
+    my $vFile = "$tmpDir/BuildDate.txt";
+    unless (-s $vFile && !$clobber) {
+        open(VF, ">$vFile") || &death
+            ("Failed to write date to version file", $vFile, $!);
+        printf(VF "%04d-%02d-%02d\n", $year+1900, $mon+1, $mday);
+        close VF;
+    }
+    open(VF, "<$vFile") || &death
+        ("Failed to read date from version file", $vFile, $!);
+    my $rv = <VF>;
+    $rv =~ s/[\n\r]+$//;
+    close VF;
+    return $rv;
+}
+
+sub make_entrez_metadata_file {
+    my $src   = $sources->{GeneInfo};
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
     # Simple TSV file of species-specific metadata
-    my $trg = sprintf("%s/Metadata-%s_Entrez-v%s.tsv", $outDir, $specID, $vers);
+    my $trg = sprintf("%s/Metadata@%s-%s@%s@%s.tsv",
+                      &primary_folder($auth, $vers), $specID,
+                      "EntrezGene", $auth, $fVers);
 
     unless (&output_needs_creation($trg)) {
-        &msg("Using existing Metadata file:", $trg);
+        &msg("Using existing Metadata file:", $trg) unless ($tasks{MakeMeta}++);
         return $trg;
     }
     my $tmp = "$trg.tmp";
@@ -292,10 +352,140 @@ sub make_metadata_file {
     return $trg;
 }
 
+sub make_go_metadata_file {
+    my $src   = $sources->{GO};
+    my $file  = &fetch_url($src);
+    ## Get the version
+    my $halt  = 0;
+    open(GOFILE, "<$file") || 
+        &death("Failed to read metadata file", $file, $!);
+    my $fVers;
+    while (<GOFILE>) {
+        &death("Did not find version line!", $file) if (++$halt > 100);
+        if (/data-version: releases\/(\d{4}-\d{2}-\d{2})/) {
+            $fVers = $1;
+            last;
+        }
+    }
+    close GOFILE;
+
+    # Simple TSV file of GeneOntology metadata
+    my $trg = sprintf("%s/Metadata@%s@%s.tsv",
+                      &primary_folder($auth, $vers), "GeneOntology", $fVers);
+
+    ## http://www.geneontology.org/page/ontology-relations
+    my $transitive = {
+        "is_a" => {
+            "is_a"      => "is_a",
+            "part_of"   => "part_of",
+            "regulates" => "regulates",
+        },
+        "part_of" => {
+            "part_of"   => "part_of",
+            "is_ia"     => "part_of",
+        },
+        "regulates" => {
+            "is_a"      => "regulates",
+            "part_of"   => "regulates",
+        },
+    };
+    ## ignoring has_part : inverse of part_of
+    ## ignoring negatively_regulates and positively_regulates
+
+    unless (&output_needs_creation($trg)) {
+        &msg("Using existing Metadata file:", $trg) unless ($tasks{GoMeta}++);
+        return $trg;
+    }
+
+    &msg("Parsing basic GeneOntology metadata");
+    my $tmp = "$trg.tmp";
+    open (METAF, ">$tmp") || &death("Failed to write metadata file", $tmp, $!);
+    my @head = qw(id name is_obsolete namespace is_a part_of intersection_of regulates synonym def);
+    my $hMap = {
+        id => "ID",
+        name => "Name",
+        namespace => "Namespace",
+        def       => "Definition",
+        synonym   => "Synonyms",
+        is_obsolete => "Obsolete",
+    };
+    print METAF join("\t", map { $hMap->{$_} || $_ } @head)."\n";
+
+    open(GOFILE, "<$file") || &death("Failed to read metadata file", $file, $!);
+    my $rec = { num => 0, now => "HEAD", dat => {} };
+    while (<GOFILE>) {
+        s/[\n\r]+$//;
+        if (/^\[(\S+)\]/) {
+            &_go_meta_record( $rec, *METAF, \@head, $1 );
+        } elsif (/^(\S+):\s+(.+?)\s*$/) {
+            my ($k, $v) = ($1, $2);
+            if ($v =~ /^\"(.+)\"/) {
+                $v = $1;
+                $v =~ s/\\"/"/g;
+            } else {
+                $v =~ s/\s+!.+//; # Remove ! comments
+            }
+            if ($k eq 'relationship') {
+                if ($v =~ /^(\S+)\s+(GO:\d{7})$/) {
+                    ($k, $v) = ($1, $2);
+                    ## "downsampling" positive and negative regulation
+                    $k = "regulates" if ($k =~ /_regulates/);
+                } else {
+                    &err("Weird GO line: $_");
+                    next;
+                }
+            } elsif ($k eq 'intersection_of') {
+                if ($v =~ / (GO:\d{7})$/) { $v = $1 }
+            }
+            push @{$rec->{dat}{$k}}, $v;
+        }
+    }
+    &_go_meta_record( $rec, *METAF, \@head, "end" );
+    close GOFILE;
+    close METAF;
+    rename($tmp, $trg);
+    &msg("Generated Entrez metadata file", $trg);
+    return $trg;
+}
+
+sub _go_meta_record {
+    my ($rec, $fh, $head, $nextK) = @_;
+    my $k = $rec->{now};
+    my $d = $rec->{dat};
+    if ($k eq 'Term') {
+        if (my $id = $d->{id}) {
+            my @row;
+            foreach my $c (@{$head}) {
+                if (my $vs = $d->{$c}) {
+                    map { s/\|/_/g } @{$vs};
+                    my %u = map { $_ => 1 } @{$vs};
+                    $vs = [ sort keys %u ];
+                    push @row, join('|', @{$vs});
+                } else {
+                    push @row, "";
+                }
+            }
+            print $fh join("\t", @row)."\n";
+        } else {
+            warn Dumper($d);
+            &death("Failed to parse GO ID from record")
+        }
+    }
+    $rec->{dat} = {};
+    $rec->{now} = $nextK;
+}
+
+sub go_meta {
+    return $goMeta if ($goMeta);
+    $goMeta = {};
+    my $mdFile = &make_go_metadata_file();
+    die "WORKING HERE";
+}
+
 sub capture_gene_meta {
     return $geneMeta if ($geneMeta);
     $geneMeta  = {};
-    my $mdFile = &make_metadata_file();
+    my $mdFile = &make_entrez_metadata_file();
     open(METAF, "<$mdFile") || &death("Failed to read metadata TSV",
                                       $mdFile, $!);
     my $head = <METAF>;
@@ -322,11 +512,12 @@ sub capture_gene_meta {
 }
 
 sub map_locuslink {
-    my $vers = &_datestamp_for_file( &make_metadata_file() );
-    my $trg = sprintf("%s/Map-%s_LocusLink-to-Entrez-v%s.mtx", 
-                      $outDir, $specID, $vers);
+    my $fVers = &_datestamp_for_file( &make_entrez_metadata_file() );
+    my ($nsi, $nsj) = ("LocusLink", "EntrezGene");
+    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers);
+    my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
-        &msg("Keeping existing LocusLink map:", $trg);
+        &msg("Keeping existing $nsi map:", $trg);
         return $trg;
     }
     &capture_gene_meta();
@@ -335,30 +526,42 @@ sub map_locuslink {
     my ($cnum, $nznum) = ($rnum, $rnum);
     
     my $tmp = "$trg.tmp";
-    open(MTX, ">$tmp") || &death("Failed to write LocusLink map", $tmp, $!);
+    open(MTX, ">$tmp") || &death("Failed to write $nsi map", $tmp, $!);
     print MTX &_initial_mtx_block
-        ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
-          "Simple identity matrix directly mapping LocusLink to Entrez IDs",
-          "LocusLink ID", "https://www.ncbi.nlm.nih.gov/gene/?term=%s",
-          "Entrez ID", $geneIdUrl, $specID);
+        ( "Mapping", $rnum, $cnum, $nznum, "$auth $specID $nsi-to-$nsj Map",
+          "Simple identity matrix directly mapping $specID $nsi to $nsj IDs",
+          "All scores are 1",
+          $nsi, $nsj);
+
+    print MTX &_dim_block({
+        RowDim    => $nsi,
+        RowUrl    => $nsUrl->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsUrl->{$nsj}, 
+        Authority => $authLong,
+        Source    => &ftp_url($sources->{GeneInfo}),
+        Version   => $vers });
+
+
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
 
     print MTX &_mtx_comment_block("", "This is just a very simple identity matrix that maps a LocusLink identifier to its numeric Entrez ID. Given an Entrez ID '#' the LocusLink ID would be 'LOC#'. That is, 'LOC859' is Entrez ID '859'.",
                                   "", "This mapping can of course be done very efficiently in code by simply adding or stripping 'LOC' as needed. If possible, you should take that approach. However, this matrix is generated to aid in automated analysis of diverse query inputs.", "");
 
     print MTX &_rowcol_meta_comment_block();
 
-    my @meta = qw(Symbol Type Description);
-    printf(MTX "%% Row %s\n", join($mtxSep, "Name", @meta));
-    for my $i (0..$#gids) {
-        my $id   = $gids[$i];
-        my $m    = $geneMeta->{$id} || {};
-        my @line = ("LOC$id", map {defined $_ ? $_ : ""} map {$m->{$_}} @meta);
-        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, @line));
-    }
+    ## Note row metadata
+    ## Locus IDs are just the GeneIDs with "LOC" prefixed.
+    my @lids = map { "LOC$_"} @gids;
+    ## Copy over metadata:
+    map { $geneMeta->{"LOC$_"} = $geneMeta->{$_} } @gids;
+
+    print MTX &_generic_meta_block(\@lids, 'Row', $geneMeta, \@stndMeta);
 
     ## Column metadata
     print MTX "% $bar\n";
-    &mtx_entrez(\@gids, 'Col');
+    print MTX &_generic_meta_block(\@gids, 'Col', $geneMeta, \@stndMeta);
 
     ## The triples are just a diagonal of '1's
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
@@ -378,9 +581,9 @@ sub map_refseq {
 }
 
 sub make_refseq_file {
-    my $src  = "gene/DATA/gene2refseq.gz";
-    my $vers = &_datestamp_for_file(&fetch_url($src));
-    my $trg = sprintf("%s/Metadata-%s_RefSeq-v%s.tsv", $outDir, $specID, $vers);
+    my $src   = $sources->{Gene2RefSeq};
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my $trg = sprintf("%s/Metadata-%s_RefSeq-v%s.tsv", $outDir, $specID, $fVers);
     unless (&output_needs_creation($trg)) {
         &msg("Using existing RefSeq file:", $trg);
         return $trg;
@@ -475,9 +678,10 @@ sub make_refseq_file {
 
 
 sub map_symbol {
-    my $vers = &_datestamp_for_file( &make_metadata_file() );
-    my $trg = sprintf("%s/Map-%s_Symbol-to-Entrez-v%s.mtx", 
-                      $outDir, $specID, $vers);
+    my $fVers = &_datestamp_for_file( &make_entrez_metadata_file() );
+    my ($nsi, $nsj) = ("Symbol", "EntrezGene");
+    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers);
+    my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing Gene Symbol map:", $trg);
         return $trg;
@@ -541,12 +745,25 @@ sub map_symbol {
     my $tmp = "$trg.tmp";
     open(MTX, ">$tmp") || &death("Failed to write Symbol map", $tmp, $!);
     print MTX &_initial_mtx_block
-        ( "Mapping", $rnum, $cnum, $nznum, "$specID Symbol-to-Entrez Map",
-          "Scores are factor levels representing the nomenclature status of the assignment",
-          "Gene Symbol", $symUrl,
-          "Entrez ID", $geneIdUrl, $specID);
+        ( "Mapping", $rnum, $cnum, $nznum, "$auth $specID $nsi-to-$nsj Map",
+          "Accession conversion from $nsi to $nsj",
+          "Factor levels representing nomenclature status of the assignment",
+          $nsi, $nsj);
 
+    print MTX &_dim_block({
+        RowDim    => $nsi,
+        RowUrl    => $nsUrl->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsUrl->{$nsj}, 
+        Authority => $authLong,
+        Source    => join('/', "ftp:/", $args->{ftp}, $sources->{GeneInfo}),
+        Version   => $vers });
 
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
+    print MTX &_filter_block({
+        TossLevel => "[,][Unknown] ## 'Unknown' entries are deprecated assignments."
+                             });
     print MTX &gene_symbol_stats_block( \%symbols, \@rowIds, $lvls, $scH );
 
     print MTX &_rowcol_meta_comment_block();
@@ -556,7 +773,7 @@ sub map_symbol {
 
     ## Column metadata
     print MTX "% $bar\n";
-    print MTX &mtx_entrez(\@gids, 'Col');
+    print MTX &_generic_meta_block(\@gids, 'Col', $geneMeta, \@stndMeta);
 
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
     for my $i (0..$#rowIds) {
@@ -567,28 +784,22 @@ sub map_symbol {
     }
     close MTX;
     rename($tmp, $trg);
-    &msg("Generated Symbol to Entrez mapping", $trg);
+    &msg("Generated $nsi to $nsj mapping", $trg);
     return $trg;
 }
 
-sub mtx_entrez {
-    my ($ids, $rc) = @_;
-    &capture_gene_meta();
-    return &_generic_meta_block($id, $rc, $geneMeta, 
-                                [qw(Symbol Type Description)]);
-}
-
 sub ontology_pubmed {
-    my $src  = "gene/DATA/gene2pubmed.gz";
-    my $vers = &_datestamp_for_file(&fetch_url($src));
-    my $trg = sprintf("%s/Ontology-%s_Entrez-to-PubMed-v%s.mtx", 
-                      $outDir, $specID, $vers);
+    my $src   = $sources->{Gene2PubMed};
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my ($nsi, $nsj) = ("EntrezGene", "PubMed");
+    my @fbits = ("Ontology", $specID, $nsi, $nsj, $auth, $fVers);
+    my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
-        &msg("Keeping existing PubMed file:", $trg);
+        &msg("Keeping existing $nsj file:", $trg);
         return $trg;
     }
     unless ($dbf) {
-        &err("Can not create PubMed ontology",
+        &err("Can not create $nsj ontology",
              "Please provide SQLite DB path with -pubmeddb",
              "The DB can be generated with pubMedExtractor.pl");
         return "";
@@ -643,43 +854,57 @@ sub ontology_pubmed {
 
     my $tmp = "$trg.tmp";
     open(MTX, ">$tmp") || &death("Failed to write PubMed ontology", $tmp, $!);
+
     print MTX &_initial_mtx_block
-        ( "Ontology", $rnum, $cnum, $nznum, "$specID Entrez PubMed",
-          "PubMed assignments for $specID Entrez genes",
-          "Entrez ID", $geneIdUrl,
-          "PubMed ID", "https://www.ncbi.nlm.nih.gov/pubmed/%s", $specID);
-    print MTX "%
-% These data were extracted from the NLM/NCBI FTP sites:
-%   https://ftp.ncbi.nih.gov/gene/DATA/gene2pubmed.gz
-%   https://ftp.ncbi.nih.gov/pubmed/baseline/
-%   https://ftp.ncbi.nih.gov/pubmed/updatefiles/
-";
-    print MTX &_setfisher_comment_block();
-    print MTX &_min_set_mtx_block( 5 );
-    print MTX &_max_set_mtx_block
-        ( 15, "An exhaustive survey of the Drop Bear transcriptome" );
-    print MTX &_min_onto_mtx_block( 2 );
+        ( "Ontology", $rnum, $cnum, $nznum, "$auth $specID $nsi $nsj Ontology",
+          "$nsj assignments for $specID $nsi",
+          "Scores are all simply 1",
+          $nsi, $nsj);
+
+    print MTX &_dim_block({
+        RowDim    => $nsi,
+        RowUrl    => $nsUrl->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsUrl->{$nsj}, 
+        Authority => $authLong,
+        Source    => ["https://ftp.ncbi.nih.gov/gene/DATA/gene2pubmed.gz",
+                      "https://ftp.ncbi.nih.gov/pubmed/baseline/",
+                      "https://ftp.ncbi.nih.gov/pubmed/updatefiles/"],
+        Version   => $vers });
+
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
+
+    print MTX &_filter_block({
+        MinColCount => "5 ## Articles with few genes assigned to them struggle to reach statistical significance",
+        MaxColCount => "15% ## Articles containing a large fraction of the genome are rarely informative",
+        MinRowCount => "2 ## Genes with few publications generally do not bring much insight to the analysis",
+                             });
+
     print MTX &_rowcol_meta_comment_block();
 
     ## Row metadata
-    &mtx_entrez(\@gids, 'Row');
+    print MTX &_generic_meta_block(\@gids, 'Row', $geneMeta, \@stndMeta);
+
     print MTX "% $bar\n";
 
     ## Column metadata
     
     &msg("Extracting PubMed metadata", $dbf);
     &_sqlite_tools();
-
-    my @meta = qw(Date Description);
-    printf(MTX "%% Col %s\n", join($mtxSep, "Name", @meta));
-    for my $i (0..$#ontIds) {
-        my $oId = $ontIds[$i];
-        my ($vers, $dt, $desc) = &_pmid_from_db( $oId );
+    my $pmMeta = {};
+    foreach my $oId (@ontIds) {
+        my ($pmVers, $dt, $desc) = &_pmid_from_db( $oId );
         ## Not all PMIDs are in the XML files (eg Book entries)
         ## Use NCBI EFetch to recover these:
-        ($vers, $dt, $desc) = &backfill_pubmed( $oId) unless ($desc);
-        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $oId, $dt, $desc));
+        ($pmVers, $dt, $desc) = &backfill_pubmed( $oId) unless ($desc);
+        $pmMeta->{$oId} = {
+            Date        => $dt,
+            Description => $desc,
+        };
     }
+    print MTX &_generic_meta_block(\@ontIds, 'Col', $pmMeta,
+                                   [qw(Date Description)]);
 
     &msg("Writing connections");
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
@@ -696,15 +921,18 @@ sub ontology_pubmed {
 }
 
 sub ontology_go {
-    my $src  = "gene/DATA/gene2go.gz";
-    my $vers = &_datestamp_for_file(&fetch_url($src));
-    my $trg = sprintf("%s/Ontology-%s_Entrez-to-GeneOntology-v%s.mtx", 
-                      $outDir, $specID, $vers);
+    my $src   = $sources->{Gene2GO};
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my ($nsi, $nsj) = ("EntrezGene", "GeneOntology");
+    my @fbits = ("Ontology", $specID, $nsi, $nsj, $auth, $fVers);
+    my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
-        &msg("Keeping existing GeneOntology file:", $trg);
+        &msg("Keeping existing $nsj file:", $trg);
         return $trg;
     }
     &capture_gene_meta();
+    &go_meta();
+    die "WORK HERE TOO";
     &msg("Parsing GeneOntology");
     ## If you see 'expected column' errors, you will need to change
     ## the right hand value (after the '=>') of the offending column,
@@ -772,37 +1000,48 @@ sub ontology_go {
 
     my $tmp = "$trg.tmp";
     open(MTX, ">$tmp") || &death("Failed to write GO ontology", $tmp, $!);
+
     print MTX &_initial_mtx_block
-        ( "Ontology", $rnum, $cnum, $nznum, "$specID Entrez GeneOntology",
-          "GeneOntology assignments for $specID Entrez genes",
-          "Entrez ID", $geneIdUrl,
-          "GO Term", "http://amigo.geneontology.org/amigo/term/%s", $specID);
-    print MTX &_setfisher_comment_block();
-    print MTX &_min_set_mtx_block( 7 );
-    print MTX &_max_set_mtx_block( 5, "Catalytic process" );
-    print MTX &_min_onto_mtx_block( 2 );
+        ( "Ontology", $rnum, $cnum, $nznum, "$auth $specID $nsi-to-$nsj Ontology",
+          "$specID $nsi $nsj ontology, as assigned by $auth",
+          "Scores are factors representing the evidence code for the assignment",
+          $nsi, $nsj);
+
+    print MTX &_dim_block({
+        RowDim    => $nsi,
+        RowUrl    => $nsUrl->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsUrl->{$nsj}, 
+        Authority => $authLong,
+        Source    => &ftp_url($src),
+        Version   => $vers });
+
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
+
+    print MTX &_filter_block({
+        MinColCount => "7 ## Terms with few genes assigned to them struggle to reach statistical significance",
+        MaxColCount => "10% ## Terms covering a large fraction of the genome are rarely informative. Note this will exclude many parent terms",
+        MinRowCount => "2 ## Genes with few terms assigned to them will not bring much insight to the analysis",
+        TossLevel => "[,][P,IEA] ## P is an ancient evidence code, IEA tend to have high false positives (but may represent many of your assignments)"
+                             });
+
     print MTX &_factor_map_block
         ( $lvls, $scH, "Evidence Codes",
-          ["Lower factor values should represent lower confidence evidence",
+          ["Lower factor values generally represent lower confidence evidence",
            "http://geneontology.org/page/guide-go-evidence-codes"]);
+
     print MTX &_rowcol_meta_comment_block();
 
     ## Row metadata
-    &mtx_entrez(\@gids, 'Row');
+    print MTX &_generic_meta_block(\@gids, 'Row', $geneMeta, \@stndMeta);
     print MTX "% $bar\n";
 
     ## Column metadata
-    my @meta = qw(Description Category);
-    printf(MTX "%% Col %s\n", join($mtxSep, "Name", @meta));
-    for my $i (0..$#ontIds) {
-        my $oId = $ontIds[$i];
-        my $dat = $ontMeta{$oId};
-        printf(MTX "%% %d %s\n", $i+1, join($mtxSep, $oId,
-                                            map { $dat->{$_} } @meta));
-    }
+    print MTX &_generic_meta_block(\@ontIds, 'Col', \%ontMeta, 
+                                   [qw(Description Category)]);
 
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
-
     for my $i (0..$#gids) {
         my $hits = $genes{$gids[$i]};
         for (my $j = 0; $j < $#{$hits}; $j += 2) {
@@ -820,10 +1059,10 @@ sub extract_taxa_info {
     ## species. In particular, we'll need the taxid (eg 9606 for
     ## human) to extract relevant subsets of information.
     my $req = shift;
-    return { error => "No taxa request specified" }  unless ($req);
+    return { error => "-species is not specified" }  unless ($req);
     my $srcFile = "$tmpDir/names.dmp";
     if (&source_needs_recovery($srcFile)) {
-        my $tgz = &fetch_url("pub/taxonomy/taxdump.tar.gz");
+        my $tgz = &fetch_url($sources->{Taxonomy});
         my $tar = Archive::Tar->new($tgz);
         $tar->extract_file("names.dmp", $srcFile);
         die join("\n  ", "Failed to extract taxa names",
@@ -850,74 +1089,7 @@ sub extract_taxa_info {
         $obj->{found} = $cls if (lc($req) eq lc($name));
     }
     close TAX;
-    return { error => "No match for '$req' found in $srcFile" };
-}
-
-sub _setfisher_comment_block {
-    return "% $bar
-% The filters described below can be recognized by the SetFisher
-% package as pruning parameters. The filters are applied recursively,
-% removing terms, then genes, and then repeating until no further
-% alterations occur to the matrix.
-% $bar
-";
-}
-
-sub _min_onto_mtx_block {
-    my $def = shift;
-    $def = 2 unless (defined $def);
-    return "%
-% A major distortion in Fisher-based testing can come from
-% 'questionable' genes. These include real-but-untranscribed entities
-% (eg pseudogenes), speculative entries that will eventually be
-% removed from the transcriptome, or rare genes that are expressed
-% only in certain tissues or developmental stages. From a
-% marbles-in-an-urn perspective, all these categories represent
-% marbles that can NEVER be removed from the urn. The effect is
-% generally to inflate the significance of those that you do, since
-% the world size is larger than it really should be AND these
-% unselectable marbles generally have sparse annotation compared to
-% the 'real' ones that can be selected. This reduced level of
-% annotation is used by minOntoSize to remove genes that are likely to
-% be speculative. The filter below removes genes with fewer than the
-% indicated number of terms assigned to it.
-%
-%% DEFAULT minOntoSize $def
-";
-}
-
-sub _min_set_mtx_block {
-    my $def = shift;
-    $def = 5 unless (defined $def);
-    return "%
-% Terms with few genes assigned to them struggle to reach statistical
-% significance. Excluding them removes some distractions, but also
-% helps minimize multiple-testing penalties on 'long shot' terms. The
-% threshold below represents the minimum number of genes to be
-% assigned to a term for the term to be kept.
-%
-%% DEFAULT minSetSize $def
-";
-
-}
-
-sub _max_set_mtx_block {
-    my ($def, $example) = @_;
-    $def = 10 unless (defined $def);
-    return "%
-% Terms with many genes tend to be less useful in biological
-% interpretation - for example:
-%  '$example'
-% We have also observed that they tend to be disproportionately
-% significant as they are greatly impacted by the effect mentioned
-% under minOntoSize (un-selectable genes distorting the significance
-% of enriched sets). If a term is assigned to a greater percentage of
-% the world than the value listed below it will be excluded from the
-% matrix used in analysis. In addition to removing clutter from
-% reports, it brings a small multiple testing benefit.
-%
-%% DEFAULT maxSetPerc $def
-";
+    return { error => "-species '$req' could not be found in $srcFile" };
 }
 
 sub backfill_pubmed {
@@ -1019,4 +1191,8 @@ sub _backfill_tools {
         ("INSERT INTO pmid (pmid, vers, xsid, pubdate, title)".
          " VALUES (?, 0, 0, ?, ?)");
     return $bfdbh;
+}
+
+sub _citation_MTX {
+    return "%\n". &_default_parameter( "Citation", "Gene [Internet]. Bethesda (MD): National Library of Medicine (US), National Center for Biotechnology Information; 2004 – [$vers]. Available from: https://www.ncbi.nlm.nih.gov/gene/")."%\n";
 }
