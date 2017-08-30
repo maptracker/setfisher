@@ -92,10 +92,10 @@ parse_MatrixMarket_file <- function( file ) {
                 file, " : '", paste(fac, collapse="/"), "'")
         return(NULL)
     } else {
-        ## Not sure why "[^]]" works - I should have to escape the
-        ## internal bracket (eg "[^\\]]" but that does NOT work.
         facDat    <- CatMisc::parenRegExp("LEVELS\\s+(.+?)$", allCom[fac])
-        rv$levels <- ParamSetI::selfSplittingString(facDat[1])
+        lvl       <- ParamSetI::selfSplittingString(facDat[1])
+        ## Remove leading and trailing whitespace:
+        rv$levels <- gsub('^\\s+','', gsub('\\s+$', '', lvl))
     }
     
     ## Get any defaults that have been set
