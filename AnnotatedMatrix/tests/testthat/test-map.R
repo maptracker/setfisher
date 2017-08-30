@@ -13,7 +13,7 @@ test_that("Basic mapping", {
     expect_identical(v1$Factor,
                      c("Official", "Unofficial", "Unofficial"),
                      "Mapped factor levels")
-    expect_identical(v1$Symbol, c("GARS", "GART", "SIGLEC7"),
+    expect_identical(v1[["Output Symbol"]], c("GARS", "GART", "SIGLEC7"),
                      "Mapped metadata")
     expect_identical(rownames(v1),
                      c("GARS#1", "GARS#2", "SIGLEC19P"),
@@ -61,7 +61,8 @@ test_that("Appended Mapping", {
     myData <- data.frame(Flavor = c("Cherry", "Moose"),
                          Symbol = c("GARS","SIGLEC19P"),
                          stringsAsFactors=FALSE)
-    v4 <- s2e$map( append.to=myData, append.col="Symbol", collapse="in" )
+    v4 <- s2e$map(append.to=myData, append.col="Symbol", collapse="in",
+                  prefix.metadata=FALSE)
 
     addCol <- c("Output", "Score", "Factor", "Symbol.1", "Description")
     expect_identical(attr(v4, "Appended"), addCol,
@@ -71,5 +72,30 @@ test_that("Appended Mapping", {
                      "Appended data frame")
     expect_identical(v4$Output, c("LOC2617,LOC2618", "LOC27036"),
                      "Collapsed output")
+    
+})
+
+test_that("Header manipulation", {
+    qry1 <- c("GARS","SIGLEC19P")
+    x <- s2e$map(qry1, in.name=NULL, out.name=NULL, add.metadata=FALSE)
+    nm <- colnames(x)
+    expect_identical(nm, c("Symbol", "EntrezGene", "Score", "Factor"),
+                     "Headers based on dimnames")
+    cIn  <- "myInput"
+    cOut <- "yourOutput"
+    x <- s2e$map(qry1, in.name=cIn, out.name=cOut, add.metadata=FALSE)
+    nm <- colnames(x)
+    expect_identical(nm, c("myInput", "yourOutput", "Score", "Factor"),
+                     "Headers based on custom values")
+    
+    x <- s2e$map("LOC374", add.metadata="Symbol", input.metadata=TRUE)
+    nm <- colnames(x)
+    expect_identical(nm,c("Input", "Output", "Score", "Factor", "Input Symbol"),
+                     "Metadata for input columns")
+    
+    x <- s2e$map("LOC374", add.metadata=c("foo","foo"))
+    nm <- colnames(x)
+    expect_identical(nm,c("Input", "Output", "Score", "Factor", "Output foo", "Output foo.1"),
+                     "Duplicated column headers")
     
 })

@@ -83,6 +83,9 @@ make.unique() if (valid = FALSE)}
 
 \item{\code{cNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set colnames for the matrix}
 
+\item{\code{filterByCount(MARGIN, min = NULL, max = NULL, relative = TRUE,
+  filterEmpty = FALSE, reason = NA, help = FALSE)}}{Filter rows or columns based on number of non-zero connections}
+
 \item{\code{filterByFactorLevel(x, keep = TRUE, ignore.case = TRUE,
   filterEmpty = FALSE, reason = NA, help = FALSE)}}{Zero-out cells in the matrix that fail factor criteria}
 
@@ -105,8 +108,9 @@ make.unique() if (valid = FALSE)}
 \item{\code{map(input = NULL, via = NULL, format = "data.frame", ignore.case = TRUE,
   keep.best = FALSE, column.func = max, collapse = NULL,
   collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
-  integer.factor = NULL, add.metadata = TRUE, warn = TRUE,
-  append.to = NULL, append.col = 1L, help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
+  integer.factor = NULL, add.metadata = TRUE, input.metadata = FALSE,
+  warn = TRUE, append.to = NULL, append.col = 1L, in.name = "Input",
+  out.name = "Output", prefix.metadata = TRUE, help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
 
 \item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 

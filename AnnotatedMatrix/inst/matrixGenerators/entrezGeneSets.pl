@@ -5,11 +5,15 @@ my $scriptDir;
 our $defTmp = "/tmp/entrezGeneSets";
 my $defFtp  = "ftp.ncbi.nih.gov";
 my $defSym  = "Unknown,Unofficial,UnofficialPreferred,Interim,Official";
-my $defEC   = "P,IEA,NAS,IRD,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
+my $defEC   = "ND,P,IC,IEA,NAS,IRD,IKR,IBD,IBA,RCA,IGC,ISS,ISA,ISM,ISO,TAS,EXP,IEP,IPI,IMP,IGI,IDA";
+
+## GO Relation types
+## http://www.geneontology.org/page/ontology-relations
+my $defRel  = "regulates,positively_regulates,negatively_regulates,intersection_of,part_of,is_a";
 
 ## RefSeq Status codes:
 ## https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
-my $defRsStat = "SUPPRESSED,NA,WGS,MODEL,INFERRED,PREDICTED,PROVISIONAL,REVIEWED,VALIDATED";
+my $defRsStat = "Unknown,SUPPRESSED,NA,WGS,MODEL,INFERRED,PREDICTED,PROVISIONAL,REVIEWED,VALIDATED";
 
 
 our $defaultArgs = {
@@ -17,6 +21,7 @@ our $defaultArgs = {
     eclevels  => $defEC,
     rslevels  => $defRsStat,
     symlevels => $defSym,
+    rellevels => $defRel,
     dir       => ".",
 };
 
@@ -91,6 +96,11 @@ Optional Arguments:
 
            See: https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
 
+-rellevels Default '$defRel'.
+           Factor levels for GeneOntology relationship types.
+
+           See: http://www.geneontology.org/page/ontology-relations
+
  -pubmeddb A path to a SQLite database that holds PubMed (Medline)
            publication dates and article titles. While optional, the
            PubMed ontology will not be created in the absence of this
@@ -110,13 +120,16 @@ Optional Arguments:
         if ($taxDat->{error});
     exit;
 }
-my ($geneMeta, $goMeta);
-my @stndMeta  = qw(Symbol Type Description);
+my ($geneMeta, $goMeta, $goClosure);
+my @stndMeta   = qw(Symbol Type Description);
+my @stndGoMeta = qw(Name Namespace Definition Synonyms);
 my $nsUrl = {
-    Symbol      => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
-    EntrezGene  => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
-    LocusLink   => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
-    PubMed      => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
+    Symbol       => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
+    EntrezGene   => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
+    LocusLink    => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
+    PubMed       => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
+    GeneOntology => 'http://amigo.geneontology.org/amigo/term/%s',
+    RefSeqRNA    => 'https://www.ncbi.nlm.nih.gov/nuccore/%s',
 };
 
 my $taxid = $taxDat->{taxid};
@@ -165,21 +178,23 @@ push @taxBits, "File token: $specID";
 ## Stash deduplicated file store - not on all systems
 my $stashMeta = {
     Authority  => $auth,
-    Version    => $vers,
+    'Version'  => $vers,
     MatrixType => "Map",
     FileType   => "AnnotatedMatrix",
     Format     => "MatrixMarket",
 };
 
 
-
-
 &make_entrez_metadata_file();
 &map_symbol();
 &map_locuslink();
+&go_hierarchy("Hierarchy");
+&go_hierarchy("Closure");
 &ontology_go();
-die;
-&map_refseq();
+&map_refseq_rna();
+&death("WORKING");
+&map_refseq_protein();
+&map_rna_prot();
 &ontology_pubmed();
 
 sub fetch_all_files {
@@ -213,15 +228,27 @@ sub fetch_all_files {
 }
 
 sub make_entrez_metadata_file {
+    # Simple TSV file of species-specific metadata
     my $src   = $sources->{GeneInfo};
     my $fVers = &_datestamp_for_file(&fetch_url($src));
-    # Simple TSV file of species-specific metadata
-    my $trg = sprintf("%s/Metadata@%s-%s@%s@%s.tsv",
-                      &primary_folder($auth, $vers), $specID,
-                      "EntrezGene", $auth, $fVers);
-
+    my $type  = "Metadata";
+    my $cont  = "EntrezGene";
+    my @fbits = ($type, $specID, $cont, undef, $auth, $fVers, $vers);
+    my $meta = {
+        Species    => $specID,
+        MatrixType => $type,
+        FileType   => "TSV",
+        Version    => $fVers,
+        'Format'   => "TSV",
+        Source     => &ftp_url($src),
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
-        &msg("Using existing Metadata file:", $trg) unless ($tasks{MakeMeta}++);
+        unless ($tasks{MakeMeta}++) {
+            &msg("Using existing Metadata file:", $trg);
+            &post_process( @fbits, $fmeta );
+        }
         return $trg;
     }
     my $tmp = "$trg.tmp";
@@ -349,6 +376,7 @@ sub make_entrez_metadata_file {
     close METAF;
     rename($tmp, $trg);
     &msg("Generated Entrez metadata file", $trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
@@ -370,43 +398,42 @@ sub make_go_metadata_file {
     close GOFILE;
 
     # Simple TSV file of GeneOntology metadata
-    my $trg = sprintf("%s/Metadata@%s@%s.tsv",
-                      &primary_folder($auth, $vers), "GeneOntology", $fVers);
 
-    ## http://www.geneontology.org/page/ontology-relations
-    my $transitive = {
-        "is_a" => {
-            "is_a"      => "is_a",
-            "part_of"   => "part_of",
-            "regulates" => "regulates",
-        },
-        "part_of" => {
-            "part_of"   => "part_of",
-            "is_ia"     => "part_of",
-        },
-        "regulates" => {
-            "is_a"      => "regulates",
-            "part_of"   => "regulates",
-        },
+    my $type  = "Metadata";
+    my $cont  = "GeneOntology"; ## Both the content and authority
+    my @fbits = ($type, undef, $cont, undef, $cont, $fVers, "$auth/$vers");
+    my $meta = {
+        Species    => undef,
+        Authority  => $cont,
+        MatrixType => $type,
+        FileType   => "TSV",
+        Version    => $fVers,
+        'Format'   => "TSV",
+        Source     => &ftp_url($src),
     };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(@fbits);
+
     ## ignoring has_part : inverse of part_of
-    ## ignoring negatively_regulates and positively_regulates
 
     unless (&output_needs_creation($trg)) {
-        &msg("Using existing Metadata file:", $trg) unless ($tasks{GoMeta}++);
+        unless ($tasks{GoMeta}++) {
+            &msg("Using existing Metadata file:", $trg);
+            &post_process( @fbits, $fmeta );
+        }
         return $trg;
     }
 
     &msg("Parsing basic GeneOntology metadata");
     my $tmp = "$trg.tmp";
     open (METAF, ">$tmp") || &death("Failed to write metadata file", $tmp, $!);
-    my @head = qw(id name is_obsolete namespace is_a part_of intersection_of regulates synonym def);
+    my @head = qw(id name is_obsolete namespace is_a part_of intersection_of regulates positively_regulates negatively_regulates synonym def);
     my $hMap = {
-        id => "ID",
-        name => "Name",
-        namespace => "Namespace",
-        def       => "Definition",
-        synonym   => "Synonyms",
+        id          => "ID",
+        name        => "Name",
+        namespace   => "Namespace",
+        def         => "Definition",
+        synonym     => "Synonyms",
         is_obsolete => "Obsolete",
     };
     print METAF join("\t", map { $hMap->{$_} || $_ } @head)."\n";
@@ -428,8 +455,6 @@ sub make_go_metadata_file {
             if ($k eq 'relationship') {
                 if ($v =~ /^(\S+)\s+(GO:\d{7})$/) {
                     ($k, $v) = ($1, $2);
-                    ## "downsampling" positive and negative regulation
-                    $k = "regulates" if ($k =~ /_regulates/);
                 } else {
                     &err("Weird GO line: $_");
                     next;
@@ -445,6 +470,7 @@ sub make_go_metadata_file {
     close METAF;
     rename($tmp, $trg);
     &msg("Generated Entrez metadata file", $trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
@@ -479,7 +505,132 @@ sub go_meta {
     return $goMeta if ($goMeta);
     $goMeta = {};
     my $mdFile = &make_go_metadata_file();
-    die "WORKING HERE";
+    my ($lvls, $scH) = &_factorize_levels('rellevels');
+    my $nLvl = $#{$lvls};
+    open(METAF, "<$mdFile") || &death("Failed to read metadata TSV",
+                                      $mdFile, $!);
+    my $head = <METAF>;
+    $head =~ s/[\n\r]+$//;
+    my @cols = split(/\t/, $head);
+    while (<METAF>) {
+        s/[\n\r]+$//;
+        my @row  = split(/\t/);
+        my %data = map { $cols[$_] => $row[$_] } (0..$#cols);
+        my $gid  = $data{ID};
+
+        if ($goMeta->{$gid}) {
+            &err("Multiple entries for GeneID == $gid");
+        } else {
+            $goMeta->{$gid} = \%data;
+            ## Set up parentage hash
+            for my $i (0..$#{$lvls}) {
+                my $targ = $goMeta->{PARENTAGE}{$gid} ||= {};
+                if (my $pars = $data{$lvls->[$i]}) {
+                    my $sc   = $i + 1;
+                    foreach my $par (split(/\|/, $pars)) {
+                        $targ->{$par} = $sc
+                            if (!$targ->{$par} || $targ->{$par} < $sc);
+                    }
+                }
+            }
+        }
+    }
+    close METAF;
+    return $goMeta;
+}
+
+sub go_transitive_closure {
+    my $lvlReq = shift;
+    
+    if ($lvlReq) {
+        ## A request to limit the closure to only particular relationships:
+        $lvlReq = split(/\s*,\s*/, $lvlReq) unless (ref($lvlReq));
+        $lvlReq = { map { lc($_ || "") => 1 } @{$lvlReq} };
+        delete $lvlReq->{""};
+        &msg("Restricting transitive GO closure to: ".
+             join(", ", sort keys %{$lvlReq}));
+    } elsif ($goClosure) {
+        return $goClosure;
+    }
+
+    &go_meta();
+    my ($lvls, $scH) = &_factorize_levels('rellevels');
+    ## http://www.geneontology.org/page/ontology-relations
+    my $transitive = {
+        "is_a" => {
+            "is_a"      => "is_a",
+            "part_of"   => "part_of",
+            "regulates" => "regulates",
+        },
+        "part_of" => {
+            "part_of"   => "part_of",
+            "is_a"     => "part_of",
+        },
+        "regulates" => {
+            "is_a"      => "regulates",
+            "part_of"   => "regulates",
+        },
+        "positively_regulates" => {
+            "is_a"      => "positively_regulates",
+            "part_of"   => "regulates",
+        },
+        "negatively_regulates" => {
+            "is_a"      => "negatively_regulates",
+            "part_of"   => "regulates",
+        },
+    };
+    ## Normalize as 2D score array:
+    my @tranSC;
+    while (my ($e1, $e2H) = each %{$transitive}) {
+        next if ($lvlReq && !$lvlReq->{lc($e1)});
+        my $sc1 = $scH->{uc($e1)};
+        while (my ($e2, $e3) = each %{$e2H}) {
+            next if ($lvlReq && !$lvlReq->{lc($e2)});
+            $tranSC[$sc1][ $scH->{uc($e2)} ] = $scH->{uc($e3)};
+        }
+    }
+
+    ## Begin by initializing the structure with the direct connections
+    my $gc = {};
+    foreach my $gid (keys %{$goMeta}) {
+        next if ($goMeta->{$gid}{Obsolete});
+        $gc->{$gid} = { %{$goMeta->{PARENTAGE}{$gid} || {}} };
+        # die Dumper($gc);
+    }
+
+    my @nodes     = sort keys %{$gc};
+    my $iteration = 1;
+    my $perturbed = { map { $_ => 1 } @nodes };
+    my $changed   = $#nodes + 1;
+    &msg("Creating transitive closure for GO");
+    while ($changed) {
+        warn sprintf("  Iteration %d: %d changes\n", $iteration++, $changed);
+        $changed = 0;
+        my $ptb = {};
+        foreach my $kid (@nodes) { # Kid ID
+            foreach my $pid (keys %{$gc->{$kid}}) { # Parent ID
+                # next unless ($perturbed->{$pid});
+                my $sc1 = $gc->{$kid}{$pid};
+                foreach my $gid (keys %{$gc->{$pid}}) {
+                    my $sc2 = $gc->{$pid}{$gid};
+                    # warn "$kid -[$sc1]-> $pid -[$sc2]-> $gid\n";
+                    if (my $sc3 = $tranSC[$sc1][$sc2]) {
+                        ## There is a transitive path through the parent
+                        if (!$gc->{$kid}{$gid} || $gc->{$kid}{$gid} < $sc3) {
+                            ## And that path is new, or better
+                            $gc->{$kid}{$gid} = $sc3;
+                            $changed++;
+                            $ptb->{$kid}++;
+                        }
+                    }
+                }
+            }
+        }
+        $perturbed = $ptb;
+    }
+    ## Set the global value so long as we did not filter by level:
+    $goClosure = $gc unless ($lvlReq);
+    return $gc;
 }
 
 sub capture_gene_meta {
@@ -512,12 +663,19 @@ sub capture_gene_meta {
 }
 
 sub map_locuslink {
+    my $src   = &ftp_url($sources->{GeneInfo});
     my $fVers = &_datestamp_for_file( &make_entrez_metadata_file() );
     my ($nsi, $nsj) = ("LocusLink", "EntrezGene");
-    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers);
+    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my $meta = {
+        Source    => $src,
+        Namespace => [$nsi, $nsj],
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsi map:", $trg);
+        &post_process( @fbits, $fmeta );
         return $trg;
     }
     &capture_gene_meta();
@@ -534,13 +692,12 @@ sub map_locuslink {
           $nsi, $nsj);
 
     print MTX &_dim_block({
+        %{$fmeta},
         RowDim    => $nsi,
         RowUrl    => $nsUrl->{$nsi},
         ColDim    => $nsj,
         ColUrl    => $nsUrl->{$nsj}, 
-        Authority => $authLong,
-        Source    => &ftp_url($sources->{GeneInfo}),
-        Version   => $vers });
+        Authority => $authLong });
 
 
     print MTX &_citation_MTX();
@@ -572,22 +729,181 @@ sub map_locuslink {
 
     rename($tmp, $trg);
     &msg("Generated LocusLink to Entrez mapping", $trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
-sub map_refseq {
-    my $rsf = &make_refseq_file();
-    die "WORKING";
+sub map_refseq_rna {
+    my $src   = $sources->{Gene2RefSeq};
+    my $type  = "Map";
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my ($nsi, $nsj) = ("RefSeqRNA", "EntrezGene");
+    my @fbits = ($type, $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my $meta = {
+        Species    => $specID,
+        MatrixType => $type,
+        FileType   => "TSV",
+        Version    => $fVers,
+        'Format'   => "TSV",
+        Source     => &ftp_url($src),
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(@fbits);
+    unless (&output_needs_creation($trg)) {
+        &msg("Keeping existing $nsi map:", $trg);
+        &post_process( @fbits, $fmeta );
+        return $trg;
+    }
+    &capture_gene_meta();
+    my $rsf   = &make_refseq_file();
+    my ($lvls, $scH) = &_factorize_levels('rslevels');
+
+    open(RF, "<$rsf") || &death
+        ("Failed to read RefSeq association file", $rsf, $!);
+    my $head = <RF>;
+    $head =~ s/[\n\r]+$//;
+    $head = [split("\t", $head)];
+    my %cols = map { $head->[$_] => $_ } (0..$#{$head});
+    ## Source indices for row, col, score
+    my ($ri, $ci, $si) = map { $cols{$_} } qw(RNA GeneID Status);
+    &death("Failed to find required column headers in $rsf")
+        unless (defined $ri && defined $ci && defined $si);
+    my (%rmeta, %cmeta);
+    my ($rnum, $cnum, $nznum) = (0,0,0);
+    while (<RF>) {
+        s/[\n\r]+$//;
+        my @row = split(/\t/);
+        my ($r, $c, $sc) = ($row[$ri], $row[$ci], $row[$si]);
+        next unless ($r && $c && $sc);
+        my $cm = $cmeta{$c} ||= {
+            name  => $c,
+            order => ++$cnum,
+        };
+        my $rm = $rmeta{$r} ||= {
+            name        => $r,
+            order       => ++$rnum,
+            hits        => {},
+            ## Copy locus metadata for now
+            Description => $geneMeta->{$c}{Description},
+            Symbol      => $geneMeta->{$c}{Symbol},
+        };
+        my $pSc  = $scH->{uc($sc)};
+        unless ($pSc) {
+            $pSc  = $scH->{uc("Unknown")}
+        }
+        my $hits = $rm->{hits};
+        my $cn   = $cm->{order};
+        if (!$hits->{$cn} ||$hits->{$cn} < $pSc) {
+            $hits->{$cn} = $pSc;
+        }
+    }
+    close RF;
+    my @rowIds = map { $_->{name} } sort 
+    { $a->{order} <=> $b->{order} } values %rmeta;
+    my @colIds = map { $_->{name} } sort 
+    { $a->{order} <=> $b->{order} } values %cmeta;
+
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write $nsj map", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( "Mapping", $rnum, $cnum, $nznum, "$auth $specID $nsi-to-$nsj Map",
+          "Accession conversion from $nsi to $nsj",
+          "Factor levels representing RefSeq review status codes",
+          $nsi, $nsj);
+
+    print MTX &_dim_block({
+        %{$fmeta},
+        RowDim    => $nsi,
+        RowUrl    => $nsUrl->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsUrl->{$nsj}, 
+        Authority => $authLong });
+
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
+    print MTX &_filter_block({
+        TossLevel => "[,][Unknown,SUPPRESSED,NA,WGS] ## Uncertain, deprecated or Whole Genome Sequencing entries",
+                             });
+
+    ## Tally up factor counts and total non-zero counts
+    my %counts;
+    foreach my $dat (values %rmeta) {
+        my @u   = values %{$dat->{hits}};
+        $nznum += $#u + 1;
+        map { $counts{ $lvls->[$_-1]}++ } @u;
+    }
+
+    print MTX &_factor_map_block
+        ( $lvls, $scH, "Review Status",
+          ["Review status of the RefSeq entries",
+           "https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/"],
+        \%counts);
+
+    print MTX &_rowcol_meta_comment_block();
+
+    ## Note row metadata
+    my @refMetCols = qw(Symbol Description);
+    print MTX &_generic_meta_block(\@rowIds, 'Row', \%rmeta, \@refMetCols);
+
+    ## Column metadata
+    print MTX "% $bar\n";
+    print MTX &_generic_meta_block(\@colIds, 'Col', $geneMeta, \@stndMeta);
+
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+    for my $i (0..$#rowIds) {
+        while (my ($j, $sc) = each %{$rmeta{$rowIds[$i]}{hits}}) {
+            printf(MTX "%d %d %d\n", $i+1, $j, $sc);
+        }
+    }
+    close MTX;
+    rename($tmp, $trg);
+    &msg("Generated $nsi to $nsj mapping", $trg);
+    &post_process( @fbits, $fmeta );
+
+    &death("WORKING");
+    return $trg;
+}
+
+sub map_refseq_protein {
+}
+
+sub map_rna_prot {
 }
 
 sub make_refseq_file {
     my $src   = $sources->{Gene2RefSeq};
+    my $type  = "Metadata";
+    my $cont  = "RefSeq";
     my $fVers = &_datestamp_for_file(&fetch_url($src));
-    my $trg = sprintf("%s/Metadata-%s_RefSeq-v%s.tsv", $outDir, $specID, $fVers);
+    my @fbits = ($type, $specID, $cont, undef, $auth, $fVers, $vers);
+    my $meta = {
+        MatrixType => $type,
+        FileType   => "TSV",
+        Version    => $fVers,
+        'Format'   => "TSV",
+        Source     => &ftp_url($src),
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(@fbits);
+
     unless (&output_needs_creation($trg)) {
-        &msg("Using existing RefSeq file:", $trg);
+        unless ($tasks{RSFile}++) {
+            &msg("Using existing RefSeq file:", $trg);
+            &post_process( @fbits, $fmeta );
+        }
         return $trg;
     }
+
+    ## TODO: Strugling to find a good source of per-transcript
+    ## descriptions (eg, including the splice variant number). So far
+    ## best source seems to be genomic GFF files, eg:
+    ## ftp://ftp.ncbi.nlm.nih.gov/genomes/Homo_sapiens/GFF/ref_GRCh38.p7_top_level.gff3.gz
+    ## "product=caveolin 3%2C transcript variant 2;transcript_id=NM_001234.4"
+
+    ## Retrieving, parsing and integrating is a bit of a pain, so
+    ## putting this off for now
+
+    &msg("Parsing RefSeq assignments");
     my $cols = { 
         taxid  => 'tax_id',
         gene   => 'GeneID',
@@ -673,17 +989,25 @@ sub make_refseq_file {
     close TSV;
     rename($tmp, $trg);
     &msg("Generated RefSeq assignments file, $orow rows from $nrow input",$trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
 
 sub map_symbol {
     my $fVers = &_datestamp_for_file( &make_entrez_metadata_file() );
+    my $src   = &ftp_url( $sources->{GeneInfo});
     my ($nsi, $nsj) = ("Symbol", "EntrezGene");
-    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers);
+    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my $meta = {
+        Source    => $src,
+        Namespace => [$nsi, $nsj],
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing Gene Symbol map:", $trg);
+        &post_process( @fbits, $fmeta );
         return $trg;
     }
     &capture_gene_meta();
@@ -751,13 +1075,12 @@ sub map_symbol {
           $nsi, $nsj);
 
     print MTX &_dim_block({
+        %{$fmeta},
         RowDim    => $nsi,
         RowUrl    => $nsUrl->{$nsi},
         ColDim    => $nsj,
         ColUrl    => $nsUrl->{$nsj}, 
-        Authority => $authLong,
-        Source    => join('/', "ftp:/", $args->{ftp}, $sources->{GeneInfo}),
-        Version   => $vers });
+        Authority => $authLong });
 
     print MTX &_citation_MTX();
     print MTX &_species_MTX( $taxDat->{'scientific name'} );
@@ -779,23 +1102,32 @@ sub map_symbol {
     for my $i (0..$#rowIds) {
         my $hits = $symbols{$rowIds[$i]}{hits};
         for (my $j = 0; $j < $#{$hits}; $j += 2) {
-            printf(MTX "%d %d %0.1f\n", $i+1, $hits->[$j], $hits->[$j+1]);
+            printf(MTX "%d %d %d\n", $i+1, $hits->[$j], $hits->[$j+1]);
         }
     }
     close MTX;
     rename($tmp, $trg);
     &msg("Generated $nsi to $nsj mapping", $trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
 sub ontology_pubmed {
     my $src   = $sources->{Gene2PubMed};
     my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my $type  = "Ontology";
     my ($nsi, $nsj) = ("EntrezGene", "PubMed");
-    my @fbits = ("Ontology", $specID, $nsi, $nsj, $auth, $fVers);
+    my @fbits = ($type, $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my $meta = {
+        Source     => &ftp_url($src),
+        MatrixType => $type,
+        Namespace  => [$nsi, $nsj],
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsj file:", $trg);
+        &post_process( @fbits, $fmeta );
         return $trg;
     }
     unless ($dbf) {
@@ -862,6 +1194,7 @@ sub ontology_pubmed {
           $nsi, $nsj);
 
     print MTX &_dim_block({
+        %{$fmeta},
         RowDim    => $nsi,
         RowUrl    => $nsUrl->{$nsi},
         ColDim    => $nsj,
@@ -869,8 +1202,7 @@ sub ontology_pubmed {
         Authority => $authLong,
         Source    => ["https://ftp.ncbi.nih.gov/gene/DATA/gene2pubmed.gz",
                       "https://ftp.ncbi.nih.gov/pubmed/baseline/",
-                      "https://ftp.ncbi.nih.gov/pubmed/updatefiles/"],
-        Version   => $vers });
+                      "https://ftp.ncbi.nih.gov/pubmed/updatefiles/"] });
 
     print MTX &_citation_MTX();
     print MTX &_species_MTX( $taxDat->{'scientific name'} );
@@ -917,22 +1249,134 @@ sub ontology_pubmed {
     close MTX;
     rename($tmp, $trg);
     &msg("Generated Entrez PubMed ontology", $trg);
+    &post_process( @fbits, $fmeta );
+    return $trg;
+}
+
+sub go_hierarchy {
+    my $type  = shift || "Hierarchy";
+    my $src   = $sources->{GO};
+    my $fVers = &_datestamp_for_file(&make_go_metadata_file());
+    my $cont  = "GeneOntology";    
+    my ($nsi, $nsj) = ("Child", "Parent");
+    my @fbits = ($type, $cont, $nsi, $nsj, $cont, $fVers, "$auth/$vers");
+    my $meta = {
+        Source     => &ftp_url($src),
+        MatrixType => $type, 
+        Authority  => $cont,
+        Namespace  => [$nsi, $nsj],
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(@fbits);
+    unless (&output_needs_creation($trg)) {
+        unless ($tasks{"GO-$type"}++) {
+            &msg("Keeping existing $cont $type file:", $trg);
+            &post_process( @fbits, $fmeta );
+        }
+        return $trg;
+    }
+    &go_meta();
+    ## The Hierarchy will have only direct parent-child links. The
+    ## Closure will include all transitively closed paths from a child
+    ## to any valid ancestor.
+    my $obj = $type eq 'Closure' ? 
+        &go_transitive_closure() : $goMeta->{PARENTAGE};
+    my ($lvls, $scH) = &_factorize_levels('rellevels');
+    my @gids;
+    foreach my $gid (sort keys %{ $obj }) {
+        push @gids, $gid unless ($goMeta->{$gid}{Obsolete});
+    }
+    my $rnum  = $#gids + 1;
+    my $nznum = 0;
+    my %counts;
+    foreach my $h (values %{ $obj }) {
+        my @u   = values %{$h};
+        $nznum += $#u + 1;
+        map { $counts{ $lvls->[$_-1]}++ } @u;
+    }
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write $cont $type", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( $type, $rnum, $rnum, $nznum, "$cont $nsi-to-$nsj $type",
+          "$nsi-$nsj relationships between $cont graph nodes",
+          "Node relationship types, as factor levels",
+          $nsi, $nsj);
+
+    print MTX &_dim_block({
+        %{$fmeta},
+        RowDim     => $nsi,
+        RowUrl     => $nsUrl->{$cont},
+        ColDim     => $nsj,
+        ColUrl     => $nsUrl->{$cont} });
+
+    if ($type eq 'Closure') {
+        print MTX &_mtx_comment_block("This matrix represents a full transitive closure of the GO hierarchy. Rows are child nodes, columns represent all direct or indirect ancestors (parents, grandparents, etc). Some ancestors might be accessible through multiple paths; If so, the relationship type will be the 'best' one (higher score value in the relationship factor). For direct relationships only, see the Hierarchy matrix.");
+    } else {
+        print MTX &_mtx_comment_block("This matrix represents direct $cont parentage relationships between the rows (children) and columns (parents). For full transitive parentage, see the Closure matrix.");
+    }
+
+    print MTX &_go_citation_MTX();
+    print MTX &_filter_block({
+        KeepLevel => "[,][part_of,is_a] ## 'Part Of' and 'Is A' relationships are the only ones that reliably allow inheritance graph building."
+                             });
+
+    print MTX &_factor_map_block
+        ( $lvls, $scH, "Ontology Relations",
+          ["The kinds of relationships that structure the GO graph",
+           "Only is_a and part_of are reliable for transitive graph following",
+           "http://www.geneontology.org/page/ontology-relations"],
+        \%counts);
+
+    print MTX &_rowcol_meta_comment_block();
+    ## Row metadata
+    print MTX &_generic_meta_block(\@gids, 'Row', $goMeta, \@stndGoMeta);
+
+    ## Column metadata
+    print MTX "% $bar\n";
+    print MTX &_generic_meta_block(\@gids, 'Col', $goMeta, \@stndGoMeta);
+
+    print MTX &_triple_header_block( $rnum, $rnum, $nznum );
+    my $n2i = { map { $gids[$_] => $_+1 } (0..$#gids) };
+    for my $i (0..$#gids) {
+        while (my ($par, $sc) = each %{$obj->{$gids[$i]}}) {
+            ## die "$gids[$i] + $par = $sc" unless ($n2i->{$par});
+            printf(MTX "%d %d %d\n", $i+1, $n2i->{$par}, $sc);
+        }
+    }
+    close MTX;
+    rename($tmp, $trg);
+    &msg("Generated $cont $nsi to $nsj $type", $trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
 sub ontology_go {
     my $src   = $sources->{Gene2GO};
+    my $type  = "Ontology";
     my $fVers = &_datestamp_for_file(&fetch_url($src));
     my ($nsi, $nsj) = ("EntrezGene", "GeneOntology");
-    my @fbits = ("Ontology", $specID, $nsi, $nsj, $auth, $fVers);
+    my @fbits = ($type, $specID, $nsi, $nsj, $auth, $fVers);
+    my $meta = {
+        Source     => &ftp_url($src),
+        MatrixType => $type,
+        Namespace  => [$nsi, $nsj],
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(@fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsj file:", $trg);
+        &post_process( @fbits, $fmeta );
         return $trg;
     }
     &capture_gene_meta();
     &go_meta();
-    die "WORK HERE TOO";
+    ## Make a full child-to-ancestor lookup structure:
+    my $closure = &go_transitive_closure(['is_a','part_of']);
+    my %expand;
+    while (my ($kid, $pars) = each %{$closure}) {
+        $expand{$kid} = [ $kid, keys %{$pars} ];
+    }
+
     &msg("Parsing GeneOntology");
     ## If you see 'expected column' errors, you will need to change
     ## the right hand value (after the '=>') of the offending column,
@@ -970,13 +1414,12 @@ sub ontology_go {
             next; # Otherwise, keep scanning for taxid
         }
         map { s/^\-$// } @row; # Turn '-' cells to empty string
-        my $gid = $row[$gInd];
-        ## Capture term metadata once
-        my $gm = $ontMeta{$gid} ||= {
-            Description => $row[ $cols->{term} ],
-            Category    => $row[ $cols->{cat}  ],
-            order       => ++$nont,
-        };
+        my $kid = $row[$gInd];
+        my @allGo = @{$expand{$kid} || []};
+        if ($#allGo == -1) {
+            &msg("[DataError] - Could not find ancestors for $kid");
+            next;
+        }
         my $sc = $scH->{ uc($row[ $eInd ]) };
         unless ($sc) {
             unless (defined $sc) {
@@ -986,9 +1429,27 @@ sub ontology_go {
             }
             next;
         }
-        # Capture orderID/score pairs
-        push @{$genes{ $row[ $lInd ] }}, ( $gm->{order}, $sc );
-        $nznum++;
+        foreach my $gid (@allGo) {
+            ## Capture term metadata once
+            my $gm = $ontMeta{$gid} ||= {
+                Description => $row[ $cols->{term} ],
+                Category    => $row[ $cols->{cat}  ],
+                order       => ++$nont,
+            };
+            my $gnum = $gm->{order};
+            my $targ = $genes{ $row[ $lInd ] } ||= {};
+            # Capture orderID/score pairs. Because of inheritance, we
+            # will encounter GO terms many times for the same
+            # gene. This can result in many different evidence
+            # codes. We will take the 'highest' evidence code
+            # observed.
+            if (!$targ->{$gnum}) {
+                $nznum++;
+                $targ->{$gnum} = $sc;
+            } elsif ($targ->{$gnum} < $sc) {
+                $targ->{$gnum} = $sc;
+            }
+        }
     }
     close $fh;
     warn "     ... writing matrix market file ...\n";
@@ -1008,13 +1469,12 @@ sub ontology_go {
           $nsi, $nsj);
 
     print MTX &_dim_block({
+        %{$fmeta},
         RowDim    => $nsi,
         RowUrl    => $nsUrl->{$nsi},
         ColDim    => $nsj,
         ColUrl    => $nsUrl->{$nsj}, 
-        Authority => $authLong,
-        Source    => &ftp_url($src),
-        Version   => $vers });
+        Authority => $authLong });
 
     print MTX &_citation_MTX();
     print MTX &_species_MTX( $taxDat->{'scientific name'} );
@@ -1023,13 +1483,19 @@ sub ontology_go {
         MinColCount => "7 ## Terms with few genes assigned to them struggle to reach statistical significance",
         MaxColCount => "10% ## Terms covering a large fraction of the genome are rarely informative. Note this will exclude many parent terms",
         MinRowCount => "2 ## Genes with few terms assigned to them will not bring much insight to the analysis",
-        TossLevel => "[,][P,IEA] ## P is an ancient evidence code, IEA tend to have high false positives (but may represent many of your assignments)"
+        TossLevel => "[,][ND,IC,P] ## ND=No Data, IC=Inferred by Curator, P is an ancient evidence code"
                              });
 
+    my @counts;
+    foreach my $h (values %genes) {
+        my @u   = values %{$h};
+        map { $counts[$_-1]++ } @u;
+    }
     print MTX &_factor_map_block
         ( $lvls, $scH, "Evidence Codes",
           ["Lower factor values generally represent lower confidence evidence",
-           "http://geneontology.org/page/guide-go-evidence-codes"]);
+           "http://geneontology.org/page/guide-go-evidence-codes"],
+          {map { $lvls->[$_] => $counts[$_] || 0 } (0..$#{$lvls}) });
 
     print MTX &_rowcol_meta_comment_block();
 
@@ -1038,19 +1504,18 @@ sub ontology_go {
     print MTX "% $bar\n";
 
     ## Column metadata
-    print MTX &_generic_meta_block(\@ontIds, 'Col', \%ontMeta, 
-                                   [qw(Description Category)]);
+    print MTX &_generic_meta_block(\@ontIds, 'Col', $goMeta, \@stndGoMeta);
 
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
     for my $i (0..$#gids) {
-        my $hits = $genes{$gids[$i]};
-        for (my $j = 0; $j < $#{$hits}; $j += 2) {
-            printf(MTX "%d %d %d\n", $i+1, $hits->[$j], $hits->[$j+1]);
+        while (my ($j, $sc) = each %{$genes{$gids[$i]}}) {
+            printf(MTX "%d %d %d\n", $i+1, $j, $sc);
         }
     }
     close MTX;
     rename($tmp, $trg);
-    &msg("Generated Entrez GO ontology", $trg);
+    &msg("Generated $nsj $type", $trg);
+    &post_process( @fbits, $fmeta );
     return $trg;
 }
 
@@ -1194,5 +1659,11 @@ sub _backfill_tools {
 }
 
 sub _citation_MTX {
-    return "%\n". &_default_parameter( "Citation", "Gene [Internet]. Bethesda (MD): National Library of Medicine (US), National Center for Biotechnology Information; 2004 – [$vers]. Available from: https://www.ncbi.nlm.nih.gov/gene/")."%\n";
+    return &_default_parameter( "Citation", "Gene [Internet]. Bethesda (MD): National Library of Medicine (US), National Center for Biotechnology Information; 2004 – [$vers]. Available from: https://www.ncbi.nlm.nih.gov/gene/")."%\n";
+}
+
+sub _go_citation_MTX {
+    my $fVers = &_datestamp_for_file(&make_go_metadata_file());
+  
+    return &_default_parameter( "Citation", "The Gene Ontology Consortium. Gene Ontology Consortium: going forward. (2015) Nucl Acids Res 43 Database issue D1049–D1056. Downloaded $fVers.")."%\n";
 }

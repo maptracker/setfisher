@@ -81,6 +81,9 @@ character vector will add those specific columns (it is up to
 the user to confirm that requested columns exist in the
 metadata store)}
 
+\item{input.metadata}{Default FALSE. If true, then metadata columns
+will also be included for the input IDs.}
+
 \item{warn}{Default TRUE, which will show warning text if matches
 failed to be made for the input. This information is also
 always captured in attributes attached to the returned
@@ -97,6 +100,17 @@ the provided data.frame is set with \code{append.col}}
 merging. Default is \code{1L}, can provide another column
 number or name. If \code{input} was not specified, then the
 contents of this column will be taken as input.}
+
+\item{in.name}{Default "Input". The header name to use for the
+input IDs. If set to NULL, will be taken from the matrix
+dimension name corresponding to the input.}
+
+\item{out.name}{Default "Output". As per \code{in.name}, but for
+the Output data.}
+
+\item{prefix.metadata}{Default TRUE, which will prefix metadata
+column headers with \code{out.name} and \code{in.name}, as
+relevant.}
 
 \item{help}{Default FALSE. If TRUE, show this help and perform no
 other actions.}
@@ -119,8 +133,11 @@ myObject$map(input=NULL, via=NULL, format="data.frame", ignore.case=TRUE,
              keep.best=FALSE, column.func=max, collapse=NULL,
              collapse.name=NULL, collapse.token=',',
              collapse.score=NULL, collapse.factor=NULL,
-             integer.factor=FALSE, add.metadata=TRUE, warn=TRUE,
-             append.to=NULL, append.col=1L, help=FALSE )
+             integer.factor=FALSE, add.metadata=TRUE,
+             input.metadata=FALSE, warn=TRUE,
+             append.to=NULL, append.col=1L,
+             in.name="Input", out.name="Output", prefix.metadata=TRUE,
+             help=FALSE )
 }
 
 This is the primary method for AnnotatedMatrix. It takes the input,

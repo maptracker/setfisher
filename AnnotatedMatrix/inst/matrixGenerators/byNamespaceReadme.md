@@ -6,13 +6,23 @@ directories. This text (above the horizontal rule) will not be copied.
 ----
 # AnnotatedMatrix Files - Namespace Hierarchy
 
+### CAUTION CAUTION CAUTION
+
+Files may be loaded directly from this folder tree, but their location
+is not persistent! The tree's primary use is to aid in exploration of
+available files. If you are encoding a file in a production workflow,
+please reference instead the [../byAuthority][BA] file paths. Those
+locations are static and will persist as new versions are loaded.
+
+### Structure
+
 This folder contains a file structure that organizes
 [MatrixMarket][MTX] files according to their row and column
 namespaces. At the level of this file are folders for namespaces on
 _either_ the rows or columns. The second level will be the namespaces
 of the other dimension of the matrix. Within that second level will be
 symlinks to the files themselves. The symlinks will point back up to
-`../byAuthority`, which is the primary storage location for the
+[../byAuthority][BA], which is the primary storage location for the
 files. For example:
 
 ```
@@ -57,3 +67,4 @@ work directly with the `.mtx` files - the code can detect updates
 
 [MTX]: http://math.nist.gov/MatrixMarket/formats.html
 [AM]: https://github.com/maptracker/setfisher/tree/master/AnnotatedMatrix
+[BA]: ../byAuthority/

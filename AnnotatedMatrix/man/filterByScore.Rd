@@ -11,7 +11,12 @@ will be set to zero}
 will be set to zero}
 
 \item{filterEmpty}{Default FALSE. If true, then rows or columns
-that are empty after filtering will be removed from the matrix}
+that are empty after filtering will be removed from the matrix
+using \link{removeEmpty}. If no cells were affected by the
+\code{filterByScore} call, then \code{removeEmpty} will not be
+called. If you wish to assure that empty rows and columns are
+removed after this filter, you should call \code{removeEmpty}
+explicitly.}
 
 \item{reason}{Default NA. Optional human-readable reason for why
 the alteration was made, will be recorded in \link{filterLog}

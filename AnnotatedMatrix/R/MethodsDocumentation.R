@@ -580,6 +580,11 @@ NULL
 #'     will be set to zero
 #' @param filterEmpty Default FALSE. If true, then rows or columns
 #'     that are empty after filtering will be removed from the matrix
+#'     using \link{removeEmpty}. If no cells were affected by the
+#'     \code{filterByScore} call, then \code{removeEmpty} will not be
+#'     called. If you wish to assure that empty rows and columns are
+#'     removed after this filter, you should call \code{removeEmpty}
+#'     explicitly.
 #' @param reason Default NA. Optional human-readable reason for why
 #'     the alteration was made, will be recorded in \link{filterLog}
 #'     and used to structure \link{filterSummary}
@@ -608,6 +613,69 @@ NULL
 #' s2e$filterByScore( min=4, reason="Focus on official symbols only" )
 #' # We now have a more constrained matrix:
 #' sum( s2e$populatedRows() )  # 28
+#' s2e$filterSummary()
+#' 
+NULL
+
+#' Filter by Count
+#'
+#' AnnotatedMatrix object method to filter rows and columns by number
+#' of connections
+#'
+#' @name filterByCount
+#' @method filterByCount AnnotatedMatrix
+#' 
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$filterByCount( help=TRUE )
+#'
+#' myObject$filterByCount( MARGIN, min=NULL, max=NULL, relative=TRUE,
+#'                         filterEmpty=FALSE, reason=NA )
+#' }
+#' 
+#' Updates the \link[=matrixUse]{used matrix} to remove rows and
+#' columns when elements in a dimension have too few or too many
+#' connections. Minimum and maximum connection counts can be specified
+#' absolutely, or as a percentage of the length of the dimenstion.
+#'
+#' @param MARGIN Required, defines the dimension to be filtered. Can
+#'     specify rows with '1' or 'row', columns with '2' or 'col'.
+#' @param min Default NULL, optional minimum count. Will be normalized
+#'     with \link{normalizePercent}, which will interpret integers and
+#'     numeric values as absolute counts, and numeric strings ending
+#'     with '\%' as percentages of the total dimension length.
+#' @param max Default NULL, optional maximum score, same input
+#'     considerations as \code{min}.
+#' @param filterEmpty Default FALSE. If true, then rows or columns
+#'     that are empty after filtering will be removed from the matrix
+#'     using \link{removeEmpty}. If no cells were affected by the
+#'     \code{filterByCount} call, then \code{removeEmpty} will not be
+#'     called. If you wish to assure that empty rows and columns are
+#'     removed after this filter, you should call \code{removeEmpty}
+#'     explicitly.
+#' @param reason Default NA. Optional human-readable reason for why
+#'     the alteration was made, will be recorded in \link{filterLog}
+#'     and used to structure \link{filterSummary}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return Invisibly, an integer vector of newly zeroed counts for
+#'     (cells, rows, cols).
+#'
+#' @seealso \link{filterLog}, \link{filterSummary},
+#'     \link{appliedFilters}
+#'
+#' @examples
+#'
+#' ## Fitler the example matrix to find symbols that have 3 or more genes:
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$reset()
+#' s2e$filterByCount("row", min=3, filterEmpty=TRUE,
+#'                   reason="Keep only symbols with 3+ genes")
+#' ## Use the GMT output as a simple way to summarize the symbols:
+#' message(s2e$as.gmt())
 #' s2e$filterSummary()
 #' 
 NULL
@@ -645,6 +713,11 @@ NULL
 #'     regardless of case.
 #' @param filterEmpty Default FALSE. If true, then rows or columns
 #'     that are empty after filtering will be removed from the matrix
+#'     using \link{removeEmpty}. If no cells were affected by the
+#'     \code{filterByFactorLevel} call, then \code{removeEmpty} will not be
+#'     called. If you wish to assure that empty rows and columns are
+#'     removed after this filter, you should call \code{removeEmpty}
+#'     explicitly.
 #' @param reason Default NA. Optional human-readable reason for why
 #'     the alteration was made, will be recorded in \link{filterLog}
 #'     and used to structure \link{filterSummary}
@@ -727,6 +800,11 @@ NULL
 #'     (='or') or 'all (='and').
 #' @param filterEmpty Default FALSE. If true, then rows or columns
 #'     that are empty after filtering will be removed from the matrix
+#'     using \link{removeEmpty}. If no cells were affected by the
+#'     \code{filterByMetadata} call, then \code{removeEmpty} will not
+#'     be called. If you wish to assure that empty rows and columns
+#'     are removed after this filter, you should call
+#'     \code{removeEmpty} explicitly.
 #' @param reason Default NA. Optional human-readable reason for why
 #'     the alteration was made, will be recorded in \link{filterLog}
 #'     and used to structure \link{filterSummary}
@@ -1014,8 +1092,11 @@ NULL
 #'              keep.best=FALSE, column.func=max, collapse=NULL,
 #'              collapse.name=NULL, collapse.token=',',
 #'              collapse.score=NULL, collapse.factor=NULL,
-#'              integer.factor=FALSE, add.metadata=TRUE, warn=TRUE,
-#'              append.to=NULL, append.col=1L, help=FALSE )
+#'              integer.factor=FALSE, add.metadata=TRUE,
+#'              input.metadata=FALSE, warn=TRUE,
+#'              append.to=NULL, append.col=1L,
+#'              in.name="Input", out.name="Output", prefix.metadata=TRUE,
+#'              help=FALSE )
 #' }
 #'
 #' This is the primary method for AnnotatedMatrix. It takes the input,
@@ -1120,6 +1201,8 @@ NULL
 #'     character vector will add those specific columns (it is up to
 #'     the user to confirm that requested columns exist in the
 #'     metadata store)
+#' @param input.metadata Default FALSE. If true, then metadata columns
+#'     will also be included for the input IDs.
 #' @param warn Default TRUE, which will show warning text if matches
 #'     failed to be made for the input. This information is also
 #'     always captured in attributes attached to the returned
@@ -1134,6 +1217,14 @@ NULL
 #'     merging. Default is \code{1L}, can provide another column
 #'     number or name. If \code{input} was not specified, then the
 #'     contents of this column will be taken as input.
+#' @param in.name Default "Input". The header name to use for the
+#'     input IDs. If set to NULL, will be taken from the matrix
+#'     dimension name corresponding to the input.
+#' @param out.name Default "Output". As per \code{in.name}, but for
+#'     the Output data.
+#' @param prefix.metadata Default TRUE, which will prefix metadata
+#'     column headers with \code{out.name} and \code{in.name}, as
+#'     relevant.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #' 

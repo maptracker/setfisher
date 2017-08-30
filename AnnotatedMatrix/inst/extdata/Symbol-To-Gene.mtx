@@ -9,10 +9,10 @@
 %% DEFAULT Description A small sample of gene symbol to Entrez Gene ID lookups
 %% DEFAULT ScoreDesc Factors representing nomenclature status
 % Rows are Gene Symbols
-%% DEFAULT RowDim Gene Symbol
+%% DEFAULT RowDim Symbol
 %% DEFAULT RowUrl https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D
 % Columns are Entrez IDs
-%% DEFAULT ColDim Entrez ID
+%% DEFAULT ColDim EntrezGene
 %% DEFAULT ColUrl https://www.ncbi.nlm.nih.gov/gene/%s
 %
 % DEFAULT TossLevel [,][Unknown] ## Unknown status = uncertain provenance in MapTracker
@@ -21,8 +21,8 @@
 %% Values should be treated as factors representing official
 %% assignment levels:
 %
-%% ------     1       2          3                   4 
-%% LEVELS [,][Unknown,Unofficial,UnofficialPreferred,Official]
+%% ------     1           2            3                     4 
+%% LEVELS [,][Unknown  ,  Unofficial,  UnofficialPreferred  ,Official]
 %
 %% "Official" indicates HGNC official nomenclature. "Unknown"
 %% indicates that the connection between the symbol and the identifier

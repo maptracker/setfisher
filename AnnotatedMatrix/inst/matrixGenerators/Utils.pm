@@ -94,7 +94,33 @@ sub err {
         ("\n     ", map { defined $_ ? $_ : '-UNDEF-' } @_). "\n";
 }
 
-sub death { &err(@_); die " -- "; }
+sub stack_trace {
+    ## From my Utilities module
+    ## https://github.com/VCF/MapLoc/blob/master/BMS/Utilities.pm#L573-L594
+    my $depth = shift || 1;
+    my $maxDepth = shift || 20;
+    my @history;
+    while (1) {
+        my ($pack, $file, $j4, $subname) = caller($depth);
+        my ($j1, $j2, $line) = caller($depth-1);
+        last unless ($line);
+        $subname ||= 'main';
+        push @history, [$line, $subname, $pack];
+        $depth++;
+        last if ($depth > $maxDepth);
+    }
+    my $text = "";
+    foreach my $dat (@history) {
+        $text .= sprintf("    [%5d] %s\n", @{$dat});
+    }
+    return $text || ""; # '-No stack trace-';
+}
+
+sub death { 
+    &err(@_);
+    warn &stack_trace(2);
+    die " -- ";
+}
 
 sub _ftp {
     ## http://perlmeme.org/faqs/www/ftp_file_list.html
@@ -148,6 +174,7 @@ sub local_file {
 
 sub ftp_url {
     my ($uReq, $domain) = @_;
+    return $uReq if ($uReq =~ /^(http|ftp)/); # Already an URL
     $domain ||= $args->{ftp};
     return join('/', "ftp:/", $domain, $uReq);
 }
@@ -386,6 +413,7 @@ sub _dim_block {
     $rv .= &_default_parameter( "Source", $tags->{Source},
                                 "Data source(s):", " // ");
     $rv .= &_default_parameter( "Authority", $tags->{Authority});
+    $rv .= &_default_parameter( "Version", $tags->{Version});
     $rv .= "%\n" if ($rv);
     return $rv;
 }
@@ -532,29 +560,30 @@ sub _factor_map_block {
     my $rv = "%
 % $bar
 %
-%% Values should be treated as factors representing $what:
+% Values should be treated as factors representing $what:
 ";
 
-    my $cnt = "%% Count:     ";
-    my $top = "%% Index:     ";
+    my $cnt = "%  Count:     ";
+    my $top = "%  Index:     ";
     my $bot = "%% LEVELS [,][";
     for my $li (0..$#{$factorNames}) {
         my $l = $factorNames->[$li];
         my $v = $valueMap->{uc($l)};
-        my $fmt = '%'.CORE::length($l).'s';
+        my $c = $counts ? $counts->{$factorNames->[$li]} || "" : "";
+        my ($wid) = sort { $b <=> $a } map { CORE::length($_) } ($l,$v,$c);
+        my $fmt = '%'.$wid.'s';
+        $bot .= sprintf($fmt, $l);
         unless ($li == $#{$factorNames}) {
-            $l   .= ',';
+            $bot .= ',';
             $fmt .= ' ';
         }
-        $bot .= $l;
         $top .= sprintf($fmt, $v);
-        $cnt .= sprintf($fmt, $counts ? 
-                        $counts->{$factorNames->[$li]} || "" : "");
+        $cnt .= sprintf($fmt, $c);
     }
     $rv .= "$cnt\n" if ($counts);
     $rv .= "$top\n";
     $rv .= "$bot]\n";
-    map { $rv .= "%% $_\n" } @{$comments} if ($comments);
+    map { $rv .= "% $_\n" } @{$comments} if ($comments);
     return $rv;
 }
 
@@ -572,7 +601,7 @@ sub _filter_block {
 sub _default_parameter {
     my ($key, $val, $com, $sep) = @_;
     return "" unless ($key);
-    return "" if (!$val && $val ne "0");
+    return "" unless (defined $val && $val ne '');
     if (my $r = ref($val)) {
         if ($r eq 'ARRAY') {
             if ($#{$val} == 0) {
@@ -597,7 +626,7 @@ sub _species_MTX {
 
 sub _datestamp_for_file {
     my $file = shift;
-    if ($file =~ /v(\d{4}-\d{2}-d{2})/) {
+    if ($file =~ /@(\d{4}-\d{2}-\d{2})\./) {
         # The file already has a versioned YYYY-MM-DD stamp on it. Use it
         return $1;
     }
@@ -647,7 +676,9 @@ sub file_name {
     my ($type, $mod, $ns1, $ns2, $auth, $vers) = @_;
     my $file = $type.'@';
     $file .= "$mod-" if ($mod);
-    $file .= sprintf("%s_to_%s@%s@%s.mtx", $ns1, $ns2, $auth, $vers);
+    $file .= $ns1;
+    $file .= "_to_$ns2" if ($ns2);
+    $file .= sprintf("@%s@%s.mtx", $auth, $vers);
     return $file;
 }
 
@@ -663,6 +694,16 @@ sub primary_folder {
     } elsif ($#_ == 5) {
         # Full arguments ($type, $mod, $ns1, $ns2, $auth, $vers)
         ($auth, $vers) = ($_[4], $_[5]);
+    } elsif ($#_ == 6) {
+        # Full arguments, plus an over-ride value for the folder version name
+        ($auth, $vers) = ($_[4], $_[6]);
+        ## In some cases the version may have both author and version
+        ## For example, the file is by GeneOntology with an
+        ## independent version, but needs to be colocated with Entrez
+        ## and its version
+        if ($vers =~ /(.+)\/(.+)/) {
+            ($auth, $vers) = ($1, $2);
+        }
     }
     my $aDir = sprintf('%s/byAuthority', $outDir );
     my $dir  = sprintf('%s/%s/%s',$aDir, $auth, $vers);
@@ -690,6 +731,7 @@ sub symlinked_paths {
     ## Set up namespace hierarchy
     foreach my $np ([$ns1, $ns2], [$ns2, $ns1]) {
         my ($nsa, $nsb) = @{$np};
+        next unless ($nsa);
         my $nd = "$nsDir/$nsa";
         unless ($tasks{"NS-$nsa"}++) {
             &mkpath([$nd]);
@@ -711,6 +753,7 @@ will be in one of the subfolders, which describe the other namespace.
         }
 
         ## Make the second namespace layer
+        next unless ($nsb);
         $nd = "$nd/$nsb";
         unless ($tasks{"NS-$nsa-$nsb"}++) {
             &mkpath([$nd]);
@@ -785,7 +828,10 @@ sub parse_filename {
         $file = $1;
         $rv{rds} = 1;
     }
-    $file =~ s/\.mtx$//i;
+    if ($file =~ /(.+)\.(\S{2-4})$/) {
+        $file = $1;
+        $rv{sfx} = lc($2);
+    }
     my @bits = split('@', $file);
     if ($#bits == 3) {
         $rv{type} = $bits[0];
@@ -799,8 +845,11 @@ sub parse_filename {
         }
         my @ns = split('_to_', $nstxt);
         if ($#ns == 1) {
+            ## Two namespaces
             $rv{rows} = $ns[0];
             $rv{cols} = $ns[1];
+        } elsif ($#ns == 0) {
+            $rv{data} = $ns[0];
         } else {
             $rv{error} = "Namespace '$nstxt' parse failure";
         }

@@ -60,6 +60,22 @@ test_that("Matrix filters", {
     expect_identical(s2e$map(bogus)[bogus, "Score"], 0L,
                      "Verify novel row is recognized (Score = 0 != NA)")
 
+    ## Filter by row or column counts
+    s2e$reset()
+    rc <- s2e$rCounts()
+    expect_identical(sum( rc > 1 ), 24L, "Sanity check on row counts")
+    rfilt <- s2e$filterByCount("row", min=2, filterEmpty=TRUE,
+                               reason="Keep only symbols with 2+ genes")
+    expect_identical(unname(rfilt), c(143L,143L,18L), "Row Count filters")
+    expect_identical(nrow(s2e$matrixUse), 24L, "Row Count filters")
+    cfilt <- s2e$filterByCount("col", min=3, max=5, filterEmpty=TRUE,
+                               reason="Genes with 3-5 symbols")
+    expect_identical(unname(cfilt), c(62L,21L,48L), "Col Count filters")
+    ## Only a few entries left
+    expect_identical(s2e$rNames(), c("p75", "SIGLEC19P", "SIGLECP2"))
+    expect_identical(s2e$cNames(), c("LOC27036"))
+    
+    
     
     ## Applied filters field
     s2e$reset()

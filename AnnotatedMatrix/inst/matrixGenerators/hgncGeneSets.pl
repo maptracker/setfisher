@@ -40,7 +40,7 @@ my $taxa = {
     RGD => 'Rattus norvegicus',
 };
 
-my $auth = "HGNC";
+my $auth     = "HGNC";
 my $authLong = "$auth ## HUGO Gene Nomenclature Committee";
 
 =head Random Things
@@ -81,7 +81,7 @@ BEGIN {
 use lib "$scriptDir";
 require Utils;
 
-our ($args, $outDir, $clobber, $ftp, $tmpDir, $maxAbst, $bar);
+our ($args, $outDir, $clobber, $tmpDir, $maxAbst, $bar);
 
 if ($args->{h} || $args->{help} || !$outDir) {
     warn "
@@ -474,9 +474,5 @@ sub _get_rows {
 
 sub _citation_MTX {
     return "%\n". &_default_parameter( "Citation", "HGNC Database, HUGO Gene Nomenclature Committee (HGNC), EMBL Outstation - Hinxton, European Bioinformatics Institute, Wellcome Trust Genome Campus, Hinxton, Cambridgeshire, CB10 1SD, UK www.genenames.org. Downloaded on $vers")."%\n";
-}
-
-sub _species_MTX {
-    return &_default_parameter("Species", shift);
 }
 

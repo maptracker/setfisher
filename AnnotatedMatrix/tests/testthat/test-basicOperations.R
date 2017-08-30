@@ -35,9 +35,9 @@ test_that("LoadingMTX", {
 
 test_that("Parameters", {
     expect_identical(s2e$param("name"), "Sample Human Symbol-to-Entrez Lookup" )
-    expect_identical(s2e$param("rowdim"), "Gene Symbol"  )
-    expect_identical(s2e$param("coldim"), "Entrez ID"  )
-    expect_identical(s2e$param("cOlDiM"), "Entrez ID",
+    expect_identical(s2e$param("rowdim"), "Symbol"  )
+    expect_identical(s2e$param("coldim"), "EntrezGene"  )
+    expect_identical(s2e$param("cOlDiM"), "EntrezGene",
                      "case insensitivity")
 
     expect_identical(s2e$param("lemming"), NA,
@@ -55,6 +55,9 @@ test_that("Parameters", {
                      "Setting a vector")
     expect_identical(s2e$param("lemming", "hippo", clobber=FALSE), val,
                      "No clobber")
+    expect_identical(s2e$levels(),c("Unknown", "Unofficial", "UnofficialPreferred", "Official"),
+                     "Factor levels, managing edge whitespace")
+    
 })
 
 test_that("Matrix recovery and transposition", {
