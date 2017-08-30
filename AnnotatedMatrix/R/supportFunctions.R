@@ -463,12 +463,17 @@ smallNumberFormatter <- function(x) {
 #' relatively defined as a percentage (eg "2.5%"). For the latter will
 #' require a denominator to be provided as well
 #'
+#' @param x Required, a character or numeric vector containing the
+#'     values to be evaluated
+#' @param denom Default NA. The "denominator" for the calculations,
+#'     which will be used when a percentage is provided in x.
+#'
 #' @importFrom CatMisc parenRegExp
 #'
 #' @examples
 #'
-#' normalizePercent( c("5", "0.02", "5%", "0.02%"), 1000)
-#' normalizePercent( 1:10 ) # Numbers are left alone
+#' AnnotatedMatrix:::normalizePercent( c("5", "0.02", "5%", "0.02%"), 1000)
+#' AnnotatedMatrix:::normalizePercent( 1:10 ) # Numbers are 'left alone'
 #' 
 
 normalizePercent <- function (x, denom=as.numeric(NA)) {
