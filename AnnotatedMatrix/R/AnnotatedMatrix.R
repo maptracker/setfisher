@@ -113,6 +113,8 @@ AnnotatedMatrix <-
                 contains = c("ParamSetI")
                 )
 
+## Names for return values on filters
+.filterNames <- c("CellsFiltered","RowsFiltered","ColsFiltered")
 
 AnnotatedMatrix$methods(
     
@@ -138,6 +140,10 @@ ColUrl      [character] Base URL for column names (%s placeholder for name)
 
 MinScore    [numeric] Minimum score recognized by $autoFilter()
 MaxScore    [numeric] Maximum score recognized by $autoFilter()
+MinRowCount [character] Minimum assignments per row, can be a percentage, recognized by $autoFilter()
+MaxRowCount [character] Maximum assignments per row, can be a percentage, recognized by $autoFilter()
+MinColCount [character] Minimum assignments per column, can be a percentage, recognized by $autoFilter()
+MaxColCount [character] Maximum assignments per column, can be a percentage, recognized by $autoFilter()
 KeepLevel   [character] List of preserved factor levels recognized by $autoFilter()
 TossLevel   [character] List of discarded factor levels recognized by $autoFilter()
 TossMeta    [character] Metadata value filter recognized by $autoFilter()
@@ -363,7 +369,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         if (x[1] > 0 && verbose) message(c("Automatic filters have masked",x[1],
               "cells,",x[2],"rows, and",x[3],"cols"), prefix="[-]",
               bgcolor='cyan', color='yellow')
-        invisible(x)
+        invisible(setNames(x, .filterNames))
     },
 
     .detailZeroedRowCol = function( obj, fail, metric, reason, help=FALSE) {
@@ -414,10 +420,10 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         "Filter matrix cells by simple numeric tests"
         if (help) return(CatMisc::methodHelp(match.call(), class(.self),
                                              names(.refClassDef@contains)))
-        obj <- matObj()
-        rv  <- c(0L, 0L, 0L)
-        if (filterEmpty) removeEmpty("Empty rows and cols before score filter")
-        if (CatMisc::is.something(min)) {
+        obj   <- matObj()
+        rv    <- c(0L, 0L, 0L)
+        ttxt  <- ""
+        if (CatMisc::is.def(min)) {
             ## Zero out entries that fall below min and are not already zero
             fail <- if (min > 0) {
                 obj@x < min & obj@x != 0
@@ -428,24 +434,13 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             if (numZ > 0) {
                 ## At least some cells were zeroed out
                 obj@x[ fail ] <- 0
-                testTxt <- paste("score <", min)
-                numTxt  <- paste(numZ, "Cells")
-                type    <- "Val"
-                ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
-                rv  <- rv + c(numZ, ijz)
-                if (filterEmpty) {
-                    ## Strip empty rows and columns
-                    matrixUse <<- obj
-                    if (CatMisc::is.something(reason[1])) {
-                        testTxt <- paste(testTxt, reason[1])
-                    }
-                    removeEmpty(testTxt)
-                    obj <- matObj()
-                }
+                ttxt  <- paste("score <", min)
+                ijz   <- .detailZeroedRowCol( obj, fail, ttxt, reason )
+                rv    <- rv + c(numZ, ijz)
             }
             .addAppliedFilter("SCORE", min, reason, '<')
         }
-        if (CatMisc::is.something(max)) {
+        if (CatMisc::is.def(max)) {
             ## Zero out entries that are above max and not already zero
             fail <- if (max < 0) {
                 obj@x > max & obj@x != 0
@@ -457,30 +452,32 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             if (numZ > 0) {
                 ## At least some cells were zeroed out
                 obj@x[ fail ] <- 0
-                testTxt <- paste("score >", max)
-                numTxt  <- paste(numZ, "Cells")
-                ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
-                rv  <- rv + c(numZ, ijz)
-                if (filterEmpty) {
-                    ## Strip empty rows and columns
-                    matrixUse <<- obj
-                    if (CatMisc::is.something(reason[1])) {
-                        testTxt <- paste(testTxt, reason[1])
-                    }
-                    removeEmpty(testTxt)
-                    obj <- matObj()
-                }
+                tt   <- paste("score >", max)
+                ttxt <- if (ttxt == "") { tt } else { paste(ttxt,"or >",max) }
+                ijz  <- .detailZeroedRowCol( obj, fail, tt, reason )
+                rv   <- rv + c(numZ, ijz)
             }
             .addAppliedFilter("SCORE", max, reason, '>')
         }
-        if (rv[1] != 0 && !filterEmpty) matrixUse <<- obj
-        invisible(rv)
+        if (rv[1] != 0) {
+            matrixUse <<- obj
+            if (filterEmpty) {
+                ## Strip empty rows and columns
+                if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
+                removeEmpty(ttxt)
+            }
+        }
+        invisible(setNames(rv, .filterNames))
     },
 
     filterByCount = function(MARGIN, min=NULL, max=NULL, relative=TRUE,
-                             reason=NA, help=FALSE) {
+                             filterEmpty=FALSE, reason=NA, help=FALSE) {
+        "Filter rows or columns based on number of non-zero connections"
+        if (help) return(CatMisc::methodHelp(match.call(), class(.self),
+                                             names(.refClassDef@contains)))
         rv     <- c(0L, 0L, 0L)
         counts <- NULL
+        reason <- reason[1]
         ## Which dimension is being filtered?
         if (grepl('(1|row)', MARGIN, ignore.case=TRUE)) {
             MARGIN <- 'Row'
@@ -503,17 +500,18 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         ## dimension
         denom <- if (relative) { sum(counts != 0) } else { length(counts) }
         obj   <- matObj()
+        ttxt  <- ""
         
         if (!is.null(min)) {
             x <- normalizePercent(min)[1]
             ## Elements below the request
-            fail <- counts < x && counts != 0
+            fail <- counts < x & counts != 0
             numE <- sum(fail)
             if (numE > 0) {
                 ## At least some elements have failed due to the filter
-                testTxt <- sprintf("%s count < %s", MARGIN, min)
-                inds  <- which(fail) - 1 # indicies in Matrix are zero-indexed!
-                numZ  <- sum( counts[ fail ] ) # Number of cells impacted
+                ttxt <- sprintf("%s count < %s", MARGIN, min)
+                inds <- which(fail) - 1 # indicies in Matrix are zero-indexed
+                numZ <- sum( counts[ fail ] ) # Number of cells impacted
                 ## Identify the actual cells being zeroed out:
                 cells <- if (MARGIN == 'Row') {
                     is.element(obj@i, inds) & obj@x != 0
@@ -523,19 +521,21 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 ## Safety check
                 if (sum(cells) != numZ) err("Sanity count mismatch for filterByCount", prefix="[CODE ERROR]")
                 obj@x[ cells ] <- 0
-                ijz <- .detailZeroedRowCol( obj, cells, testTxt, reason )
+                ijz <- .detailZeroedRowCol( obj, cells, ttxt, reason )
                 rv  <- rv + c(numZ, ijz)
             }
+            .addAppliedFilter("COUNT", max, reason, '>')
         }
 
         if (!is.null(max)) {
             x <- normalizePercent(max)[1]
             ## Elements below the request
-            fail <- counts > x && counts != 0
+            fail <- counts > x & counts != 0
             numE <- sum(fail)
             if (numE > 0) {
                 ## At least some elements have failed due to the filter
-                testTxt <- sprintf("%s count > %s", MARGIN, max)
+                tt    <- sprintf("%s count > %s", MARGIN, max)
+                ttxt  <- if (ttxt == "") { tt } else { paste(ttxt,"or >",max) }
                 inds  <- which(fail) - 1 # indicies in Matrix are zero-indexed!
                 numZ  <- sum( counts[ fail ] ) # Number of cells impacted
                 ## Identify the actual cells being zeroed out:
@@ -547,18 +547,19 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 ## Safety check
                 if (sum(cells) != numZ) err("Sanity count mismatch for filterByCount", prefix="[CODE ERROR]")
                 obj@x[ cells ] <- 0
-                ijz <- .detailZeroedRowCol( obj, cells, testTxt, reason )
+                ijz <- .detailZeroedRowCol( obj, cells, tt, reason )
                 rv  <- rv + c(numZ, ijz)
             }
         }
         
-        debugMessage("STILL WORKING ON filterByCount")
-### TO DO
-        ## TEST
-        ## DOCUMENT
-
-        if (rv[1] != 0) matrixUse <<- obj
-        invisible(rv)
+        if (rv[1] != 0) {
+            matrixUse <<- obj
+            if (filterEmpty) {
+                if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
+                removeEmpty(ttxt)
+            }
+        }
+        invisible(setNames(rv, .filterNames))
     },
 
     filterByFactorLevel = function( x, keep=TRUE, ignore.case=TRUE,
@@ -568,8 +569,8 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                                              names(.refClassDef@contains)))
         if (!is.factor()) {
             err("Can not filterByFactorLevel() - matrix is not a factor")
-            return(invisible(NA))
-        }
+            return( invisible(setNames(NA,'FilterError') ) )
+         }
         obj  <- matObj()
         rv   <- c(0L, 0L, 0L)
         xVal <- integer()
@@ -625,11 +626,11 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         } else {
             err(c(sprintf("filterByFactorLevel() input error: provided %s.",
                           storage.mode(x)), "Expected  character or numeric"))
-            return( invisible(NA) )
+            return( invisible(setNames(NA,'FilterError') ) )
         }
         if (length(xVal) == 0) {
             err("No valid levels provided to filterByFactorLevel()")
-            return( invisible(NA) )
+            return( invisible(setNames(NA,'FilterError') ) )
         }
 
         ## Even if the user asked to keep a set of levels, the set
@@ -646,8 +647,8 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         ## The reported operator should be for what is NOT kept:
         op <- if (k) {"!="} else {"=="}
         ## The filter text describes failing cells
-        testTxt <- sprintf("Level %s %s", op,
-                           paste(lnames, collapse=', '))
+        ttxt <- sprintf("Level %s %s", op,
+                        paste(lnames, collapse=', '))
         .addAppliedFilter("LEVELS", lnames, reason, op)
         
         ## Working with the @x value vector for the sparse
@@ -658,25 +659,17 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         if (keep) fail <- !fail & obj@x != 0
         numZ <- sum( fail )
         if (numZ > 0) {
-            # if (filterEmpty) removeEmpty("Empty rows and cols prior to factor filter")
             ## Zero-out the failing cells
             obj@x[ fail ] <- 0
-            numTxt  <- paste(numZ, "Cells")
-            type    <- "Val"
-            ijz <- .detailZeroedRowCol( obj, fail, testTxt, reason )
+            ijz <- .detailZeroedRowCol( obj, fail, ttxt, reason )
             rv  <- rv + c(numZ, ijz)
+            matrixUse <<- obj
             if (filterEmpty) {
-                ## Strip empty rows and columns
-                matrixUse <<- obj
-                if (CatMisc::is.something(reason[1])) {
-                    testTxt <- paste(testTxt, reason[1])
-                }
-                removeEmpty(testTxt)
-                obj <- matObj()
+                if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
+                removeEmpty(ttxt)
             }
         }
-        if (rv[1] != 0 && !filterEmpty) matrixUse <<- obj
-        invisible(rv)
+        invisible(setNames(rv, .filterNames))
     },
 
     filterByMetadata = function(key, val, MARGIN=NULL, keep=TRUE,type="like",
@@ -690,16 +683,18 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         x   <- is.element(tolower(metadata_keys()), tolower(key))
         x   <- which(x)
         if (length(x) == 0) {
-            err(paste("$filterByMetadata(key='", key,"') does not match any keys"))
-            return(NULL)
+            err(paste("$filterByMetadata(key='", key,
+                      "') does not match any keys"))
+            return( invisible(setNames(NA,'FilterError') ) )
         }
         if (length(x) > 1) {
             ## Try case insensitive?
             x   <- is.element(metadata_keys(), key)
             x   <- which(x)
             if (length(x) != 1) {
-                err(c("filterByMetadata(key =", key,") matches multiple columns"))
-                return(NULL)
+                err(c("filterByMetadata(key =", key,
+                      ") matches multiple columns"))
+                return( invisible(setNames(NA,'FilterError') ) )
             }
         }
         colN <- metadata_keys()[x] # The column name (key) we will use
@@ -713,8 +708,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             } else if (grepl('(2|col)', MARGIN, ignore.case=TRUE)) {
                 MARGIN <- 'col'
             } else {
-                err("$filterByMetadata(MARGIN) should be one of NULL,1,2,row,col",
-                    fatal=TRUE)
+                err("$filterByMetadata(MARGIN) should be one of NULL,1,2,row,col", fatal=TRUE)
             }
         }
 
@@ -778,7 +772,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         rv     <- c(0L, 0L, 0L)
         metric <- paste(metric, collapse=' ')
         ## No matches
-        if (sum(fail) == 0) return( rv )
+        if (sum(fail) == 0) return( invisible(setNames(rv, .filterNames)) )
 
         ## Need to consider the hits one by one to check if they've
         ## already been zeroed out or not, and to collect stats. This
@@ -839,13 +833,15 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                                   ifelse(ic, ' ignore.case', '')))
 
 
-        if (rv[1] != 0) matrixUse <<- obj # Update matrix if changed
-        if (filterEmpty) {
-            ## Strip empty rows and columns
-            removeEmpty(reason)
-            obj <- matObj()
+        if (rv[1] != 0) {
+            matrixUse <<- obj
+            if (filterEmpty) {
+                ## Strip empty rows and columns
+                if (CatMisc::is.something(reason)) metric <- paste(metric,reason)
+                removeEmpty(metric)
+            }
         }
-        invisible(rv)
+        invisible(setNames(rv, .filterNames))
     },
 
     nnZero = function(obj=NULL, help=FALSE, ...) {
@@ -928,8 +924,10 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                    column.func=max,
                    collapse=NULL, collapse.name=NULL, collapse.token=',',
                    collapse.score=NULL, integer.factor=NULL,
-                   add.metadata=TRUE, warn=TRUE,
-                   append.to=NULL, append.col=1L, help=FALSE
+                   add.metadata=TRUE, input.metadata=FALSE, warn=TRUE,
+                   append.to=NULL, append.col=1L,
+                   in.name="Input", out.name="Output", prefix.metadata=TRUE,
+                   help=FALSE
                    ) {
         "Map (convert) names from one dimension of the matrix to the other"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
@@ -1067,7 +1065,6 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             collapse.name
         }
 
-
         ## Cycle through each input id, building columns as we go:
         for (id in ids) {
             idNm <- inpNms[ match(id, inp) ] # User's name (before to.lower)
@@ -1150,8 +1147,37 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             rcnt <- rcnt + vl                #   Current number of rows
         }
         sl <- seq_len(rcnt)
+        
         rv <- data.frame(Input  = inpCol[sl], Output = outCol[sl],
                          stringsAsFactors=FALSE)
+        ## Customize column names if requested
+        inName <- in.name[1]
+        if (is.null(inName)) {
+            ## Try to get name from dimensions
+            d <- if (via == 'row') { 1 } else { 2 }
+            inName <- names(dimnames(obj))[d]
+            if (!CatMisc::is.something(inName)) inName <- "Input"
+        }
+        outName <- out.name[1]
+        if (is.null(outName)) {
+            ## Try to get name from dimensions
+            d <- if (via == 'row') { 2 } else { 1 }
+            outName <- names(dimnames(obj))[d]
+            if (!CatMisc::is.something(outName)) outName <- "Output"
+        }
+        if (inName  != "Input")  names(rv)[1] <- inName
+        if (outName != "Output") names(rv)[2] <- outName
+        if (inName == outName) {
+            err(c("Input and Output column headers are both", inName,
+                  "- this will not end well, halting"))
+            return(NA)
+        }
+
+        colHelp <- list()
+        colHelp[[ inName ]]  <- "The input IDs provided to the $map() method"
+        colHelp[[ outName ]] <- "The output IDs discovered from the input"
+        
+        
         if (!isFac || all(integer.factor)) {
             ## Add a numeric score column
             if (isFac) {
@@ -1159,27 +1185,28 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             } else {
                 rv$Score <- scrCol[sl]
             }
+            colHelp$Score <- "The recorded numeric value that connects input to output"
         }
 
-        multOut <- base::duplicated(rv$Output)
+        multOut <- base::duplicated(rv[[ outName ]])
         if (sum(multOut) == 0) {
             multOut <- character()
         } else {
             ## Some of the output terms come from multiple inputs
             inds    <- which(multOut)
             ## Note them so they can be reported to user:
-            multOut <- unique( rv$Output[multOut] )
+            multOut <- unique( rv[[ outName ]][multOut] )
             if (colOut) {
                 ## Request to collapse by input ID
                 for (nm in multOut) {
                     ## Get all rows for this Output name:
-                    nInds <- which(rv$Output == nm)
+                    nInds <- which(rv[[ outName ]] == nm)
                     ## We will keep the first row:
                     keep  <- nInds[1]
                     ## Aggregate the scores, stuff into the first index:
                     rv[keep, "Score"] <- valueCollapseFunction(scrCol[ nInds ])
                     ## ... and the input names:
-                    rv[keep,"Input"]  <- nameCollapseFunction( inpCol[ nInds ])
+                    rv[keep, inName]  <- nameCollapseFunction( inpCol[ nInds ])
                 }
                 ## Delete the "extra" rows
                 rv   <- rv[ -inds, ]
@@ -1193,12 +1220,12 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         ## Set rownames
         rownames(rv) <- if (colOut) {
             ## Collapsing on output -> Name rows by Output column
-            rv$Output
+            rv[[ outName ]]
         } else if (colIn || length(multIn) == 0) {
             ## Collapsing on Input, or Input (by chance or design) is unique:
-            rv$Input
+            rv[[ inName ]]
         } else {
-            strict.unique( rv$Input )
+            strict.unique( rv[[ inName ]] )
         }
         
         if (isFac && !any(integer.factor)) {
@@ -1214,6 +1241,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             } else {
                 rv$Factor <- lvlVal[ inds ]
             }
+            colHelp$Factor <- "The factor levels associated with the connection between input and output"
         }
 
         if (CatMisc::is.something(add.metadata)) {
@@ -1223,23 +1251,37 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
 ### token-separated string of IDs. That is, need to grab metadata in
 ### some fashion for these synthetic values. Should probably hold a
 ### temp list for each row of original values
+
+            srcCols <- outName
+            if (input.metadata) srcCols <- c(srcCols, inName)
             
-            ## Request to include metadata columns
-            ## Map our output IDs to the Metadata data.table :
-            md  <- matrixMD[rv$Output, setdiff(colnames(matrixMD), "id"),
-                            with=FALSE]
-            mdc <- colnames(md) # All available metadata columns
-            ## If the param is not a character vector, take all
-            if (!is.character(add.metadata)) add.metadata <- mdc
-            for (col in add.metadata) {
-                if (is.element(col, mdc)) {
-                    ## This is a known metadata column. Include it,
-                    ## unless it's all NAs
-                    if (!all(is.na(md[[ col ]]))) rv[[col]] <- md[[ col ]]
-                } else {
-                    ## Column does not exist, put a blank text column
-                    ## in the output
-                    rv[[col]] <- character(rcnt)
+            for (src in srcCols) {
+                ## Request to include metadata columns
+                ## Map our output IDs to the Metadata data.table :
+                md  <- matrixMD[rv[[ src ]], setdiff(colnames(matrixMD), "id"),
+                                with=FALSE]
+                mdc <- colnames(md) # All available metadata columns
+                ## If the param is not a character vector, take all
+                if (!is.character(add.metadata)) add.metadata <- mdc
+                for (col in add.metadata) {
+                    rvCol <- col
+                    if (prefix.metadata) rvCol <- paste(src, col)
+                    nowNames <- colnames(rv)
+                    if (is.element(rvCol, nowNames)) {
+                        ## The metadata column will conflict with a column
+                        ## already present. Make it unique
+                        rvCol <- make.unique(c(nowNames, rvCol))[ length(nowNames) + 1 ]
+                    }
+                    colHelp[[ rvCol ]] <- paste("Metadata values for", col, "associated with", src)
+                    if (is.element(col, mdc)) {
+                        ## This is a known metadata column. Include it,
+                        ## unless it's all NAs
+                        if (!all(is.na(md[[ col ]]))) rv[[rvCol]] <- md[[ col ]]
+                    } else {
+                        ## Column does not exist, put a blank text column
+                        ## in the output
+                        rv[[rvCol]] <- character(rcnt)
+                    }
                 }
             }
         }
@@ -1274,7 +1316,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             Notes[["Appended"]]  <- "Column names that were appended to the data.frame you provided with append.to="
         } else if (grepl('vec', format[1], ignore.case=TRUE)) {
             ## Vector format.
-            rv <- setNames(rv$Output, rv$Input)
+            rv <- setNames(rv[[ outName ]], rv[[ inName ]])
             ## This can result in non-unique names. Do we want to use
             ## strict.unique() to uniquify names?
             class(rv) <- c("mapResult", class(rv))
@@ -1290,6 +1332,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         attr(rv, "Mult.Out")   <- multOut
         if (isFac) attr(rv, "Levels") <- lvlVal
         attr(rv, "Notes")      <- Notes
+        attr(rv, "Columns")    <- colHelp
             
         if (warn) {
             ## Alert user to any non-unique relationships:
@@ -1835,7 +1878,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         ## Organization of primary methods:
         sections <- list(
             "Primary Operation" = c("map", "as.gmt"),
-            "Filtering the Matrix" = c("filterByScore", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "removeEmpty", "reset", "autoFilter", "filterSummary", "appliedFilters"),
+            "Filtering the Matrix" = c("filterByScore", "filterByCount", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "removeEmpty", "reset", "autoFilter", "filterSummary", "appliedFilters"),
             "Matrix Information" = c("rCounts", "cCounts","populatedRows", "populatedCols", "nnZero", "is.factor", "levels"),
             "Metadata" = c("metadata", "metadata_keys"),
             "Parameter Management" = c("param", "showParameters", "allParams", "defineParameters","paramClass", "paramDefinition", "paramName", "setParamList", "hasParam" ),
