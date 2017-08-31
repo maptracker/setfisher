@@ -18,7 +18,9 @@ columns, and chose the dimension with the most matches
 \item{format}{Default 'data.frame', specifies the output
 format. Can also be 'vector', which will return a named
 character vector, with values corresponding to \code{$Output}
-and names as \code{$Input}}
+and names as \code{$Input}. A value of 'dynamictable' will
+render the results as an interactive HTML table (requires
+package 'dynamictable').}
 
 \item{ignore.case}{Default TRUE, which ignores the capitilazation
 of IDs in both columns and rows}
@@ -100,6 +102,16 @@ the provided data.frame is set with \code{append.col}}
 merging. Default is \code{1L}, can provide another column
 number or name. If \code{input} was not specified, then the
 contents of this column will be taken as input.}
+
+\item{recurse}{Default 0. This option is only relevant when the
+identifiers on both rows and columns are the same, or at least
+have significant overlap. If true, discovered Output IDs will
+be re-mapped as Input IDs to discover more Output IDs,
+recursively repeated the indicated number of times or until no
+new IDs are found. The intended use case is to exhaustively
+expand a Parent-Child network, either following parents "up" to
+the root nodes, or following children down to transitively
+discover all inherited child nodes.}
 
 \item{in.name}{Default "Input". The header name to use for the
 input IDs. If set to NULL, will be taken from the matrix

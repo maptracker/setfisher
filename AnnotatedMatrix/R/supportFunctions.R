@@ -326,7 +326,7 @@ strict.unique <- function (x, token='#') {
     ## Make a name vector where every ID is modified with
     ## '#1', '#2' etc
     numName <- vapply( x, function(z)
-        sprintf("%s#%d", z, counter[z] <<- counter[z] +1), "")
+        sprintf("%s#%d", z, counter[z] <<- counter[z] +1L), "")
     ## Use that modified name only for rows that are not
     ## unique:
     ifelse( is.element( x, dup ), numName, x )

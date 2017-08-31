@@ -109,8 +109,9 @@ make.unique() if (valid = FALSE)}
   keep.best = FALSE, column.func = max, collapse = NULL,
   collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
   integer.factor = NULL, add.metadata = TRUE, input.metadata = FALSE,
-  warn = TRUE, append.to = NULL, append.col = 1L, in.name = "Input",
-  out.name = "Output", prefix.metadata = TRUE, help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
+  warn = TRUE, append.to = NULL, append.col = 1L, recurse = 0,
+  in.name = "Input", out.name = "Output", prefix.metadata = TRUE,
+  help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
 
 \item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 

@@ -925,7 +925,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                    collapse=NULL, collapse.name=NULL, collapse.token=',',
                    collapse.score=NULL, integer.factor=NULL,
                    add.metadata=TRUE, input.metadata=FALSE, warn=TRUE,
-                   append.to=NULL, append.col=1L,
+                   append.to=NULL, append.col=1L, recurse=0,
                    in.name="Input", out.name="Output", prefix.metadata=TRUE,
                    help=FALSE
                    ) {
@@ -1020,7 +1020,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         unk <- base::setdiff(inp, matIds)
         ids <- if (length(unk) > 0) {
             ## Some user IDs do not have a match in the matrix.
-            unk <- inpNms[ match(unk, inp) ] # Restore user's case:
+            unk <- inpNms[ match(unk, inp) ] # Restore user's case
             base::intersect(inp, matIds)
         } else {
             inp
@@ -1065,71 +1065,107 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             collapse.name
         }
 
-        ## Cycle through each input id, building columns as we go:
-        for (id in ids) {
-            idNm <- inpNms[ match(id, inp) ] # User's name (before to.lower)
-            # Select the indices for matrix row(s) matching the id:
-            ind  <- which(id == matIds)
-            rows <- obj[ ind, , drop=FALSE]
-            ## Select the columns that are non-zero
-            cSum <- Matrix::colSums( rows )
-            rows <- rows[ , cSum != 0, drop=FALSE]
-            if (length(rows) == 0) {
-                ## No mappings! The input ID existed in the matrix,
-                ## but there are no non-zero mappings to the other
-                ## edge.
-                rows  <- matrix(0L, 1, 1, dimnames=list(r=NA, c=NA))
-                unMap <- c(unMap, idNm)
-                ## next
-            }
-            ## Move from a subset of the matrix to a single vector
-            vec <- if (nrow(rows) > 1) {
-                ## We are matching multiple matrix rows with this
-                ## ID. This can happen when there are multiple cases
-                ## for the same rowname (eg gene symbols "p40" and
-                ## "P40")
-                dupMat <- c(dupMat,paste(rownames(rows),
-                                         collapse=collapse.token))
-                apply(rows, 2, column.func)
-            } else {
-                ## The '[' opperator is not honoring column names in
-                ## Matrix objects so I need to explicitly setNames:
-                setNames(rows[1, , drop=TRUE], colnames(rows))
-                ## This is maybe because dimensions in dgTMatrix
-                ## objects are stored in slots, not attributes?
-            }
-
-            if (keep.best) {
-                ## Only keep the top-scored result(s)
-                mx  <- max(vec)
-                vec <- vec[ vec == mx ]
-            }
-
-            ## Do we end up with more than one output term?
-            if (length(vec) != 1) {
-                multIn <- c(multIn, idNm)
-                if (colIn) {
-                    ## Request to collapse by input ID. We can do that
-                    ## here, since ids represents all unique input IDs
-                    nmVal  <- nameCollapseFunction( names(vec) )
-                    colVal <- valueCollapseFunction(vec)
-                    vec    <- setNames(colVal, nmVal)
+        ## recLevel, depth and bait are mainly relevant for recursive expansion
+        recLevel <- 0L     # Current recursion level, 0 = user input
+        depth    <- character() # Hash of minimum depth an ID was observed at
+        ## Set of novel IDs being used for this recursion cycle. The
+        ## IDs being queried are the names, the text to display
+        ## (case-preserved) are the values.
+        bait     <- setNames( inpNms[ match(ids, inp) ], ids )
+        while (recLevel <= recurse && length(bait) > 0) {
+            newFound      <- character() # Will hold newly-found IDs
+            baitIds       <- names(bait)
+            depth[ baitIds ] <- recLevel # Set recursion depth for current bait
+            for (id in baitIds) {
+                ## Cycle through each input id, building columns as we go:
+                idNm <- bait[id]  # User's name (before to.lower)
+                ## Select the indices for matrix row(s) matching the id:
+                ind  <- which(id == matIds)
+                rows <- obj[ ind, , drop=FALSE]
+                ## Select the columns that are non-zero
+                cSum <- Matrix::colSums( rows )
+                rows <- rows[ , cSum != 0, drop=FALSE]
+                if (length(rows) == 0) {
+                    ## No mappings! The input ID existed in the matrix,
+                    ## but there are no non-zero mappings to the other
+                    ## edge.
+                    rows  <- matrix(0L, 1, 1, dimnames=list(r=NA, c=NA))
+                    unMap <- c(unMap, idNm)
+                    ## next
                 }
+                ## Move from a subset of the matrix to a single vector
+                vec <- if (nrow(rows) > 1) {
+                           ## We are matching multiple matrix rows with this
+                           ## ID. This can happen when there are multiple cases
+                           ## for the same rowname (eg gene symbols "p40" and
+                           ## "P40")
+                           dupMat <- c(dupMat,paste(rownames(rows),
+                                                    collapse=collapse.token))
+                           apply(rows, 2, column.func)
+                       } else {
+                           ## The '[' opperator is not honoring column names in
+                           ## Matrix objects so I need to explicitly setNames:
+                           setNames(rows[1, , drop=TRUE], colnames(rows))
+                           ## This is maybe because dimensions in dgTMatrix
+                           ## objects are stored in slots, not attributes?
+                       }
+
+                if (keep.best) {
+                    ## Only keep the top-scored result(s)
+                    mx  <- max(vec)
+                    vec <- vec[ vec == mx ]
+                }
+                ## Note any new IDs for next recursion round. The
+                ## vector will be cleaned up prior to starting the
+                ## next cycle:
+                if (recurse != 0L) newFound <- c(newFound, names(vec))
+
+                ## Do we end up with more than one output term?
+                if (length(vec) != 1) {
+                    multIn <- c(multIn, idNm)
+                    if (colIn) {
+                        ## Request to collapse by input ID. We can do that
+                        ## here, since ids represents all unique input IDs
+                        nmVal  <- nameCollapseFunction( names(vec) )
+                        colVal <- valueCollapseFunction(vec)
+                        vec    <- setNames(colVal, nmVal)
+                    }
+                }
+                vl <- length(vec) # How many results we have
+                need <- rcnt + vl - length(inpCol) # Do we have enough space?
+                if (need > 0) {
+                    ## No, we need to grow our results vectors
+                    inpCol  <- c(inpCol, character(need + vecStp))
+                    outCol  <- c(outCol, character(need + vecStp))
+                    scrCol  <- c(scrCol, numeric(need + vecStp))
+                }
+                newInds <- seq(rcnt+1, length.out=vl) # Indices to 'inject' into
+                inpCol[ newInds ] <- rep(idNm, vl)    #   Input Id, replicated
+                outCol[ newInds ] <- names(vec)       #   Output IDs
+                scrCol[ newInds ] <- vec              #   Scores
+                rcnt <- rcnt + vl                     #   Current number of rows
             }
-            vl <- length(vec) # How many results we have
-            need <- rcnt + vl - length(inpCol) # Do we have enough space?
-            if (need > 0) {
-                ## No, we need to grow our results vectors
-                inpCol  <- c(inpCol, character(need + vecStp))
-                outCol  <- c(outCol, character(need + vecStp))
-                scrCol  <- c(scrCol, numeric(need + vecStp))
+            recLevel <- recLevel + 1L
+            if (recurse != 0L) {
+                ## Find novel Outptut IDs to use for next round of
+                ## recursion. Make found output IDs unique and
+                ## normalize case:
+                bait <- unique(newFound)
+                bait <- if (ignore.case) {
+                    setNames(bait, tolower(bait))
+                } else {
+                    setNames(bait, bait)
+                }
+                ## Only use IDs we have not already used:
+                bait <- bait[ base::setdiff( names(bait), names(depth) ) ]
+                ## Exclude any that are not in the input dimension:
+                bait <- bait[ intersect(names(bait), matIds) ]
+                ## All the Rube Goldberg naming is a mechanism to
+                ## manage case-insensitive matching of IDs while still
+                ## preserving 'original' case for reporting.
             }
-            newInds <- seq(rcnt+1, length.out=vl) # Indices to 'inject' into
-            inpCol[ newInds ] <- rep(idNm, vl)    #   Input Id, replicated
-            outCol[ newInds ] <- names(vec)       #   Output IDs
-            scrCol[ newInds ] <- vec              #   Scores
-            rcnt <- rcnt + vl                     #   Current number of rows
         }
+        
         if (length(unk) > 0) {
             ## Push the unknown IDs onto the end
             vl <- length(unk)
@@ -1176,6 +1212,16 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         colHelp <- list()
         colHelp[[ inName ]]  <- "The input IDs provided to the $map() method"
         colHelp[[ outName ]] <- "The output IDs discovered from the input"
+
+        depName <- NULL
+        if (recurse != 0L) {
+            ## Add a depth column
+            depName <- "Depth"
+            nms     <- rv[[ inName ]]
+            if (ignore.case) nms <- tolower(nms)
+            rv[[ depName ]] <- depth[ nms ]
+            colHelp[[ outName ]] <- "The recursion depth the *INPUT* ID was first observed at"
+        }
         
         
         if (!isFac || all(integer.factor)) {
@@ -1207,6 +1253,11 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                     rv[keep, "Score"] <- valueCollapseFunction(scrCol[ nInds ])
                     ## ... and the input names:
                     rv[keep, inName]  <- nameCollapseFunction( inpCol[ nInds ])
+                    if (recurse != 0L) {
+                        ## Also collapse the recursion depth
+                        rv[keep, depName] <-
+                            nameCollapseFunction( rv[nInds, depName] )
+                    }
                 }
                 ## Delete the "extra" rows
                 rv   <- rv[ -inds, ]
@@ -1244,6 +1295,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             colHelp$Factor <- "The factor levels associated with the connection between input and output"
         }
 
+        metacols <- NULL
         if (CatMisc::is.something(add.metadata)) {
 
 
@@ -1251,7 +1303,9 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
 ### token-separated string of IDs. That is, need to grab metadata in
 ### some fashion for these synthetic values. Should probably hold a
 ### temp list for each row of original values
-
+            metacols <- character()
+            metasrc  <- character()
+            
             srcCols <- outName
             if (input.metadata) srcCols <- c(srcCols, inName)
             
@@ -1273,6 +1327,8 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                         rvCol <- make.unique(c(nowNames, rvCol))[ length(nowNames) + 1 ]
                     }
                     colHelp[[ rvCol ]] <- paste("Metadata values for", col, "associated with", src)
+                    metacols <- c(metacols, rvCol)
+                    metasrc  <- c(metasrc, src)
                     if (is.element(col, mdc)) {
                         ## This is a known metadata column. Include it,
                         ## unless it's all NAs
@@ -1284,6 +1340,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                     }
                 }
             }
+            attr(metacols, "Source") <- metasrc
         }
 
         ## Also attach a brief explanation of each attribute:
@@ -1320,6 +1377,75 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             ## This can result in non-unique names. Do we want to use
             ## strict.unique() to uniquify names?
             class(rv) <- c("mapResult", class(rv))
+        } else if (grepl('matrix', format[1], ignore.case=TRUE)) {
+            ## Matrix format
+            ## Find all valid edges (both Input and Output defined):
+            ok <- !is.na(rv[[ inName ]]) & !is.na(rv[[ outName ]])
+            sc <- rv$Score
+            if (is.null(sc)) {
+                err("Score column is NULL, all weights set to 1 in matrix")
+                sc <- rep(1L, sum(ok))
+            } else {
+                ok <- ok & !is.na(sc)
+                sc <- sc[ ok ]
+            }
+            
+            rn <- unique(rv[ ok, inName ])
+            cn <- unique(rv[ ok, outName ])
+
+            i <- match(rv[ ok, inName ], rn)
+            j <- match(rv[ ok, outName ], cn)
+            dn <- list()
+            dn[[ inName  ]] <- rn
+            dn[[ outName ]] <- cn
+
+### NOT WORKING - When consumed by qgraph(). Weird resulting graph,
+### initially looks reasonable, but has incorrect connections.  I
+### think qgraph may not handle sparse Matrices? I think the
+### underlying matrix is accurate (TODO: need more tests)
+            
+            rv <- as(sparseMatrix( i=i, j=j, x=sc, dimnames=dn), "dgTMatrix")
+            
+        } else if (grepl('dynamic', format[1], ignore.case=TRUE)) {
+            ## dynamictable HTML output
+            if (require("dynamictable", quietly=TRUE)) {
+                ord   <- c('row', 'col')
+                if (via == 'col') ord <- rev(ord)
+                urlParams <- unlist(lapply(ord, function(x) {
+                    param(sprintf("%surl", x))
+                }))
+                
+                opts  <- list( )
+                if (isFac) {
+                    opts$Factor = list(factor=TRUE)
+                    opts$Score  = list(byFactor="Factor")
+                }
+                opts[[ inName ]]  <- list( url = urlParams[1] )
+                opts[[ outName ]] <- list( url = urlParams[2] )
+                opts[["*"]] <- list(truncate=80)
+                
+                rv <- dynamictable( rv, options=opts, auto.title=FALSE )
+            } else {
+                err("The dynamictable package is not installed; Please run install.packages('dynamictable')")
+            }
+        } else if (grepl('graph', format[1], ignore.case=TRUE)) {
+            ## graph format
+            if (require("qgraph", quietly=TRUE)) {
+                nodes <- unique(c(rv[[inName]], rv[[outName]]))
+                pairs <- matrix(c(match(rv[[inName]], nodes),
+                                  match(rv[[outName]], nodes)), ncol=2)
+                ## I was pretty sure there was a way to linearize a matrix
+                ## by row, but I can't remember it. So transpose the
+                ## In/Out matrix and vectorize:
+                edges <- as.vector(t(pairs))
+                g <- graph(edges, directed=TRUE)
+                vertex_attr(g, "name") <- nodes
+                if (!is.null(rv$Score))  edge_attr(g, "weight") <- rv$Score
+                if (!is.null(rv$Factor)) edge_attr(g, "name")   <- rv$Factor
+                rv <- g
+            } else {
+                err("The igraph package is not installed; Please run install.packages('igraph')")
+            }
         }
 
         ## Attach some summary attributes:
@@ -1333,20 +1459,22 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         if (isFac) attr(rv, "Levels") <- lvlVal
         attr(rv, "Notes")      <- Notes
         attr(rv, "Columns")    <- colHelp
-            
+        attr(rv, "Metadata")   <- metacols
+           
         if (warn) {
             ## Alert user to any non-unique relationships:
             msg <- character()
             cm  <- function(w,x,cl) colorize(paste(w,":",length(x)), cl)
-            if (length(unk) != 0)   msg <- c(msg,cm("Unknown",unk,"magenta"))
-            if (length(unMap) != 0) msg <- c(msg,cm("Unmapped",unMap,"red"))
-            if (length(dupIn) != 0)  msg <- c(msg,cm("Dup.In",dupIn,"blue"))
-            if (length(dupMat) != 0) msg <- c(msg,cm("Dup.Mat",dupMat,"cyan"))
-            if (length(multIn) != 0) msg <- c(msg,cm("Mult.In",multIn,"yellow"))
+            if (length(unk) != 0)     msg <- c(msg,cm("Unknown",unk,"magenta"))
+            if (length(unMap) != 0)   msg <- c(msg,cm("Unmapped",unMap,"red"))
+            if (length(dupIn) != 0)   msg <- c(msg,cm("Dup.In",dupIn,"blue"))
+            if (length(dupMat) != 0)  msg <- c(msg,cm("Dup.Mat",dupMat,"cyan"))
+            if (length(multIn) != 0)  msg <- c(msg,cm("Mult.In",multIn,"yellow"))
             if (length(multOut) != 0) msg <- c(msg,cm("Mult.Out",multOut,"green"))
             if (length(msg) !=0) base::message("Non-unique events: ",
                                                paste(msg, collapse=', '))
         }
+
         rv
     },
 

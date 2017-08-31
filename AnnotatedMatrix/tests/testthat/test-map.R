@@ -19,7 +19,7 @@ test_that("Basic mapping", {
                      c("GARS#1", "GARS#2", "SIGLEC19P"),
                      "Customized rownaming for non-unique entries")
 
-    expect_identical(attr(v1, "Mult.In"), c("GARS"),
+    expect_identical(attr(v1, "Mult.In"), setNames("GARS","gars"),
                      "Mutliplicity attributes")
 
     v2 <- s2e$map(qry, format="vector")

@@ -1,7 +1,7 @@
 Package: AnnotatedMatrix
 Title: Parse rich metadata out of structured comments in Matrix files
-Version: 1.16
-Date: 2017-08-23
+Version: 1.17
+Date: 2017-08-30
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
 Maintainer: Charles Tilford <cran@agent.fastmail.com>
@@ -21,4 +21,9 @@ License: GPL-2
 Encoding: UTF-8
 LazyData: true
 RoxygenNote: 6.0.1
-Suggests: testthat
+Suggests: 
+    testthat
+Enhances:
+    dynamictable,
+    qgraph,
+    igraph
