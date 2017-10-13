@@ -25,5 +25,6 @@ Suggests:
     testthat
 Enhances:
     dynamictable,
+    canvasXpress,
     qgraph,
     igraph

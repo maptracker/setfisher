@@ -122,7 +122,7 @@ Optional Arguments:
 }
 my ($geneMeta, $goMeta, $goClosure);
 my @stndMeta   = qw(Symbol Type Description);
-my @stndGoMeta = qw(Name Namespace Definition Synonyms);
+my @stndGoMeta = qw(Name Namespace Description Parents Synonyms);
 my $nsUrl = {
     Symbol       => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
     EntrezGene   => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
@@ -427,12 +427,12 @@ sub make_go_metadata_file {
     &msg("Parsing basic GeneOntology metadata");
     my $tmp = "$trg.tmp";
     open (METAF, ">$tmp") || &death("Failed to write metadata file", $tmp, $!);
-    my @head = qw(id name is_obsolete namespace is_a part_of intersection_of regulates positively_regulates negatively_regulates synonym def);
+    my @head = qw(id name Parents is_obsolete namespace is_a part_of intersection_of regulates positively_regulates negatively_regulates synonym def);
     my $hMap = {
         id          => "ID",
         name        => "Name",
         namespace   => "Namespace",
-        def         => "Definition",
+        def         => "Description",
         synonym     => "Synonyms",
         is_obsolete => "Obsolete",
     };
@@ -469,7 +469,7 @@ sub make_go_metadata_file {
     close GOFILE;
     close METAF;
     rename($tmp, $trg);
-    &msg("Generated Entrez metadata file", $trg);
+    &msg("Generated GeneOntology metadata file", $trg);
     &post_process( @fbits, $fmeta );
     return $trg;
 }
@@ -481,6 +481,16 @@ sub _go_meta_record {
     if ($k eq 'Term') {
         if (my $id = $d->{id}) {
             my @row;
+            ## Build the parent array from is_a and part_of
+            my %u;
+            foreach my $t ('is_a', 'part_of') {
+                if (my $p = $d->{$t}) {
+                    map { $u{$_} = 1 } @{$p};
+                }
+            }
+            delete $u{""};
+            my @par = sort keys %u;
+            $d->{Parents} = \@par unless ($#par == -1);
             foreach my $c (@{$head}) {
                 if (my $vs = $d->{$c}) {
                     map { s/\|/_/g } @{$vs};

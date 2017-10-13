@@ -5,13 +5,15 @@
 \alias{.addAppliedFilter}
 \title{Add Applied Filter}
 \arguments{
-\item{key}{Required, a key indicating the filter type, eg 'SCORE' or ''}
+\item{key}{Required, a key indicating the filter type, eg 'SCORE'
+or 'COUNT'}
 
 \item{val}{Required, text defining the filter parameters}
 
 \item{com}{Default NULL, optional comment (reason) for the filter}
 
-\item{pre}{Default NULL, optional text (eg operator) to go before the values}
+\item{pre}{Default NULL, optional text (eg operator) to go before
+the values}
 
 \item{pro}{Default NULL, text (eg modifiers) to go after the values}
 

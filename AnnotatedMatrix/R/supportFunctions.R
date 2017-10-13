@@ -460,7 +460,7 @@ smallNumberFormatter <- function(x) {
 #' @details
 #'
 #' Used to parse parameters that can be absolutely defined (eg 53) or
-#' relatively defined as a percentage (eg "2.5%"). For the latter will
+#' relatively defined as a percentage (eg "2.5\%"). For the latter will
 #' require a denominator to be provided as well
 #'
 #' @param x Required, a character or numeric vector containing the
@@ -472,7 +472,9 @@ smallNumberFormatter <- function(x) {
 #'
 #' @examples
 #'
-#' AnnotatedMatrix:::normalizePercent( c("5", "0.02", "5%", "0.02%"), 1000)
+#' ## Numeric strings and percentages can be mixed together; The denom
+#' ## parameter only applies to percentages:
+#' AnnotatedMatrix:::normalizePercent( c("5", "0.02", "5\%", "0.02%"), 1000)
 #' AnnotatedMatrix:::normalizePercent( 1:10 ) # Numbers are 'left alone'
 #' 
 

@@ -2,7 +2,7 @@
 % Please edit documentation in R/MethodsDocumentation.R
 \name{metadata}
 \alias{metadata}
-\title{Metadata Keys}
+\title{Metadata}
 \arguments{
 \item{id}{Default NULL. Optional vector of specific IDs to query}
 

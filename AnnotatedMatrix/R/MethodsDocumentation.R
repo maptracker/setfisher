@@ -648,6 +648,17 @@ NULL
 #'     with '\%' as percentages of the total dimension length.
 #' @param max Default NULL, optional maximum score, same input
 #'     considerations as \code{min}.
+#' @param relative Default TRUE. If true, then relative values
+#'     (percentages) provided for \code{min} and \code{max} will be
+#'     computed against the currently populated state of the
+#'     matrix. For example, if a matrix has 1000 rows, and the minimum
+#'     threshold is 10%, if only 400 rows are currently populated then
+#'     the minimum threshold is 40 when \code{relative=TRUE}, but 100
+#'     when \code{relative=FALSE}. This setting can dramatically
+#'     change the course of recursive filtering, where two or more
+#'     filters are repeatedly reapplied until no further changes are
+#'     seen. Note that \link{autoFilter} by default will operate
+#'     recursively.
 #' @param filterEmpty Default FALSE. If true, then rows or columns
 #'     that are empty after filtering will be removed from the matrix
 #'     using \link{removeEmpty}. If no cells were affected by the
@@ -664,7 +675,7 @@ NULL
 #' @return Invisibly, an integer vector of newly zeroed counts for
 #'     (cells, rows, cols).
 #'
-#' @seealso \link{filterLog}, \link{filterSummary},
+#' @seealso \link{filterLog}, \link{filterSummary}, \link{autoFilter},
 #'     \link{appliedFilters}
 #'
 #' @examples
@@ -1369,10 +1380,12 @@ NULL
 #' 
 #' Helper method to add new filter entries to \link{setFilters}.
 #'
-#' @param key Required, a key indicating the filter type, eg 'SCORE' or ''
+#' @param key Required, a key indicating the filter type, eg 'SCORE'
+#'     or 'COUNT'
 #' @param val Required, text defining the filter parameters
 #' @param com Default NULL, optional comment (reason) for the filter
-#' @param pre Default NULL, optional text (eg operator) to go before the values
+#' @param pre Default NULL, optional text (eg operator) to go before
+#'     the values
 #' @param pro Default NULL, text (eg modifiers) to go after the values
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
@@ -1653,7 +1666,7 @@ NULL
 #' s2e$metadata_keys()
 NULL
 
-#' Metadata Keys
+#' Metadata
 #'
 #' AnnotatedMatrix object method to recover metadata assigned to rows or columns
 #'

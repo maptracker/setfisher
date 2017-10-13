@@ -15,6 +15,18 @@ with '\%' as percentages of the total dimension length.}
 \item{max}{Default NULL, optional maximum score, same input
 considerations as \code{min}.}
 
+\item{relative}{Default TRUE. If true, then relative values
+(percentages) provided for \code{min} and \code{max} will be
+computed against the currently populated state of the
+matrix. For example, if a matrix has 1000 rows, and the minimum
+threshold is 10%, if only 400 rows are currently populated then
+the minimum threshold is 40 when \code{relative=TRUE}, but 100
+when \code{relative=FALSE}. This setting can dramatically
+change the course of recursive filtering, where two or more
+filters are repeatedly reapplied until no further changes are
+seen. Note that \link{autoFilter} by default will operate
+recursively.}
+
 \item{filterEmpty}{Default FALSE. If true, then rows or columns
 that are empty after filtering will be removed from the matrix
 using \link{removeEmpty}. If no cells were affected by the
@@ -65,6 +77,6 @@ s2e$filterSummary()
 
 }
 \seealso{
-\link{filterLog}, \link{filterSummary},
+\link{filterLog}, \link{filterSummary}, \link{autoFilter},
     \link{appliedFilters}
 }

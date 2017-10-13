@@ -495,15 +495,16 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         ## to generically refer to the 'things' in counts
 
         ## If relative is true, then we will consider '%' requests
-        ## against the number of elements that are currently
+        ## against the number of elements that are CURRENTLY
         ## populated. Otherwise we will consider all elements from the
-        ## dimension
+        ## dimension, whether populated or not. Note that this can
+        ## make a significant difference during recursive filtering
         denom <- if (relative) { sum(counts != 0) } else { length(counts) }
         obj   <- matObj()
         ttxt  <- ""
         
         if (!is.null(min)) {
-            x <- normalizePercent(min)[1]
+            x <- normalizePercent(min[1], denom)
             ## Elements below the request
             fail <- counts < x & counts != 0
             numE <- sum(fail)
@@ -524,12 +525,12 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 ijz <- .detailZeroedRowCol( obj, cells, ttxt, reason )
                 rv  <- rv + c(numZ, ijz)
             }
-            .addAppliedFilter("COUNT", max, reason, '>')
+            .addAppliedFilter("COUNT", max, reason, paste(MARGIN, '>'))
         }
 
         if (!is.null(max)) {
-            x <- normalizePercent(max)[1]
-            ## Elements below the request
+            x <- normalizePercent(max[1], denom)
+            ## Elements above the request
             fail <- counts > x & counts != 0
             numE <- sum(fail)
             if (numE > 0) {
@@ -550,6 +551,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 ijz <- .detailZeroedRowCol( obj, cells, tt, reason )
                 rv  <- rv + c(numZ, ijz)
             }
+            .addAppliedFilter("COUNT", max, reason, paste(MARGIN, '<'))
         }
         
         if (rv[1] != 0) {
@@ -1399,7 +1401,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
             dn[[ inName  ]] <- rn
             dn[[ outName ]] <- cn
 
-### NOT WORKING - When consumed by qgraph(). Weird resulting graph,
+### Not working when consumed by qgraph(). Weird resulting graph,
 ### initially looks reasonable, but has incorrect connections.  I
 ### think qgraph may not handle sparse Matrices? I think the
 ### underlying matrix is accurate (TODO: need more tests)
@@ -1427,6 +1429,46 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 rv <- dynamictable( rv, options=opts, auto.title=FALSE )
             } else {
                 err("The dynamictable package is not installed; Please run install.packages('dynamictable')")
+            }
+        } else if (grepl('canvas', format[1], ignore.case=TRUE)) {
+            ## CanvasXpress DHTML network format
+            if (require("canvasXpress", quietly=TRUE)) {
+                ## Exclude rows that don't have both input and output:
+                notEdge  <- is.na(rv[[inName]]) | is.na(rv[[outName]])
+                inNode   <- rv[ !notEdge, inName ]
+                outNode  <- rv[ !notEdge, outName ]
+                ## Get all unique nodes from both input and output
+                nNames   <- unique(c(inNode, outNode))
+                ## Capture requested metadata associated with the nodes:
+                nodes    <- metadata( nNames , key=add.metadata, drop=FALSE )
+                ## Build basic edge structure:
+                edges    <- data.frame(id1=inNode, id2=outNode,
+                                       stringsAsFactors=FALSE)
+                outCols  <- colnames(rv)
+                portCols <- c("Depth", "Score", "Factor")
+                for (pc in portCols) {
+                    if (is.element(pc, outCols))
+                        edges[[ pc ]] <- rv[ !notEdge, pc]
+                }
+                title <- sprintf("Map from %s", if (length(inp) <= 3) {
+                    paste(inp, collapse=' ')
+                } else {
+                    paste(length(inp), "nodes")
+                })
+                rv <- canvasXpress(
+                    nodeData=nodes,
+                    edgeData=edges,
+                    edgeWidth=2,
+                    graphType="Network",
+                    nodeFontColor="rgb(29,34,43)",
+                    nodeSize=30,
+                    showAnimation=FALSE,
+                    directed=TRUE,
+                    ## networkLayoutType="radial",
+                    ## networkRoot=root,
+                    title=title )
+            } else {
+                err("The canvasXpress package is not installed; Please run install.packages('canvasXpress')")
             }
         } else if (grepl('graph', format[1], ignore.case=TRUE)) {
             ## graph format
@@ -1589,9 +1631,9 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     is.factor = function (help=FALSE) {
         "TRUE if the matrix is a pseudo-factor, otherwise FALSE"
-         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-       CatMisc::is.something(lvlVal)
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        CatMisc::is.something(lvlVal)
     },
 
     levels = function( asFactor=FALSE, help=FALSE ) {
