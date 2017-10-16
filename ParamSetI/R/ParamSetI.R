@@ -107,7 +107,7 @@ ParamSetI$methods(
                             ## have been grepped out of text files and
                             ## will begin life as characters.
                             suppressWarnings( coerced <-
-                                 try({func <- get(sprintf("as.%s", chk))
+                                 try({func <- get(sprintf("as.%s", tolower(chk)))
                                      func(val) }, silent=TRUE) )
                         }
                         if (any(is.na(coerced))) {
@@ -115,8 +115,12 @@ ParamSetI$methods(
                                       val, ": must be of class", chk))
                             return(NA)
                         }
-                        ## Success!    
+                        ## Success! Use the coerced value, copying
+                        ## over attributes, if any (may have come in
+                        ## from selfSplittingString)
+                        att <- attributes(val)
                         val <- coerced
+                        if (!is.null(att)) attributes(val) <- att
                     }
                 }
                 if (append && CatMisc::is.def(paramSet[[ lkey ]])) {

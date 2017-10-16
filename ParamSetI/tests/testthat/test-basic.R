@@ -130,5 +130,12 @@ test_that("String splitting", {
     expect_identical(notCom, "Item #6", "Ignore single #")
     expect_null(attr(notCom, "comment"))
 
-    
+    ## Make sure attributes are kept when coercing parameters
+    foo <- ParamSetExample()
+    foo$param("dec", "7 ## A lucky number")
+    dExpect <- 7L
+    attr(dExpect, "comment") <- "A lucky number"
+    expect_identical(foo$param("dec"), dExpect,
+                     "Attributes should be preserved after coercion")
+
 })
