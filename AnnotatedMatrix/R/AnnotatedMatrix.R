@@ -387,8 +387,7 @@ AutoFilterComment [character] Optional comment displayed when automatic filters 
                                 x[3], ifelse(x[3] == 1, '', 's')),
                         prefix="[-]", bgcolor='cyan', color='yellow')
             }
-            message(sprintf("# More details: %s$filterSummary()",
-                            .self$.selfVarName("myMatrix")), color='yellow')
+            message("# More details: <object>$filterSummary()", color='yellow')
             ## If the matrix has an autofilter comment show it now
             com <- param("AutoFilterComment")
             if (is.something(com)) message(paste(strwrap(com),

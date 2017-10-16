@@ -1,6 +1,6 @@
 Package: AnnotatedMatrix
 Title: Parse rich metadata out of structured comments in Matrix files
-Version: 1.18
+Version: 1.19
 Date: 2017-10-16
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
