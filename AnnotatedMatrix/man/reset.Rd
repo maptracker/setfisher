@@ -42,5 +42,6 @@ s2e$map( sketchySymbol )  # Connection reestablished to LOC8626
 }
 \seealso{
 \link{matObj}, \link{matrixRaw}, \link{matrixUse},
-    \link{filterLog}, \link{filterSummary}, \link{appliedFilters}
+    \link{filterLog}, \link{filterSummary}, \link{appliedFilters},
+    \link{autoFilter}
 }

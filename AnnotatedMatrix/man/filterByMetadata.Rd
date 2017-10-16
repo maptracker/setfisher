@@ -95,5 +95,5 @@ s2e$metadata( colnames(s2e$matrixUse), "Description" )
 }
 \seealso{
 \link{filterLog}, \link{filterSummary},
-    \link{appliedFilters}, \link{metadata}
+    \link{appliedFilters}, \link{metadata}, \link{autoFilter}
 }

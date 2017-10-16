@@ -1218,6 +1218,7 @@ sub ontology_pubmed {
     print MTX &_species_MTX( $taxDat->{'scientific name'} );
 
     print MTX &_filter_block({
+        AutoFilterComment => "NOTE: The standard automatic filters for this matrix are designed with enrichment analysis in mind. If you are using this matrix to recover publications for genes (or vice versa), you should \$reset() the matrix.",
         MinColCount => "5 ## Articles with few genes assigned to them struggle to reach statistical significance",
         MaxColCount => "15% ## Articles containing a large fraction of the genome are rarely informative",
         MinRowCount => "2 ## Genes with few publications generally do not bring much insight to the analysis",
@@ -1490,6 +1491,7 @@ sub ontology_go {
     print MTX &_species_MTX( $taxDat->{'scientific name'} );
 
     print MTX &_filter_block({
+        AutoFilterComment => "NOTE: The standard automatic filters for this matrix are designed with enrichment analysis in mind. If you are using this matrix to recover GO terms for genes (or vice versa), you should \$reset() the matrix, and optionally re-apply only the evidence code based filters.",
         MinColCount => "7 ## Terms with few genes assigned to them struggle to reach statistical significance",
         MaxColCount => "10% ## Terms covering a large fraction of the genome are rarely informative. Note this will exclude many parent terms",
         MinRowCount => "2 ## Genes with few terms assigned to them will not bring much insight to the analysis",

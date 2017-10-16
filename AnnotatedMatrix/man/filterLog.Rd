@@ -40,5 +40,5 @@ s2e$filterLog[ s2e$filterLog$id == "p51", ]
 }
 \seealso{
 \link{reset}, \link{filterSummary}, \link{setFilters},
-    \link{appliedFilters},
+    \link{appliedFilters}, \link{autoFilter}
 }

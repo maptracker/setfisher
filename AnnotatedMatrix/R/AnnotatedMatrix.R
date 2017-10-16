@@ -132,6 +132,7 @@ Description [character] Description for the matrix
 ScoreDesc   [character] Describes what the matrix values (scores) represent
 Source      [character] Primary source, presumably a URL
 Authority   [character] The name of the authority responsible for the data
+Version     [character] Version number/text assigned to the underlying data
 
 RowDim      [character] Name for the row dimension
 ColDim      [character] Name for the column dimension
@@ -147,6 +148,7 @@ MaxColCount [character] Maximum assignments per column, can be a percentage, rec
 KeepLevel   [character] List of preserved factor levels recognized by $autoFilter()
 TossLevel   [character] List of discarded factor levels recognized by $autoFilter()
 TossMeta    [character] Metadata value filter recognized by $autoFilter()
+AutoFilterComment [character] Optional comment displayed when automatic filters are applied to the matrix.
 ", ...)
         if (!CatMisc::is.def(file))
             err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
@@ -316,12 +318,15 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                                              names(.refClassDef@contains)))
         x <- c(0L, 0L, 0L)
         min <- param("MinScore")
+        numFilt <- 0
         if (CatMisc::is.something(min)) {
             x <- x + filterByScore(min=min, reason=attr(min,"comment"))
+            numFilt <- numFilt + 1
         }
         max <- param("MaxScore")
         if (CatMisc::is.something(max)) {
             x <- x + filterByScore(max=max, reason=attr(max,"comment"))
+            numFilt <- numFilt + 1
         }
         for (kt in c("Keep", "Toss")) {
             isKeep <- kt == "Keep"
@@ -331,6 +336,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 if (CatMisc::is.something(ktLvl)) {
                     x <- x + filterByFactorLevel(ktLvl, keep=isKeep,
                                                  reason=attr(ktLvl,"comment"))
+                    numFilt <- numFilt + 1
                 }
             }
             meta <- param(sprintf("%sMeta", kt))
@@ -346,6 +352,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                     x <- x + filterByMetadata(key=fbm[1], val=v, type=fbm[3],
                                               keep=shouldKeep,
                                               reason=attr(meta,"comment"))
+                    numFilt <- numFilt + 1
                 }
             }
         }
@@ -362,13 +369,32 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 } else {
                     x <- x + filterByCount(max=filtCnt, MARGIN=rc, reason=r)
                 }
+                numFilt <- numFilt + 1
             }
         }
 
         if (x[1] > 0 && recursive) x <- x + autoFilter( verbose=FALSE )
-        if (x[1] > 0 && verbose) message(c("Automatic filters have masked",x[1],
-              "cells,",x[2],"rows, and",x[3],"cols"), prefix="[-]",
-              bgcolor='cyan', color='yellow')
+        if (numFilt > 0 && verbose) {
+            ## let the user know that at least one auto filter was applied
+            if (x[1] == 0) {
+                ## Nothing happened
+                message(sprintf("%d automatic filter%s applied, but no data were filtered", numFilt, ifelse(numFilt == 1, ' was', 's were')),
+                        prefix="[-]", bgcolor='cyan', color='yellow')
+            } else if (numFilt > 0) {
+                message(sprintf("%d automatic filter%s masked %d cell%s, %d row%s and %d column%s", numFilt, ifelse(numFilt == 1, ' has', 's have'),
+                                x[1], ifelse(x[1] == 1, '', 's'),
+                                x[2], ifelse(x[2] == 1, '', 's'),
+                                x[3], ifelse(x[3] == 1, '', 's')),
+                        prefix="[-]", bgcolor='cyan', color='yellow')
+            }
+            message(sprintf("# More details: %s$filterSummary()",
+                            .self$.selfVarName("myMatrix")), color='yellow')
+            ## If the matrix has an autofilter comment show it now
+            com <- param("AutoFilterComment")
+            if (is.something(com)) message(paste(strwrap(com),
+                collapse="\n"), color='cyan')
+        }
+        
         invisible(setNames(x, .filterNames))
     },
 
@@ -380,6 +406,8 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
         ij   <- which( fail )
         ## Which triples are currently nonzero?
         nonZ <- obj@x != 0
+
+        if (!is.something(reason)) reason <- NA
 
         ## The steps below (find non-zero triples, find impacted
         ## triples, identifiy impacted with no survivors) are chosen
@@ -525,7 +553,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 ijz <- .detailZeroedRowCol( obj, cells, ttxt, reason )
                 rv  <- rv + c(numZ, ijz)
             }
-            .addAppliedFilter("COUNT", max, reason, paste(MARGIN, '>'))
+            .addAppliedFilter("COUNT", min, reason, paste(MARGIN, '<'))
         }
 
         if (!is.null(max)) {
@@ -551,7 +579,7 @@ TossMeta    [character] Metadata value filter recognized by $autoFilter()
                 ijz <- .detailZeroedRowCol( obj, cells, tt, reason )
                 rv  <- rv + c(numZ, ijz)
             }
-            .addAppliedFilter("COUNT", max, reason, paste(MARGIN, '<'))
+            .addAppliedFilter("COUNT", max, reason, paste(MARGIN, '>'))
         }
         
         if (rv[1] != 0) {

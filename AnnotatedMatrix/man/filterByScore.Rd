@@ -65,5 +65,5 @@ s2e$filterSummary()
 }
 \seealso{
 \link{filterLog}, \link{filterSummary},
-    \link{appliedFilters}
+    \link{appliedFilters}, \link{autoFilter}
 }

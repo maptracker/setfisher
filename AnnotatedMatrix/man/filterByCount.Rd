@@ -63,6 +63,13 @@ Updates the \link[=matrixUse]{used matrix} to remove rows and
 columns when elements in a dimension have too few or too many
 connections. Minimum and maximum connection counts can be specified
 absolutely, or as a percentage of the length of the dimenstion.
+
+This filter was created initially to support hypergeometric-based
+gene enrichment analysis. In that context it can remove ontology
+terms that are assigned to "few" (too specific) or "many" (too
+generic) genes. It is also be used to remove genes with few
+ontology terms, as a mechanism to exclude genes with poor
+biological support.
 }
 \examples{
 

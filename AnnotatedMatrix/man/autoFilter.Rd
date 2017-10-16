@@ -38,12 +38,23 @@ operations. While these parameters could be set 'manually' in code,
 they are of primary utility in allowing annotated matrix files to
 "self describe" default reasonable starting filters for the matrix.
 
+While you can run \code{autoFilter()} manually (for example, after
+a \code{reset()}, it is by default run automatically on Matrix
+load. To \strong{prevent} autofiltering on load, pass
+\code{autofilter=FALSE} when calling \code{AnnotatedMatrix()}.
+
 The following parameters are identified as specifying a filter
 request:
 
-  MinScore   MaxScore
-  KeepLevel  TossLevel
-  TossMeta
+\itemize{
+
+    \item MinScore    MaxScore
+    \item MinRowCount MaxRowCount
+    \item MinColCount MaxColCount
+    \item KeepLevel   TossLevel
+    \item TossMeta
+
+}
 
 Calling \code{$showParameters( na.rm=FALSE)} will list all standard
 parameters and their values; Not all of these will be relevant to
@@ -78,6 +89,7 @@ s2e$showParameters( na.rm=FALSE )
 }
 \seealso{
 \link{filterByScore}, \link{filterByFactorLevel},
-    \link{filterByMetadata}, \link{reset}, \link{filterSummary},
-    \link{appliedFilters}, \link[ParamSetI]{showParameters}
+    \link{filterByMetadata}, \link{filterByCount}, \link{reset},
+    \link{filterSummary}, \link{appliedFilters},
+    \link[ParamSetI]{showParameters}
 }

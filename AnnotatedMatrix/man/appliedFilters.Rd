@@ -31,7 +31,8 @@ the \link{setFilters} vector. These snippets can be used as a
 record of filtering operations. In addition, some or all of them
 can be passed to this function to re-run the filters
 
-(LOADING = ASPIRATIONAL FEATURE, NOT YET AVAILABLE).
+The parsing feature (via the \code{new} parameter) is aspirational
+and is not yet implemented.
 }
 \examples{
 

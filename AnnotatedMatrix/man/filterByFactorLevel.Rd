@@ -73,5 +73,5 @@ s2e$matrixUse
 }
 \seealso{
 \link{filterLog}, \link{filterSummary},
-    \link{appliedFilters}
+    \link{appliedFilters}, \link{autoFilter}
 }

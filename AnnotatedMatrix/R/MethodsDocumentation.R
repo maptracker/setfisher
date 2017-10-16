@@ -194,7 +194,7 @@ NULL
 #' @return A data.table
 #'
 #' @seealso \link{reset}, \link{filterSummary}, \link{setFilters},
-#'     \link{appliedFilters},
+#'     \link{appliedFilters}, \link{autoFilter}
 #'
 #' @examples
 #'
@@ -234,7 +234,7 @@ NULL
 #'
 #' @return A character vector
 #'
-#' @seealso \link{appliedFilters}, \link{filterSummary}
+#' @seealso \link{appliedFilters}, \link{filterSummary}, \link{autoFilter}
 #'
 #' @examples
 #'
@@ -441,7 +441,8 @@ NULL
 #' @return NA, invisibly
 #'
 #' @seealso \link{matObj}, \link{matrixRaw}, \link{matrixUse},
-#'     \link{filterLog}, \link{filterSummary}, \link{appliedFilters}
+#'     \link{filterLog}, \link{filterSummary}, \link{appliedFilters},
+#'     \link{autoFilter}
 #'
 #' @examples
 #'
@@ -478,12 +479,23 @@ NULL
 #' they are of primary utility in allowing annotated matrix files to
 #' "self describe" default reasonable starting filters for the matrix.
 #'
+#' While you can run \code{autoFilter()} manually (for example, after
+#' a \code{reset()}, it is by default run automatically on Matrix
+#' load. To \strong{prevent} autofiltering on load, pass
+#' \code{autofilter=FALSE} when calling \code{AnnotatedMatrix()}.
+#'
 #' The following parameters are identified as specifying a filter
 #' request:
+#'
+#' \itemize{
 #' 
-#'   MinScore   MaxScore
-#'   KeepLevel  TossLevel
-#'   TossMeta
+#'     \item MinScore    MaxScore
+#'     \item MinRowCount MaxRowCount
+#'     \item MinColCount MaxColCount
+#'     \item KeepLevel   TossLevel
+#'     \item TossMeta
+#' 
+#' }
 #'
 #' Calling \code{$showParameters( na.rm=FALSE)} will list all standard
 #' parameters and their values; Not all of these will be relevant to
@@ -506,8 +518,9 @@ NULL
 #'     (cells, rows, cols).
 #'
 #' @seealso \link{filterByScore}, \link{filterByFactorLevel},
-#'     \link{filterByMetadata}, \link{reset}, \link{filterSummary},
-#'     \link{appliedFilters}, \link[ParamSetI]{showParameters}
+#'     \link{filterByMetadata}, \link{filterByCount}, \link{reset},
+#'     \link{filterSummary}, \link{appliedFilters},
+#'     \link[ParamSetI]{showParameters}
 #'
 #' @examples
 #'
@@ -595,7 +608,7 @@ NULL
 #'     (cells, rows, cols).
 #'
 #' @seealso \link{filterLog}, \link{filterSummary},
-#'     \link{appliedFilters}
+#'     \link{appliedFilters}, \link{autoFilter}
 #'
 #' @examples
 #'
@@ -639,6 +652,13 @@ NULL
 #' columns when elements in a dimension have too few or too many
 #' connections. Minimum and maximum connection counts can be specified
 #' absolutely, or as a percentage of the length of the dimenstion.
+#'
+#' This filter was created initially to support hypergeometric-based
+#' gene enrichment analysis. In that context it can remove ontology
+#' terms that are assigned to "few" (too specific) or "many" (too
+#' generic) genes. It is also be used to remove genes with few
+#' ontology terms, as a mechanism to exclude genes with poor
+#' biological support.
 #'
 #' @param MARGIN Required, defines the dimension to be filtered. Can
 #'     specify rows with '1' or 'row', columns with '2' or 'col'.
@@ -739,7 +759,7 @@ NULL
 #'     (cells, rows, cols).
 #'
 #' @seealso \link{filterLog}, \link{filterSummary},
-#'     \link{appliedFilters}
+#'     \link{appliedFilters}, \link{autoFilter}
 #'
 #' @examples
 #'
@@ -826,7 +846,7 @@ NULL
 #'     (cells, rows, cols).
 #'
 #' @seealso \link{filterLog}, \link{filterSummary},
-#'     \link{appliedFilters}, \link{metadata}
+#'     \link{appliedFilters}, \link{metadata}, \link{autoFilter}
 #'
 #' @examples
 #' 
@@ -1419,7 +1439,8 @@ NULL
 #' record of filtering operations. In addition, some or all of them
 #' can be passed to this function to re-run the filters
 #'
-#' (LOADING = ASPIRATIONAL FEATURE, NOT YET AVAILABLE).
+#' The parsing feature (via the \code{new} parameter) is aspirational
+#' and is not yet implemented.
 #'
 #' @param new Default NULL, optional character vector of new filters
 #'     to apply. NOT YET IMPLEMENTED

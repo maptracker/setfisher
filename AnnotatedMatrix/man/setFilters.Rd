@@ -31,5 +31,5 @@ s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 s2e$setFilters
 }
 \seealso{
-\link{appliedFilters}, \link{filterSummary}
+\link{appliedFilters}, \link{filterSummary}, \link{autoFilter}
 }

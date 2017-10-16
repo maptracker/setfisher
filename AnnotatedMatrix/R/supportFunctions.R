@@ -419,7 +419,8 @@ print.mapFilter <- function (x, color=NULL, ...) {
     }
     sf <- attr(x, "filters")
     if (CatMisc::is.something(sf)) {
-        sf <- c("## Applied filters", sprintf("    %s", sf))
+        sf <- c("## Applied filters - parsable with $appliedFilters()",
+                sprintf("    %s", sf))
         if (uc) sf <- crayon::cyan(sf)
         txt <- c(txt, sf)
     }
