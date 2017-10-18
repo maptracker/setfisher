@@ -673,12 +673,22 @@ sub gzfh {
 ## on file formats and directory structure
 
 sub file_name {
-    my ($type, $mod, $ns1, $ns2, $auth, $vers) = @_;
-    my $file = $type.'@';
-    $file .= "$mod-" if ($mod);
-    $file .= $ns1;
-    $file .= "_to_$ns2" if ($ns2);
-    $file .= sprintf("@%s@%s.mtx", $auth, $vers);
+    my $param = &subparam( 
+        type   => 'UNK',
+        mod    => '',
+        ns1    => 'Unknown',
+        ns2    => '',
+        auth   => 'Unknown',
+        vers   => 'Unknown',
+        sfx    => 'mtx',
+        @_ );
+    my $file = $param->{TYPE}.'@';
+    if (my $mod = $param->{MOD}) { $file .= "$mod-"; }
+    $file .= $param->{NS1};
+    if (my $ns2 = $param->{NS2}) { $file .= "_to_$ns2"; }
+    
+    $file .= sprintf("@%s@%s.%s", $param->{AUTH}, $param->{VERS}, $param->{SFX});
+
     return $file;
 }
 
@@ -687,27 +697,21 @@ sub primary_path {
 }
 
 sub primary_folder {
-    my ($auth, $vers);
-    if ($#_ == 1) {
-        # Just two arguments
-        ($auth, $vers) = @_;
-    } elsif ($#_ == 5) {
-        # Full arguments ($type, $mod, $ns1, $ns2, $auth, $vers)
-        ($auth, $vers) = ($_[4], $_[5]);
-    } elsif ($#_ == 6) {
-        # Full arguments, plus an over-ride value for the folder version name
-        ($auth, $vers) = ($_[4], $_[6]);
-        ## In some cases the version may have both author and version
-        ## For example, the file is by GeneOntology with an
-        ## independent version, but needs to be colocated with Entrez
-        ## and its version
-        if ($vers =~ /(.+)\/(.+)/) {
-            ($auth, $vers) = ($1, $2);
-        }
-    }
+    my $param = &subparam( 
+        auth   => 'Unknown',
+        vers   => 'Unknown',
+        dir    => '',
+        @_ );
+
+    my $auth = $param->{AUTH};
+    my $vers = $param->{VERS};
     my $aDir = sprintf('%s/byAuthority', $outDir );
-    my $dir  = sprintf('%s/%s/%s',$aDir, $auth, $vers);
-    unless ($tasks{PrimaryFolder}++) {
+    ## DIR is an override that allows a file with a different data
+    ## version to be located in a different location in the directory
+    ## tree (eg GeneOntology with its own data version, but needs to
+    ## be colocated with Entrez)
+    my $dir  = "$aDir/". ($param->{DIR} || sprintf('%s/%s', $auth, $vers));
+    unless ($tasks{"PrimaryFolder-$dir"}++) {
         ## Make sure folder exists, add README
         &mkpath([$dir]);
         &copy_template_file("byAuthorityReadme.md", "$aDir/README.md");
@@ -716,7 +720,12 @@ sub primary_folder {
 }
 
 sub symlinked_paths {
-    my ($type, $mod, $ns1, $ns2, $auth, $vers) = @_;
+    my $param = &subparam( @_ );
+    my $type  = $param->{TYPE};
+    my $ns1   = $param->{NS1};
+    my $ns2   = $param->{NS2};
+    my $auth  = $param->{AUTH};
+    my $vers  = $param->{VERS};
     ## Name of symlink is just the file:
     my $lnk   = &file_name(@_);
     ## Target is up three levels, then into byAuthority:
@@ -861,9 +870,9 @@ sub parse_filename {
 
 sub post_process {
     ## Sets symlinks and runs stash, if available
-    my $meta = pop @_;
-    my $trg  = &primary_path(@_);
-    &stash($trg, $meta);
+    my $param = &subparam( @_ );
+    my $trg   = &primary_path(@_);
+    &stash($trg, $param->{META});
     &symlinked_paths( @_ );
 }
 
@@ -937,6 +946,14 @@ Preparing to stash your files...
         my $stashRv = `$cmd`;
     }
     warn "    Stash: $chksum\n";
+}
+
+sub subparam {
+    my %rv;
+    for (my $i = 0; $i < $#_; $i += 2) {
+        $rv{uc($_[$i])} = $_[$i+1];
+    }
+    return \%rv;
 }
 
 

@@ -40,12 +40,13 @@ use Archive::Tar;
 use XML::Twig;
 
 my $sources = {
-    GeneInfo    => "gene/DATA/gene_info.gz",
-    Gene2RefSeq => "gene/DATA/gene2refseq.gz",
-    Gene2PubMed => "gene/DATA/gene2pubmed.gz",
-    Gene2GO     => "gene/DATA/gene2go.gz",
-    Taxonomy    => "pub/taxonomy/taxdump.tar.gz",
-    GO          => "ftp://ftp.geneontology.org/go/ontology/go.obo",
+    GeneInfo     => "gene/DATA/gene_info.gz",
+    Gene2RefSeq  => "gene/DATA/gene2refseq.gz",
+    Gene2PubMed  => "gene/DATA/gene2pubmed.gz",
+    Gene2GO      => "gene/DATA/gene2go.gz",
+    Gene2Ensembl => "gene/DATA/gene2ensembl.gz",
+    Taxonomy     => "pub/taxonomy/taxdump.tar.gz",
+    GO           => "ftp://ftp.geneontology.org/go/ontology/go.obo",
 };
 
 my $vers       = &fetch_all_files();
@@ -124,12 +125,13 @@ my ($geneMeta, $goMeta, $goClosure);
 my @stndMeta   = qw(Symbol Type Description);
 my @stndGoMeta = qw(Name Namespace Description Parents Synonyms);
 my $nsUrl = {
-    Symbol       => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
-    EntrezGene   => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
-    LocusLink    => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
-    PubMed       => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
-    GeneOntology => 'http://amigo.geneontology.org/amigo/term/%s',
-    RefSeqRNA    => 'https://www.ncbi.nlm.nih.gov/nuccore/%s',
+    Symbol        => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
+    EntrezGene    => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
+    LocusLink     => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
+    PubMed        => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
+    GeneOntology  => 'http://amigo.geneontology.org/amigo/term/%s',
+    RefSeqRNA     => 'https://www.ncbi.nlm.nih.gov/nuccore/%s',
+    RefSeqProtein => 'https://www.ncbi.nlm.nih.gov/protein/%s',
 };
 
 my $taxid = $taxDat->{taxid};
@@ -143,7 +145,6 @@ my $authLong = "$auth ## Data repository at the National Center for Biotechnolog
 
 
 &msg("'Release' version: $vers");
-&msg("Working directory:", $tmpDir);
 &msg("Output directory:",  $outDir);
 # &backfill_pubmed(21413195);
 
@@ -191,11 +192,15 @@ my $stashMeta = {
 &go_hierarchy("Hierarchy");
 &go_hierarchy("Closure");
 &ontology_go();
-&map_refseq_rna();
-&death("WORKING");
-&map_refseq_protein();
-&map_rna_prot();
+&map_refseq_objects('rna',     'gene');
+&map_refseq_objects('protein', 'gene');
+&map_refseq_objects('rna',     'protein');
+&map_ensembl_objects('gene');
+&map_ensembl_objects('rna');
+&map_ensembl_objects('protein');
 &ontology_pubmed();
+
+&msg("Processing complete for $specID");
 
 sub fetch_all_files {
     ## The files being used here are not part of a unified
@@ -205,11 +210,11 @@ sub fetch_all_files {
     ## version. For this reason, today's date will be taken as the
     ## "release version", and all files will be bulk recovered at once
     ## to try to get a semblance of consistency.
-    &msg("Downloading source files");
+    &msg("Downloading source files to $tmpDir");
     foreach my $tag (sort keys %{$sources}) {
         my $src   = $sources->{$tag};
         my $fVers = &_datestamp_for_file(&fetch_url($src));
-        &msg("    $tag :  $fVers");
+        &msg(sprintf("    %15s : %s", $tag, $fVers));
     }
     my ($sec,$min,$hour,$mday,$mon,$year) = localtime();
     my $vFile = "$tmpDir/BuildDate.txt";
@@ -233,7 +238,9 @@ sub make_entrez_metadata_file {
     my $fVers = &_datestamp_for_file(&fetch_url($src));
     my $type  = "Metadata";
     my $cont  = "EntrezGene";
-    my @fbits = ($type, $specID, $cont, undef, $auth, $fVers, $vers);
+    my %fbits = (type => $type,  mod  => $specID, sfx => 'tsv',
+                 ns1  => $cont,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         Species    => $specID,
         MatrixType => $type,
@@ -243,11 +250,11 @@ sub make_entrez_metadata_file {
         Source     => &ftp_url($src),
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         unless ($tasks{MakeMeta}++) {
             &msg("Using existing Metadata file:", $trg);
-            &post_process( @fbits, $fmeta );
+            &post_process( %fbits, meta => $fmeta );
         }
         return $trg;
     }
@@ -376,7 +383,8 @@ sub make_entrez_metadata_file {
     close METAF;
     rename($tmp, $trg);
     &msg("Generated Entrez metadata file", $trg);
-    &post_process( @fbits, $fmeta );
+    $tasks{MakeMeta}++;
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
@@ -401,7 +409,9 @@ sub make_go_metadata_file {
 
     my $type  = "Metadata";
     my $cont  = "GeneOntology"; ## Both the content and authority
-    my @fbits = ($type, undef, $cont, undef, $cont, $fVers, "$auth/$vers");
+    my %fbits = (type => $type, sfx => 'tsv',
+                 ns1  => $cont,
+                 auth => $cont,  vers => $fVers);
     my $meta = {
         Species    => undef,
         Authority  => $cont,
@@ -412,14 +422,14 @@ sub make_go_metadata_file {
         Source     => &ftp_url($src),
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
 
     ## ignoring has_part : inverse of part_of
 
     unless (&output_needs_creation($trg)) {
         unless ($tasks{GoMeta}++) {
             &msg("Using existing Metadata file:", $trg);
-            &post_process( @fbits, $fmeta );
+            &post_process( %fbits, meta => $fmeta );
         }
         return $trg;
     }
@@ -470,7 +480,8 @@ sub make_go_metadata_file {
     close METAF;
     rename($tmp, $trg);
     &msg("Generated GeneOntology metadata file", $trg);
-    &post_process( @fbits, $fmeta );
+    $tasks{GoMeta}++
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
@@ -676,16 +687,18 @@ sub map_locuslink {
     my $src   = &ftp_url($sources->{GeneInfo});
     my $fVers = &_datestamp_for_file( &make_entrez_metadata_file() );
     my ($nsi, $nsj) = ("LocusLink", "EntrezGene");
-    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my %fbits = (type => "Map",  mod  => $specID,
+                 ns1  => $nsi,   ns2  => $nsj,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         Source    => $src,
         Namespace => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsi map:", $trg);
-        &post_process( @fbits, $fmeta );
+        &post_process( %fbits, meta => $fmeta );
         return $trg;
     }
     &capture_gene_meta();
@@ -739,29 +752,50 @@ sub map_locuslink {
 
     rename($tmp, $trg);
     &msg("Generated LocusLink to Entrez mapping", $trg);
-    &post_process( @fbits, $fmeta );
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
-sub map_refseq_rna {
+sub map_refseq_objects {
+
+    my ($rReq, $cReq) = map { lc($_) } @_;
+    my (@ns, @metSrcCol, @metCols);
+    for my $i (0..1) {
+        my $req = $_[$i] || '-NOT DEFINED-';
+        if ($req =~ /(rna|nuc)/i) {
+            $ns[$i]        = 'RefSeqRNA';
+            $metSrcCol[$i] = 'RNA';
+            $metCols[$i]   = ['Symbol', 'Description'];
+        } elsif ($req =~ /prot/i) {
+            $ns[$i]        = 'RefSeqProtein';
+            $metSrcCol[$i] = 'Protein';
+            $metCols[$i]   = ['Symbol', 'Description'];
+        } elsif ($req =~ /(gene|loc)/i) {
+            $ns[$i]        = 'EntrezGene';
+            $metSrcCol[$i] = 'GeneID';
+            $metCols[$i]   = ['Symbol', 'Type', 'Description'];
+        } else {
+            &err("Unrecognized RefSeq object '$req'");
+            return "";
+        }
+    }
     my $src   = $sources->{Gene2RefSeq};
     my $type  = "Map";
     my $fVers = &_datestamp_for_file(&fetch_url($src));
-    my ($nsi, $nsj) = ("RefSeqRNA", "EntrezGene");
-    my @fbits = ($type, $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my %fbits = (type => $type,  mod  => $specID,
+                 ns1  => $ns[0],   ns2  => $ns[1],
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         Species    => $specID,
         MatrixType => $type,
-        FileType   => "TSV",
         Version    => $fVers,
-        'Format'   => "TSV",
         Source     => &ftp_url($src),
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
-        &msg("Keeping existing $nsi map:", $trg);
-        &post_process( @fbits, $fmeta );
+        &msg("Keeping existing $ns[0] map:", $trg);
+        &post_process( %fbits, meta => $fmeta );
         return $trg;
     }
     &capture_gene_meta();
@@ -774,28 +808,34 @@ sub map_refseq_rna {
     $head =~ s/[\n\r]+$//;
     $head = [split("\t", $head)];
     my %cols = map { $head->[$_] => $_ } (0..$#{$head});
-    ## Source indices for row, col, score
-    my ($ri, $ci, $si) = map { $cols{$_} } qw(RNA GeneID Status);
+    ## Source indices for row, col, score, and gene
+    my @inds = map { $cols{$_} } ($metSrcCol[0], $metSrcCol[1], 'Status', 'GeneID');
     &death("Failed to find required column headers in $rsf")
-        unless (defined $ri && defined $ci && defined $si);
+        unless (defined $inds[0] && defined $inds[1] && 
+                defined $inds[2] && defined $inds[3]);
     my (%rmeta, %cmeta);
     my ($rnum, $cnum, $nznum) = (0,0,0);
     while (<RF>) {
         s/[\n\r]+$//;
         my @row = split(/\t/);
-        my ($r, $c, $sc) = ($row[$ri], $row[$ci], $row[$si]);
+        my ($r, $c, $sc, $g) = map { $row[$_] } @inds;
         next unless ($r && $c && $sc);
         my $cm = $cmeta{$c} ||= {
             name  => $c,
             order => ++$cnum,
+            ## Copy locus metadata for now
+            Symbol      => $geneMeta->{$g}{Symbol},
+            Type        => $geneMeta->{$g}{Type},
+            Description => $geneMeta->{$g}{Description},
         };
         my $rm = $rmeta{$r} ||= {
             name        => $r,
             order       => ++$rnum,
             hits        => {},
             ## Copy locus metadata for now
-            Description => $geneMeta->{$c}{Description},
-            Symbol      => $geneMeta->{$c}{Symbol},
+            Symbol      => $geneMeta->{$g}{Symbol},
+            Type        => $geneMeta->{$g}{Type},
+            Description => $geneMeta->{$g}{Description},
         };
         my $pSc  = $scH->{uc($sc)};
         unless ($pSc) {
@@ -814,19 +854,19 @@ sub map_refseq_rna {
     { $a->{order} <=> $b->{order} } values %cmeta;
 
     my $tmp = "$trg.tmp";
-    open(MTX, ">$tmp") || &death("Failed to write $nsj map", $tmp, $!);
+    open(MTX, ">$tmp") || &death("Failed to write $ns[1] map", $tmp, $!);
     print MTX &_initial_mtx_block
-        ( "Mapping", $rnum, $cnum, $nznum, "$auth $specID $nsi-to-$nsj Map",
-          "Accession conversion from $nsi to $nsj",
+        ( "Mapping", $rnum, $cnum, $nznum, "$auth $specID $ns[0]-to-$ns[1] Map",
+          "Accession conversion from $ns[0] to $ns[1]",
           "Factor levels representing RefSeq review status codes",
-          $nsi, $nsj);
+          $ns[0], $ns[1]);
 
     print MTX &_dim_block({
         %{$fmeta},
-        RowDim    => $nsi,
-        RowUrl    => $nsUrl->{$nsi},
-        ColDim    => $nsj,
-        ColUrl    => $nsUrl->{$nsj}, 
+        RowDim    => $ns[0],
+        RowUrl    => $nsUrl->{$ns[0]},
+        ColDim    => $ns[1],
+        ColUrl    => $nsUrl->{$ns[1]}, 
         Authority => $authLong });
 
     print MTX &_citation_MTX();
@@ -846,18 +886,17 @@ sub map_refseq_rna {
     print MTX &_factor_map_block
         ( $lvls, $scH, "Review Status",
           ["Review status of the RefSeq entries",
-           "https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/"],
+           "  https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/"],
         \%counts);
 
     print MTX &_rowcol_meta_comment_block();
 
     ## Note row metadata
-    my @refMetCols = qw(Symbol Description);
-    print MTX &_generic_meta_block(\@rowIds, 'Row', \%rmeta, \@refMetCols);
+    print MTX &_generic_meta_block(\@rowIds, 'Row', \%rmeta, $metCols[0]);
 
     ## Column metadata
     print MTX "% $bar\n";
-    print MTX &_generic_meta_block(\@colIds, 'Col', $geneMeta, \@stndMeta);
+    print MTX &_generic_meta_block(\@colIds, 'Col', \%cmeta, $metCols[1]);
 
     print MTX &_triple_header_block( $rnum, $cnum, $nznum );
     for my $i (0..$#rowIds) {
@@ -867,25 +906,21 @@ sub map_refseq_rna {
     }
     close MTX;
     rename($tmp, $trg);
-    &msg("Generated $nsi to $nsj mapping", $trg);
-    &post_process( @fbits, $fmeta );
-
-    &death("WORKING");
+    &msg("Generated $ns[0] to $ns[1] mapping", $trg);
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
-sub map_refseq_protein {
-}
 
-sub map_rna_prot {
-}
 
-sub make_refseq_file {
-    my $src   = $sources->{Gene2RefSeq};
+sub make_ensembl_file {
+    my $src   = $sources->{Gene2Ensembl};
     my $type  = "Metadata";
-    my $cont  = "RefSeq";
+    my $cont  = "Ensembl";
     my $fVers = &_datestamp_for_file(&fetch_url($src));
-    my @fbits = ($type, $specID, $cont, undef, $auth, $fVers, $vers);
+    my %fbits = (type => $type,  mod  => $specID, sfx => "tsv",
+                 ns1  => $cont,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         MatrixType => $type,
         FileType   => "TSV",
@@ -894,12 +929,109 @@ sub make_refseq_file {
         Source     => &ftp_url($src),
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
+
+    unless (&output_needs_creation($trg)) {
+        unless ($tasks{EnsFile}++) {
+            &msg("Using existing $cont file:", $trg);
+            &post_process( %fbits, meta => $fmeta );
+        }
+        return $trg;
+    }
+
+# 9606    20      ENSG00000107331 XM_006716996.3  ENST00000371605.7       XP_006717059.1  ENSP00000360666.3
+# 9606    20      ENSG00000107331 XR_001746224.1  ENST00000459850.5       -       -
+# 9606    21      ENSG00000167972 NM_001089.2     ENST00000301732.9       NP_001080.2     ENSP00000301732.5
+
+
+    &msg("Parsing $cont lookups");
+    my $cols = { 
+        taxid  => 'tax_id',
+        gene   => 'GeneID',
+        ensg   => 'Ensembl_gene_identifier',
+        ## Sequence IDs are versioned! For most species, at least.
+        rsr    => 'RNA_nucleotide_accession.version',
+        enst   => 'Ensembl_rna_identifier',
+        rsp    => 'protein_accession.version',
+        ensp   => 'Ensembl_protein_iden',
+    };
+
+    my %loci;
+    my ($nrow, $orow) = (0,0);
+
+    my ($fh)  = &gzfh($src, $cols);
+    my $tInd  = $cols->{taxid}; # Taxid, eg 9606
+    my @inds  = map { $cols->{$_} } qw(gene ensg rsr enst rsp ensp);
+    my @fCols = qw(GeneID EnsemblGene RefSeqRNA EnsemblRNA RefSeqProtein EnsemblProtein);
+    my $tmp = "$trg.tmp";
+    open (TSV, ">$tmp") || &death("Failed to write Ensembl file",
+                                    $tmp, $!);
+    print TSV join("\t", @fCols) ."\n";
+    while (<$fh>) {
+        s/[\n\r]+$//;
+        my @row = split("\t");
+        unless ($row[$tInd] == $taxid) {
+            ## Stop parsing if we have already found some hits. THIS
+            ## MAY BE A BAD IDEA. It should speed up parsing (neglects
+            ## need to scan whole file) but there is no guarantee that
+            ## taxa won't end up scattered through file in future
+            ## versions:
+            last if ($nrow);
+            next; # Otherwise, keep scanning for taxid
+        }
+        map { s/^\-$// } @row; # Turn '-' cells to empty string
+        ## Really just copying over rows as-is. Will handle accession
+        ## version numbers in Matrix generation
+        print TSV join("\t", map { $row[$_] } @inds)."\n";
+    }
+    close $fh;
+    rename($tmp, $trg);
+    &msg("Generated Ensembl assignments file", $trg);
+    &post_process( %fbits, meta => $fmeta );
+    return $trg;
+}
+
+sub map_ensembl_objects {
+
+    die "WORK HERE";
+
+
+    my ($req) = @_;
+    my (@ns, @metSrcCol, @metCols);
+    if ($req =~ /(rna|nuc)/i) {
+        @ns = qw(RefSeqRNA EnsemblRNA);
+    } elsif ($req =~ /prot/i) {
+    } elsif ($req =~ /(gene|loc)/i) {
+    } else {
+        &err("Unrecognized Ensembl object '$req'");
+        return "";
+    }
+
+}
+
+
+sub make_refseq_file {
+    my $src   = $sources->{Gene2RefSeq};
+    my $type  = "Metadata";
+    my $cont  = "RefSeq";
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my %fbits = (type => $type,  mod  => $specID, sfx => "tsv",
+                 ns1  => $cont,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
+    my $meta = {
+        MatrixType => $type,
+        FileType   => "TSV",
+        Version    => $fVers,
+        'Format'   => "TSV",
+        Source     => &ftp_url($src),
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(%fbits);
 
     unless (&output_needs_creation($trg)) {
         unless ($tasks{RSFile}++) {
             &msg("Using existing RefSeq file:", $trg);
-            &post_process( @fbits, $fmeta );
+            &post_process( %fbits, meta => $fmeta );
         }
         return $trg;
     }
@@ -999,7 +1131,7 @@ sub make_refseq_file {
     close TSV;
     rename($tmp, $trg);
     &msg("Generated RefSeq assignments file, $orow rows from $nrow input",$trg);
-    &post_process( @fbits, $fmeta );
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
@@ -1008,16 +1140,18 @@ sub map_symbol {
     my $fVers = &_datestamp_for_file( &make_entrez_metadata_file() );
     my $src   = &ftp_url( $sources->{GeneInfo});
     my ($nsi, $nsj) = ("Symbol", "EntrezGene");
-    my @fbits = ("Map", $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my %fbits = (type => "Map",  mod  => $specID,
+                 ns1  => $nsi,   ns2  => $nsj,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         Source    => $src,
         Namespace => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing Gene Symbol map:", $trg);
-        &post_process( @fbits, $fmeta );
+        &post_process( %fbits, meta => $fmeta );
         return $trg;
     }
     &capture_gene_meta();
@@ -1118,7 +1252,7 @@ sub map_symbol {
     close MTX;
     rename($tmp, $trg);
     &msg("Generated $nsi to $nsj mapping", $trg);
-    &post_process( @fbits, $fmeta );
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
@@ -1127,17 +1261,19 @@ sub ontology_pubmed {
     my $fVers = &_datestamp_for_file(&fetch_url($src));
     my $type  = "Ontology";
     my ($nsi, $nsj) = ("EntrezGene", "PubMed");
-    my @fbits = ($type, $specID, $nsi, $nsj, $auth, $fVers, $vers);
+    my %fbits = (type => $type,  mod  => $specID,
+                 ns1  => $nsi,   ns2  => $nsj,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         Source     => &ftp_url($src),
         MatrixType => $type,
         Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsj file:", $trg);
-        &post_process( @fbits, $fmeta );
+        &post_process( %fbits, meta => $fmeta );
         return $trg;
     }
     unless ($dbf) {
@@ -1260,7 +1396,7 @@ sub ontology_pubmed {
     close MTX;
     rename($tmp, $trg);
     &msg("Generated Entrez PubMed ontology", $trg);
-    &post_process( @fbits, $fmeta );
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
@@ -1270,7 +1406,10 @@ sub go_hierarchy {
     my $fVers = &_datestamp_for_file(&make_go_metadata_file());
     my $cont  = "GeneOntology";    
     my ($nsi, $nsj) = ("Child", "Parent");
-    my @fbits = ($type, $cont, $nsi, $nsj, $cont, $fVers, "$auth/$vers");
+    my %fbits = (type => $type,  mod  => $cont,
+                 ns1  => $nsi,   ns2  => $nsj,
+                 auth => $cont,  vers => $fVers );
+
     my $meta = {
         Source     => &ftp_url($src),
         MatrixType => $type, 
@@ -1278,11 +1417,11 @@ sub go_hierarchy {
         Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         unless ($tasks{"GO-$type"}++) {
             &msg("Keeping existing $cont $type file:", $trg);
-            &post_process( @fbits, $fmeta );
+            &post_process( %fbits, meta => $fmeta );
         }
         return $trg;
     }
@@ -1357,7 +1496,7 @@ sub go_hierarchy {
     close MTX;
     rename($tmp, $trg);
     &msg("Generated $cont $nsi to $nsj $type", $trg);
-    &post_process( @fbits, $fmeta );
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
@@ -1366,17 +1505,19 @@ sub ontology_go {
     my $type  = "Ontology";
     my $fVers = &_datestamp_for_file(&fetch_url($src));
     my ($nsi, $nsj) = ("EntrezGene", "GeneOntology");
-    my @fbits = ($type, $specID, $nsi, $nsj, $auth, $fVers);
+    my %fbits = (type => $type,  mod  => $specID,
+                 ns1  => $nsi,   ns2  => $nsj,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
         Source     => &ftp_url($src),
         MatrixType => $type,
         Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
-    my $trg   = &primary_path(@fbits);
+    my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsj file:", $trg);
-        &post_process( @fbits, $fmeta );
+        &post_process( %fbits, meta => $fmeta );
         return $trg;
     }
     &capture_gene_meta();
@@ -1428,7 +1569,8 @@ sub ontology_go {
         my $kid = $row[$gInd];
         my @allGo = @{$expand{$kid} || []};
         if ($#allGo == -1) {
-            &msg("[DataError] - Could not find ancestors for $kid");
+            &msg("[DataError] - Could not find ancestors for $kid")
+                unless ($tasks{"CarpNoParents-$kid"}++);
             next;
         }
         my $sc = $scH->{ uc($row[ $eInd ]) };
@@ -1527,7 +1669,7 @@ sub ontology_go {
     close MTX;
     rename($tmp, $trg);
     &msg("Generated $nsj $type", $trg);
-    &post_process( @fbits, $fmeta );
+    &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
