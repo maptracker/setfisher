@@ -113,8 +113,8 @@ parse_MatrixMarket_file <- function( file ) {
     }
     rv$params <- params
     
-    ## Find the row and column header lines
-    rcPos <- grep("^(Row|Col) Name", allCom)
+    ## Find the row and column header lines, and optionally Cell metadata
+    rcPos <- grep("^(Row|Col|Cell) Name", allCom)
     rcLen <- length(rcPos)
     parseRow <- function (x, sep = NA) {
         ## strsplit() on spaces discards trailing spaces, which causes
