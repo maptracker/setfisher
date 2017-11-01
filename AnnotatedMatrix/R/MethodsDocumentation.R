@@ -492,6 +492,8 @@ NULL
 #'     \item MinScore    MaxScore
 #'     \item MinRowCount MaxRowCount
 #'     \item MinColCount MaxColCount
+#'     \item KeepRow     TossRow
+#'     \item KeepCol     TossCol
 #'     \item KeepLevel   TossLevel
 #'     \item TossMeta
 #' 
@@ -518,9 +520,9 @@ NULL
 #'     (cells, rows, cols).
 #'
 #' @seealso \link{filterByScore}, \link{filterByFactorLevel},
-#'     \link{filterByMetadata}, \link{filterByCount}, \link{reset},
-#'     \link{filterSummary}, \link{appliedFilters},
-#'     \link[ParamSetI]{showParameters}
+#'     \link{filterByMetadata}, \link{filterByCount},
+#'     \link{filterById}, \link{reset}, \link{filterSummary},
+#'     \link{appliedFilters}, \link[ParamSetI]{showParameters}
 #'
 #' @examples
 #'
@@ -626,6 +628,72 @@ NULL
 #' s2e$filterByScore( min=4, reason="Focus on official symbols only" )
 #' # We now have a more constrained matrix:
 #' sum( s2e$populatedRows() )  # 28
+#' s2e$filterSummary()
+#' 
+NULL
+
+#' Filter by ID
+#'
+#' AnnotatedMatrix object method to filter rows and columns by their names
+#'
+#' @name filterById
+#' @method filterById AnnotatedMatrix
+#' 
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$filterById( help=TRUE )
+#'
+#' myObject$filterById( id, MARGIN=NULL, keep=FALSE,
+#'                      ignore.case=TRUE, filterEmpty=FALSE, reason=NA)
+#' }
+#' 
+#' Updates the \link[=matrixUse]{used matrix} to remove rows and
+#' columns based on their IDs (names). 
+#'
+#' This filter was created initially to support hypergeometric-based
+#' gene enrichment analysis. In that context it can remove ontology
+#' terms that are assigned to "few" (too specific) or "many" (too
+#' generic) genes. It is also be used to remove genes with few
+#' ontology terms, as a mechanism to exclude genes with poor
+#' biological support.
+#'
+#' @param id Required, a vector of one or more IDs (names) to match
+#'     against.
+#' @param MARGIN Default \code{NULL}, defines the dimensions to be
+#'     filtered. Can specify rows with '1' or 'row', columns with '2'
+#'     or 'col'. If NULL, then both rows and columns will be matched.
+#' @param keep Default \code{FALSE}, which will cause matching IDs to
+#'     be removed. If TRUE, then non-matching IDs will be removed.
+#' @param ignore.case Default TRUE, which ignores the capitilazation
+#'     of IDs
+#' @param filterEmpty Default FALSE. If true, then rows or columns
+#'     that are empty after filtering will be removed from the matrix
+#'     using \link{removeEmpty}. If no cells were affected by the
+#'     \code{filterByCount} call, then \code{removeEmpty} will not be
+#'     called. If you wish to assure that empty rows and columns are
+#'     removed after this filter, you should call \code{removeEmpty}
+#'     explicitly.
+#' @param reason Default NA. Optional human-readable reason for why
+#'     the alteration was made, will be recorded in \link{filterLog}
+#'     and used to structure \link{filterSummary}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return Invisibly, an integer vector of newly zeroed counts for
+#'     (cells, rows, cols).
+#'
+#' @seealso \link{filterLog}, \link{filterSummary}, \link{autoFilter},
+#'     \link{appliedFilters}, \link{rNames}, \link{cNames}
+#'
+#' @examples
+#'
+#' ## Fitler the example matrix to find symbols that have 3 or more genes:
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#'
+#'  ### NEED EXAMPLES HERE
+#' 
 #' s2e$filterSummary()
 #' 
 NULL

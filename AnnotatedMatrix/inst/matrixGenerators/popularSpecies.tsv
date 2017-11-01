@@ -1,0 +1,36 @@
+## This file is used to auto-filter the hundreds of available species
+## into a view of the more common model organisms when the full
+## orthologue map is generated. If you want to alter this filter,
+## utilize the 'OrthologueSpeciesSummary.txt' file that will be
+## generated to view the available species, and trim it to the ones
+## you want. Alternatively, when using AnnotatedMatrix the $reset()
+## method will remove all applied filters, so that the whole matrix is
+## available.
+
+## The Entrez `gene_group.gz` file appears to list orthologues
+## (nearly) exclusively within taxonomic familes. For example, all
+## (nearly - 99.9%+) the orthologues for humans are other vertebrates;
+## Notably absent model organisms are E. coli, yeast and
+## worm. Homologene has an even more restricted set of species.
+
+## The OrthCount and OrthPerc columns below are relative to human, as
+##  of Oct 18 2017.
+
+TaxID	OrthCount	OrthPerc	OrgName	SciName
+9606	19300	100.0	Human	Homo sapiens
+9598	17539	90.9	Chimpanzee	Pan troglodytes
+9541	17308	89.7	Crab-eating macaque	Macaca fascicularis
+9544	17280	89.6	Rhesus monkey	Macaca mulatta
+10090	16530	85.7	House mouse	Mus musculus
+9823	16433	85.2	Pig	Sus scrofa
+9615	16369	84.8	Dog	Canis lupus familiaris
+9913	16254	84.2	Cattle	Bos taurus
+10141	16089	83.4	Domestic guinea pig	Cavia porcellus
+10116	16068	83.3	Norway rat	Rattus norvegicus
+10036	15878	82.3	Golden hamster	Mesocricetus auratus
+10029	15526	80.5	Chinese hamster	Cricetulus griseus
+9986	15357	79.6	Rabbit	Oryctolagus cuniculus
+9031	13074	67.8	Chicken	Gallus gallus
+8364	12944	67.1	Tropical clawed frog	Xenopus tropicalis
+59729	11677	60.5	Zebra finch	Taeniopygia guttata
+7955	10365	53.7	Zebrafish	Danio rerio

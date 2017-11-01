@@ -138,6 +138,8 @@ RowDim      [character] Name for the row dimension
 ColDim      [character] Name for the column dimension
 RowUrl      [character] Base URL for row names (%s placeholder for name)
 ColUrl      [character] Base URL for column names (%s placeholder for name)
+LoadComment [character] Optional message displayed when matrix is first loaded
+CellMetadata [character] One or more metadata fields associated with cell values
 
 MinScore    [numeric] Minimum score recognized by $autoFilter()
 MaxScore    [numeric] Maximum score recognized by $autoFilter()
@@ -146,9 +148,13 @@ MaxRowCount [character] Maximum assignments per row, can be a percentage, recogn
 MinColCount [character] Minimum assignments per column, can be a percentage, recognized by $autoFilter()
 MaxColCount [character] Maximum assignments per column, can be a percentage, recognized by $autoFilter()
 KeepLevel   [character] List of preserved factor levels recognized by $autoFilter()
-TossLevel   [character] List of discarded factor levels recognized by $autoFilter()
+TossLevel   [character] List of masked factor levels recognized by $autoFilter()
+KeepRow     [character] Specific row IDs to keep, recognized by $autoFilter()
+KeepCol     [character] Specific column IDs to keep, recognized by $autoFilter()
+TossRow     [character] Specific row IDs to mask, recognized by $autoFilter()
+TossCol     [character] Specific column IDs to mask, recognized by $autoFilter()
 TossMeta    [character] Metadata value filter recognized by $autoFilter()
-AutoFilterComment [character] Optional comment displayed when automatic filters are applied to the matrix.
+AutoFilterComment [character] Optional message displayed when automatic filters are applied to the matrix.
 ", ...)
         if (!CatMisc::is.def(file))
             err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
@@ -157,6 +163,10 @@ AutoFilterComment [character] Optional comment displayed when automatic filters 
         .readMatrix( ... )
         reset()
         if (autofilter) autoFilter()
+        com <- param("LoadComment")
+        if (is.something(com)) message(paste(strwrap(com),
+            collapse="\n"), color='cyan')
+        
     },
     
     matObj = function( raw=FALSE, transpose=FALSE, help=FALSE) {
@@ -328,6 +338,8 @@ AutoFilterComment [character] Optional comment displayed when automatic filters 
             x <- x + filterByScore(max=max, reason=attr(max,"comment"))
             numFilt <- numFilt + 1
         }
+
+        ## Factor level filters
         for (kt in c("Keep", "Toss")) {
             isKeep <- kt == "Keep"
             if (is.factor()) {
@@ -354,6 +366,19 @@ AutoFilterComment [character] Optional comment displayed when automatic filters 
                                               reason=attr(meta,"comment"))
                     numFilt <- numFilt + 1
                 }
+            }
+        }
+
+        ## Explicit ID filters
+        for (kt in c("Keep", "Toss")) {
+            isKeep <- kt == "Keep"
+            for (rc in c("Row", "Col")) {
+                ## eg "KeepCol", "TossRow"
+                filt <- param(sprintf("%s%s", kt, rc))
+                if (!CatMisc::is.something(filt)) next
+                r <- attr(filt,"comment")
+                x <- x + filterById(id=filt, MARGIN=rc, keep=isKeep, reason=r)
+                numFilt <- numFilt + 1
             }
         }
 
@@ -492,6 +517,84 @@ AutoFilterComment [character] Optional comment displayed when automatic filters 
                 ## Strip empty rows and columns
                 if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
                 removeEmpty(ttxt)
+            }
+        }
+        invisible(setNames(rv, .filterNames))
+    },
+
+    filterById = function(id, MARGIN=NULL, keep=FALSE, ignore.case=TRUE,
+                             filterEmpty=FALSE, reason=NA, help=FALSE) {
+        "Filter rows or columns based on specific IDs"
+        if (help) return(CatMisc::methodHelp(match.call(), class(.self),
+                                             names(.refClassDef@contains)))
+        rv     <- c(0L, 0L, 0L)
+        reason <- reason[1]
+        MARGIN <- MARGIN[1]
+        obj    <- matObj()
+        chk    <- "IN"
+        if (keep) chk <- paste("NOT", chk)
+        if (ignore.case) {
+            id  <- tolower(id)
+            ## For applied filter parsing, we're going to capture case
+            ## sensitivity in the case of the 'in'/'IN' tokens
+            chk <- tolower(chk)
+        }
+        idtxt <- paste(id, collapse='//')
+        if (is.null(MARGIN) || grepl('(1|row)', MARGIN, ignore.case=TRUE)) {
+            ## Filter by rowname
+            n <- rNames()
+            if (ignore.case) n <- tolower(n)
+            ## Get the indices for the matched names
+            ival <- which(is.element(n, id)) - 1
+            fail <- is.element(obj@i, ival)
+            if (keep) fail <- !fail
+            fail <- fail & obj@x != 0
+            numF <- sum(fail)
+            if (numF > 0) {
+                obj@x[ fail ] <- 0
+                tt  <- paste("Row ID", chk, idtxt)
+                ijz <- .detailZeroedRowCol( obj, fail, tt, reason )
+                rv  <- rv + c(numF, ijz)
+            }
+            .addAppliedFilter("ROWID", idtxt, reason, chk)
+        }
+        if (is.null(MARGIN) || grepl('(2|col)', MARGIN, ignore.case=TRUE)) {
+            ## Filter by colname
+            n <- cNames()
+            if (ignore.case) n <- tolower(n)
+            ## Get the indices for the matched names
+            jval <- which(is.element(n, id)) - 1
+            fail <- is.element(obj@j, jval)
+            if (keep) fail <- !fail
+            fail <- fail & obj@x != 0
+            numF <- sum(fail)
+            if (numF > 0) {
+                obj@x[ fail ] <- 0
+                tt  <- paste("Col ID", chk, idtxt)
+                ijz <- .detailZeroedRowCol( obj, fail, tt, reason )
+                rv  <- rv + c(numF, ijz)
+            }
+            .addAppliedFilter("COLID", idtxt, reason, chk)
+        }
+
+        message("
+
+TODO / WORK HERE
+
+* Verify core functions!! Also .addAppliedFilter
+* tests
+* documentation
+* think about regexp??
+
+")
+
+        if (rv[1] != 0) {
+            matrixUse <<- obj
+            if (filterEmpty) {
+                ## Strip empty rows and columns
+                metric <- paste("IDs", chk, idtxt)
+                if (CatMisc::is.something(reason)) metric <- paste(metric,reason)
+                removeEmpty(metric)
             }
         }
         invisible(setNames(rv, .filterNames))
@@ -856,7 +959,7 @@ AutoFilterComment [character] Optional comment displayed when automatic filters 
             }
         }
         margTxt <- if(is.null(MARGIN)) { "any" } else { MARGIN }
-        .addAppliedFilter("METADATA", val, reason,sprintf("'%s' %s", colN,type),
+        .addAppliedFilter("METADATA", val, reason,sprintf('"%s" %s', colN,type),
                           sprintf("[%s %s%s%s]", margTxt, op,
                                   ifelse(keep, ' Keep', ''),
                                   ifelse(ic, ' ignore.case', '')))

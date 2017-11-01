@@ -15,6 +15,13 @@ my $defRel  = "regulates,positively_regulates,negatively_regulates,intersection_
 ## https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/
 my $defRsStat = "Unknown,SUPPRESSED,NA,WGS,MODEL,INFERRED,PREDICTED,PROVISIONAL,REVIEWED,VALIDATED";
 
+## Default filter threshold for the global orthologue file, as well as
+## for which species will get their own files generated.
+my $defOrthPerc = 75;
+
+## Species in the >80 - <= 85 range
+## Dog Cow Horse Rat Sheep Golden hamster 
+
 
 our $defaultArgs = {
     ftp       => $defFtp,
@@ -38,6 +45,7 @@ use DBI;
 use DBD::SQLite;
 use Archive::Tar;
 use XML::Twig;
+use JSON;
 
 my $sources = {
     GeneInfo     => "gene/DATA/gene_info.gz",
@@ -47,6 +55,7 @@ my $sources = {
     Gene2Ensembl => "gene/DATA/gene2ensembl.gz",
     Taxonomy     => "pub/taxonomy/taxdump.tar.gz",
     GO           => "ftp://ftp.geneontology.org/go/ontology/go.obo",
+    Gene2Orth    => "gene/DATA/gene_group.gz",
 };
 
 my $vers       = &fetch_all_files();
@@ -124,14 +133,23 @@ Optional Arguments:
 my ($geneMeta, $goMeta, $goClosure);
 my @stndMeta   = qw(Symbol Type Description);
 my @stndGoMeta = qw(Name Namespace Description Parents Synonyms);
+## Ensembl does not provide a 'clean' way to get to an accession
+## without also knowing the species name. If we recover the species
+## name later (a few dozen lines below), we will build a
+## species-specific link.
+my $ensSearch  = 'http://www.ensembl.org/Multi/Search/Results?q=%s';
 my $nsUrl = {
-    Symbol        => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
-    EntrezGene    => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
-    LocusLink     => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
-    PubMed        => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
-    GeneOntology  => 'http://amigo.geneontology.org/amigo/term/%s',
-    RefSeqRNA     => 'https://www.ncbi.nlm.nih.gov/nuccore/%s',
-    RefSeqProtein => 'https://www.ncbi.nlm.nih.gov/protein/%s',
+    Symbol         => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s%%5Bsym%%5D',
+    EntrezGene     => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
+    LocusLink      => 'https://www.ncbi.nlm.nih.gov/gene/?term=%s', # For LOC###
+    PubMed         => 'https://www.ncbi.nlm.nih.gov/pubmed/%s',
+    GeneOntology   => 'http://amigo.geneontology.org/amigo/term/%s',
+    RefSeqRNA      => 'https://www.ncbi.nlm.nih.gov/nuccore/%s',
+    RefSeqProtein  => 'https://www.ncbi.nlm.nih.gov/protein/%s',
+    Orthologue     => 'https://www.ncbi.nlm.nih.gov/taxonomy/?term=%s',
+    EnsemblGene    => $ensSearch,
+    EnsemblRNA     => $ensSearch,
+    EnsemblProtein => $ensSearch,
 };
 
 my $taxid = $taxDat->{taxid};
@@ -150,31 +168,32 @@ my $authLong = "$auth ## Data repository at the National Center for Biotechnolog
 
 ## Summarize the species we are going to parse
 my @taxBits = ("TaxID: $taxid");
-my $specID  = $args->{name}; # This will be a file naming stub
+## 'name' allows the user to specify a custom name. Otherwise, extract
+## a 'human friendly' name from taxonomy information
+my $specID  = $args->{name} || &species_id_for_tax( $taxDat );
 if (my $gcn = $taxDat->{'genbank common name'}) { 
     push @taxBits, "Common Name: ".join(' // ', @{$gcn});
-    unless ($specID) {
-        ## In most cases, the GCN will be the file token:
-        $specID = $gcn->[0];
-        ## dog -> Dog
-        substr($specID, 0, 1, uc( substr($specID, 0, 1) ));
-    }
-    
 }
 if (my $sn = $taxDat->{'scientific name'}) { 
     push @taxBits, "Scientific Name: ".join(' // ', @{$sn});
-    $specID ||= $sn->[0];
+    ## Build the species-specific URLs needed to deep-link in
+    ## Ensembl. Capitalization does not appear to be important:
+    my $enSpec = $sn->[0]; $enSpec =~ s/ /_/g;
+    my $enBase = "http://www.ensembl.org/$enSpec";
+    $nsUrl->{EnsemblGene}    = $enBase.'/Gene/Summary?db=core;g=%s';
+    $nsUrl->{EnsemblRNA}     = $enBase.'/Transcript/Summary?db=core;t=%s';
+    ## Proteins appear to be 'held' by their corresponding
+    ## transcript. Fortunately the 'p' argument appears to resolve
+    ## appropriately:
+    $nsUrl->{EnsemblProtein} = $enBase.'/Transcript/Summary?db=core;p=%s';
 }
 if (my $cn = $taxDat->{'common name'}) { 
     push @taxBits, "Other Aliases: ".join(' // ', @{$cn});
 }
-$specID ||= "taxa$taxid";
-$specID =~ s/\s+/_/g;
+$specID = &_safe_file_fragment($specID);
 push @taxBits, "File token: $specID";
 
 &msg("Target species:", @taxBits);
-
-
 
 ## Stash deduplicated file store - not on all systems
 my $stashMeta = {
@@ -198,6 +217,7 @@ my $stashMeta = {
 &map_ensembl_objects('gene');
 &map_ensembl_objects('rna');
 &map_ensembl_objects('protein');
+&map_orthologue();
 &ontology_pubmed();
 
 &msg("Processing complete for $specID");
@@ -233,16 +253,28 @@ sub fetch_all_files {
 }
 
 sub make_entrez_metadata_file {
+    my $spec = shift;
+    my $tax  = $taxid;
+    if ($spec) {
+        ## Requesting a different taxa than currently being built (for
+        ## example, to annotate orthologues)
+        my $td = &extract_taxa_info( $spec );
+        $tax   = $td->{taxid};
+        $spec  = &species_id_for_tax( $td );
+        $spec  = &_safe_file_fragment($spec);
+    } else {
+        $spec = $specID;
+    }
     # Simple TSV file of species-specific metadata
     my $src   = $sources->{GeneInfo};
     my $fVers = &_datestamp_for_file(&fetch_url($src));
     my $type  = "Metadata";
     my $cont  = "EntrezGene";
-    my %fbits = (type => $type,  mod  => $specID, sfx => 'tsv',
+    my %fbits = (type => $type,  mod  => $spec, sfx => 'tsv',
                  ns1  => $cont,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        Species    => $specID,
+        Species    => $spec,
         MatrixType => $type,
         FileType   => "TSV",
         Version    => $fVers,
@@ -262,7 +294,7 @@ sub make_entrez_metadata_file {
     open (METAF, ">$tmp") || &death("Failed to write metadata file",
                                     $tmp, $!);
     
-    &msg("Parsing basic Gene metadata");
+    &msg("Parsing basic Gene metadata for $spec");
     ## If you see 'expected column' errors, you will need to change
     ## the right hand value (after the '=>') of the offending column,
     ## after determining what the new column name is:
@@ -292,7 +324,7 @@ sub make_entrez_metadata_file {
     while (<$fh>) {
         s/[\n\r]+$//;
         my @row = split("\t");
-        unless ($row[$tInd] == $taxid) {
+        unless ($row[$tInd] == $tax) {
             ## Stop parsing if we have already found some hits. THIS
             ## MAY BE A BAD IDEA. It should speed up parsing (neglects
             ## need to scan whole file) but there is no guarantee that
@@ -480,7 +512,7 @@ sub make_go_metadata_file {
     close METAF;
     rename($tmp, $trg);
     &msg("Generated GeneOntology metadata file", $trg);
-    $tasks{GoMeta}++
+    $tasks{GoMeta}++;
     &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
@@ -655,9 +687,19 @@ sub go_transitive_closure {
 }
 
 sub capture_gene_meta {
-    return $geneMeta if ($geneMeta);
-    $geneMeta  = {};
-    my $mdFile = &make_entrez_metadata_file();
+    my ($req, $rv) = @_;
+    my $td  = $taxDat;
+    if ($req) {
+        # A species other than the one being processed
+        $td = &extract_taxa_info($req);
+    } else {
+        # The species being analyzed
+        return $geneMeta if ($geneMeta && !$rv);
+        $rv ||= $geneMeta = {};
+    }
+    $rv ||= {};
+    my $spec   = &species_id_for_tax( $td );
+    my $mdFile = &make_entrez_metadata_file( $req );
     open(METAF, "<$mdFile") || &death("Failed to read metadata TSV",
                                       $mdFile, $!);
     my $head = <METAF>;
@@ -669,18 +711,365 @@ sub capture_gene_meta {
         my %data = map { $cols[$_] => $row[$_] } (0..$#cols);
         my $gid  = $data{GeneID};
 
-        if ($geneMeta->{$gid}) {
-            &err("Multiple entries for GeneID == $gid");
+        if ($rv->{$gid}) {
+            &err("Multiple entries for GeneID == $gid ($req / $spec)");
         } else {
             ## Turn alias string into array
             my @aliases = split(/\|/, $data{Aliases} || "");
             @aliases = () if ($#aliases == 0 && $aliases[0] eq '');
             $data{Aliases} = \@aliases;
-            $geneMeta->{$gid} = \%data;
+            $data{OrgName} = $spec;
+            $rv->{$gid}    = \%data;
         }
     }
     close METAF;
-    return $geneMeta;
+    return $rv;
+}
+
+sub make_orthologue_file {
+    my $src   = &ftp_url($sources->{Gene2Orth});
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my $type  = "Metadata";
+    my $cont  = "Orthologues";
+    my %fbits = (type => $type,  mod  => $specID, sfx => 'csv',
+                 ns1  => $cont,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
+    my $meta = {
+        Species    => $specID,
+        MatrixType => $type,
+        FileType   => "CSV",
+        Version    => $fVers,
+        'Format'   => "CSV",
+        Source     => &ftp_url($src),
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(%fbits);
+    unless (&output_needs_creation($trg)) {
+        unless ($tasks{MakeOrth}++) {
+            &msg("Using existing Metadata file:", $trg);
+            &post_process( %fbits, meta => $fmeta );
+        }
+        return $trg;
+    }
+    
+    &msg("Parsing Entrez orthologues");
+    ## If you see 'expected column' errors, you will need to change
+    ## the right hand value (after the '=>') of the offending column,
+    ## after determining what the new column name is:
+    my $cols = { 
+        TaxID       => 'tax_id',
+        GeneID      => 'GeneID',
+        Rel         => 'relationship',
+        OTax        => 'Other_tax_id',
+        OID         => 'Other_GeneID',
+    };
+    my ($fh)    = &gzfh($src, $cols);
+    my @getInds = map { $cols->{$_} } qw(TaxID GeneID Rel OTax OID);
+    my $ngene   = 0;
+    my (%species, %otherRel);
+    while (<$fh>) {
+        s/[\n\r]+$//;
+        my @row = split("\t");
+        map { s/^\-$// } @row; # Turn '-' cells to empty string
+        my ($tax, $gid, $rel, $ot, $oid) = map { $row[$_] } @getInds;
+        if ($tax != $taxid) {
+            if ($ot == $taxid) {
+                ## The requested taxa is in the other column. For
+                ## human, this is rare (just four rows), but will
+                ## likely be common for other species. Docs indicate
+                ## that the file is symmetrical, so it shouldn't
+                ## matter which column the matching taxonomy ID is in.
+                ($tax, $gid, $ot, $oid) = ($ot, $oid, $tax, $gid);
+            } else {
+                next;
+            }
+        }
+        if ($rel ne 'Ortholog') {
+            $otherRel{$rel}++;
+            next;
+        }
+        unless ($gid) {
+            &err("Row without GeneID ???", $_);
+            next;
+        }
+        push @{$species{$ot}{$gid}}, $oid;
+        $ngene++;
+    }
+    close $fh;
+
+    my @oRel = map { sprintf("%s (%d)", $_, $otherRel{$_}) } sort 
+    { $otherRel{$b} <=> $otherRel{$a} } keys %otherRel;
+    &msg("Other group relationships ignored: ".join(', ', @oRel))
+         if ($#oRel != -1);
+
+    ## Order other species by most number of matched genes
+    my (%numO, %numG);
+    while (my ($ot, $gidH) = each %species) {
+        my @u = keys %{$gidH};
+        $numO{$ot} = $#u + 1;
+        map {$numG{$_}++} @u;
+        ## Serialize mappings with 2+ hits
+        map { $species{$ot}{$_} = join('|', sort { $a <=> $b } 
+                                       @{$species{$ot}{$_}}) } @u;
+    }
+    my @other = sort { $numO{$b} <=> $numO{$a} || $a <=> $b } keys %numO;
+
+    ## Order the genes by number of species with orthologues
+    my @gids = sort { $numG{$b} <=> $numG{$a} || $a <=> $b } keys %numG;
+
+    &msg(scalar(@gids)." genes have orthologues in ".scalar(@other)." species");
+
+    my $tmp = "$trg.tmp";
+    open (METAF, ">$tmp") || &death("Failed to write metadata file",
+                                    $tmp, $!);
+    print METAF join(",", "EntrezGene", @other)."\n";
+    foreach my $gid (@gids) {
+        print METAF join(",", $gid, map { $species{$_}{$gid} || ""} @other)."\n"
+    }
+    close METAF;
+    rename($tmp, $trg);
+    &msg("Generated orthologue file", $trg);
+    $tasks{MakeOrth}++;
+    &post_process( %fbits, meta => $fmeta );
+    return $trg;
+    
+}
+
+sub map_orthologue {
+    my $src   = &ftp_url($sources->{Gene2Orth});
+    my $mFile = &make_orthologue_file();
+    my $fVers = &_datestamp_for_file( $mFile );
+    my ($type, $nsi, $nsj) = ("Map", "EntrezGene", "Orthologue");
+    my %fbits = (type => $type,  mod  => $specID,
+                 ns1  => $nsi,   ns2  => $nsj,
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
+    my $meta = {
+        Source    => $src,
+        Namespace => [$nsi, $nsj],
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(%fbits);
+    unless (&output_needs_creation($trg)) {
+        &msg("Keeping existing $nsi map:", $trg);
+        &post_process( %fbits, meta => $fmeta );
+        return $trg;
+    }
+
+    my $taxCol  = 'OrgName';
+    my $allMeta = {};
+    &capture_gene_meta($taxid, $allMeta);
+
+    open(MFILE, "<$mFile") || &death
+        ("Failed to read orthologue data", $mFile, $!);
+    my $head = <MFILE>;
+    $head =~ s/[\n\r]+$//;
+    my @otax = split(',', $head);
+    shift @otax; ## Take off first 'id' entry
+    my $cnum = $#otax + 1;
+    my (%colMeta, @cmInd);
+    my $setCM = sub {
+        my ($tid, $t) = @_;
+        my $dat = &species_meta_hash( $tid );
+        my $id  = $dat->{name} = $dat->{$taxCol};
+        $dat->{OrthCount} = 0;
+        $dat->{order}     = $t + 1;
+        $colMeta{$id}     = $dat;
+        return $dat;
+    };
+
+    ## Make a stub entry in the column metadata for the primary
+    ## (requested) species. It won't show up in column information,
+    ## but will be used in summary files:
+    my $rdat = &{$setCM}( $taxid, -1 );
+    my $rID  = $rdat->{name};
+
+    &msg("  Collecting metadata from $cnum species");
+    ## This ends up being fairly memory hungry, about 6-7Gb
+
+    for my $t (0..$#otax) {
+        my $tid = $otax[$t];
+        ## Get metadata for the species, will be used to annotate cells
+        &capture_gene_meta($tid, $allMeta);
+        ## Put together column (species) metadata:
+        $cmInd[$t] = &{$setCM}( $tid, $t );
+        # die Dumper(\%colMeta) if ($t >=3);
+    }
+    my $popFilt = undef;
+    my $popFile = "$scriptDir/popularSpecies.tsv";
+    if (-s $popFile) {
+        if (open(POPF,"<$popFile")) {
+            my $head;
+            my @pop;
+            while (<POPF>) {
+                s/[\n\r]+$//;
+                next if (/^#/ || /^\s*$/);
+                if ($head) {
+                    my @r = split(/\t/);
+                    my %h = map { $head->[$_] => $r[$_] } (0..$#{$head});
+                    if (my $n = $h{$taxCol}) {
+                        push @pop, $n if (exists $colMeta{$n});
+                    } else { 
+                        &err("Could not find '$taxCol' species identifier", $_);
+                    }
+                } else {
+                    $head = [split(/\t/)];
+                }
+            }
+            if ($#pop != -1) {
+                &msg("?? A file of 'popular' species was parsed, but none of the species IDs were recognized", $popFile);
+            } else {
+                &msg(scalar(@pop)." species will be flagged as 'popular' based on $popFile");
+                $popFilt = \@pop;
+            }
+            close POPF;
+        } else {
+            &err("Failed to read popular species file", $popFile, $!);
+        }
+    }
+
+    &msg("  Extracting orthologue assignments");
+    my @counts;
+    my $rnum = 0;
+    my $nznum = 0;
+    my (%rowMeta, %cells, %multHits);
+    while (<MFILE>) {
+        s/[\n\r]+$//;
+        my @row = split(',');
+        my $gid = shift @row;
+        my $rm = $rowMeta{$gid} ||= {
+            name         => $gid,
+            order        => ++$rnum,
+            hits         => {},
+            SpeciesCount => 0,
+        };
+        $rdat->{OrthCount}++; ## stub bookeeping, used in SpeciesSummary file
+        ## Map over symbol, type, desc
+        map { $rm->{$_} ||= $allMeta->{$gid}{$_} } @stndMeta;
+        my $hits = $rm->{hits};
+        for my $i (0..$#row) {
+            if (my $oid = $row[$i]) {
+                $rm->{SpeciesCount}++;
+                if ($oid =~ /^\d+$/) {
+                    $hits->{$i+1} = $oid;
+                    $nznum++;
+                    $cells{$oid} ||= $nznum;
+                    $cmInd[$i]{OrthCount}++;
+                } else {
+                    my $tid = $cmInd[$i]{name};
+                    &msg("Multiple orthologues for $tid: $oid",
+                         "Will be excluded from global orthologue file");
+                    $multHits{$gid}{$i} = [split(/\|/, $oid)];
+                }
+            }
+        }
+    }
+    close MFILE;
+
+    my @gmeta = qw(Symbol SpeciesCount Type Description);
+
+    ### Some summary files #############################################
+    ## I don't think these are of wider utility, so I am putting them
+    ## into the temp dir. They help determine what reasonable
+    ## thresholds are for restricting initial presentation of the full
+    ## file, and for generating species-specific files.
+    my $spInfoFile = "$tmpDir/$specID-OrthologueSpeciesSummary.txt";
+    open(INFO, ">$spInfoFile") || &death
+        ("Failed to write orthologue summary information", $spInfoFile, $!);
+    my @ohead = qw(TaxID OrthCount OrthPerc OrgName SciName);
+    print INFO join("\t", @ohead)."\n";
+    foreach my $dat (sort { $b->{OrthCount} <=> 
+                                $a->{OrthCount} } ($rdat, @cmInd)) {
+        $dat->{OrthPerc} = sprintf("%.1f", 100 * $dat->{OrthCount} / $rnum);
+        print INFO join("\t", map { $dat->{$_} } @ohead)."\n";
+    }
+    close INFO;
+
+    ## Mostly academic - indication of conservation for each gene
+    my $locInfoFile = "$tmpDir/$specID-OrthologueGeneSummary.txt";
+    open(INFO, ">$locInfoFile") || &death
+        ("Failed to write orthologue summary information", $locInfoFile, $!);
+    print INFO join("\t", ('GeneId', @gmeta))."\n";
+    foreach my $dat (sort {$b->{SpeciesCount} <=> 
+                               $a->{SpeciesCount} ||
+                               $a->{Symbol} cmp $b->{Symbol}} values %rowMeta) {
+        print INFO join("\t", ($dat->{name}, map { $dat->{$_} } @gmeta))."\n";
+    }
+    close INFO;
+    &msg("Summary files generated:", $spInfoFile, $locInfoFile);
+    ##################################################################
+
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write $$nsi $nsj $type", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( $type, $rnum, $rnum, $nznum, "$nsj $type for $specID $nsi",
+          "$specID $nsi mapped to orthologues in multiple species",
+          "Scores are integer $nsi IDs, recover metadata with \$metadata() calls against the score values",
+          $nsi, $nsj);
+
+    print MTX &_dim_block({
+        %{$fmeta},
+        RowDim    => $nsi,
+        RowUrl    => $nsUrl->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsUrl->{$nsj}, 
+        Authority => $authLong });
+
+ 
+    my @gids   = sort { $rowMeta{$a}{order} 
+                      <=> $rowMeta{$b}{order} } keys %rowMeta;
+    my @ospec  = map { $_->{name} } @cmInd;
+    my @oids  = sort { $cells{$a} <=> $cells{$b} } keys %cells;
+
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
+
+    print MTX &_default_parameter("CellMetadata", [qw(Symbol Type Description)],
+                                  "## Matrix values correspond to Entrez GeneIDs with their own cell-level metadata");
+
+    if ($popFilt) {
+        my $pnum = $#{$popFilt} + 1;
+        print MTX &_filter_block({
+            AutoFilterComment => "The matrix has been automatically restricted to just $pnum 'popular' species; Use \$reset() to expose all available species."
+                                 });
+        print MTX &_default_parameter( "KeepCol", $popFilt, "## Limit the $cnum available species to just $pnum 'popular' ones", '//' );
+    }
+
+    print MTX &_rowcol_meta_comment_block({
+        Symbol => "Official Entrez Gene symbol if available, otherwise one of the unofficial symbols",
+        Type => "Entrez Gene Type, eg protein-coding or ncRNA",
+        Description => "Short descriptive text for an Entrez Gene",
+        SpeciesCount => "For a $rID gene, the number of other species with a reported orthologue. Should roughly correlate with evolutionary preservation (less so conservation) within the set of available species.",
+        TaxID => "The NCBI taxonomy ID for a species",
+        OrthCount => "For a species, the number of orthologues reported in $rID. This will be a function both of evolutionary distance and the relative maturity of the two genome projects.",
+        OrgName => "Organism name, will be the first availble GenBank Common Name, or the scientific name if none listed",
+        SciName => "Scientific name for the organism",
+                                          });
+
+    ## Row metadata
+    print MTX &_generic_meta_block(\@gids, 'Row', \%rowMeta, \@gmeta);
+    print MTX "% $bar\n";
+
+    print MTX &_generic_meta_block(\@ospec, 'Col', \%colMeta,
+                                   ['TaxID','OrthCount', 'OrgName','SciName']);
+    print MTX "% $bar\n";
+   
+    ## We are putting the orthologues in as integer values in the cells
+    print MTX &_generic_meta_block(\@oids, 'Cell', $allMeta, 
+                                   [qw(Symbol OrgName Type Description)]);
+    print MTX "% $bar\n";
+    
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+    for my $i (0..$#gids) {
+        while (my ($j, $sc) = each %{$rowMeta{$gids[$i]}{hits}}) {
+            printf(MTX "%d %d %d\n", $i+1, $j, $sc);
+        }
+    }
+    close MTX;
+
+    die "temp file: $tmp";
+    rename($tmp, $trg);
+
+    close MTX;
 }
 
 sub map_locuslink {
@@ -939,11 +1328,6 @@ sub make_ensembl_file {
         return $trg;
     }
 
-# 9606    20      ENSG00000107331 XM_006716996.3  ENST00000371605.7       XP_006717059.1  ENSP00000360666.3
-# 9606    20      ENSG00000107331 XR_001746224.1  ENST00000459850.5       -       -
-# 9606    21      ENSG00000167972 NM_001089.2     ENST00000301732.9       NP_001080.2     ENSP00000301732.5
-
-
     &msg("Parsing $cont lookups");
     my $cols = { 
         taxid  => 'tax_id',
@@ -953,7 +1337,7 @@ sub make_ensembl_file {
         rsr    => 'RNA_nucleotide_accession.version',
         enst   => 'Ensembl_rna_identifier',
         rsp    => 'protein_accession.version',
-        ensp   => 'Ensembl_protein_iden',
+        ensp   => 'Ensembl_protein_identifier',
     };
 
     my %loci;
@@ -962,7 +1346,7 @@ sub make_ensembl_file {
     my ($fh)  = &gzfh($src, $cols);
     my $tInd  = $cols->{taxid}; # Taxid, eg 9606
     my @inds  = map { $cols->{$_} } qw(gene ensg rsr enst rsp ensp);
-    my @fCols = qw(GeneID EnsemblGene RefSeqRNA EnsemblRNA RefSeqProtein EnsemblProtein);
+    my @fCols = qw(EntrezGene EnsemblGene RefSeqRNA EnsemblRNA RefSeqProtein EnsemblProtein);
     my $tmp = "$trg.tmp";
     open (TSV, ">$tmp") || &death("Failed to write Ensembl file",
                                     $tmp, $!);
@@ -987,26 +1371,146 @@ sub make_ensembl_file {
     close $fh;
     rename($tmp, $trg);
     &msg("Generated Ensembl assignments file", $trg);
+    $tasks{EnsFile}++;
     &post_process( %fbits, meta => $fmeta );
     return $trg;
 }
 
 sub map_ensembl_objects {
-
-    die "WORK HERE";
-
-
     my ($req) = @_;
-    my (@ns, @metSrcCol, @metCols);
+    my (@ns, @metCols);
     if ($req =~ /(rna|nuc)/i) {
         @ns = qw(RefSeqRNA EnsemblRNA);
+        @metCols =( ['Symbol', 'Description', 'SeqVersion'],
+                    ['SeqVersion'] );
     } elsif ($req =~ /prot/i) {
+        @ns = qw(RefSeqProtein EnsemblProtein);
+        @metCols =( ['Symbol', 'Description', 'SeqVersion'],
+                    ['SeqVersion'] );
     } elsif ($req =~ /(gene|loc)/i) {
+        @ns = qw(EntrezGene EnsemblGene);
+        @metCols =( ['Symbol', 'Type', 'Description'],
+                    [] );
     } else {
-        &err("Unrecognized Ensembl object '$req'");
+        &err("Unrecognized Ensembl request for '$req'");
         return "";
     }
 
+    my $src   = $sources->{Gene2Ensembl};
+    my $type  = "Map";
+    my $fVers = &_datestamp_for_file(&fetch_url($src));
+    my %fbits = (type => $type,  mod  => $specID,
+                 ns1  => $ns[0],   ns2  => $ns[1],
+                 auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
+    my $meta = {
+        Species    => $specID,
+        MatrixType => $type,
+        Version    => $fVers,
+        Source     => &ftp_url($src),
+    };
+    my $fmeta = { %{$stashMeta}, %{$meta} };
+    my $trg   = &primary_path(%fbits);
+    unless (&output_needs_creation($trg)) {
+        &msg("Keeping existing $ns[0] - $ns[1] map:", $trg);
+        &post_process( %fbits, meta => $fmeta );
+        return $trg;
+    }
+    &capture_gene_meta();
+
+    my $ensf   = &make_ensembl_file();
+    open(EF, "<$ensf") || &death
+        ("Failed to read Ensembl association file", $ensf, $!);
+    my $head = <EF>;
+    $head =~ s/[\n\r]+$//;
+    $head = [split("\t", $head)];
+    my %cols = map { $head->[$_] => $_ } (0..$#{$head});
+    ## Source indices for row, col, score, and gene
+    my @inds = map { $cols{$_} } (@ns, 'EntrezGene');
+    &death("Failed to find required column headers in $ensf")
+        unless (defined $inds[0] && defined $inds[1] && defined $inds[2]);
+    my (%rmeta, %cmeta);
+    my ($rnum, $cnum, $nznum) = (0,0,0);
+    while (<EF>) {
+        s/[\n\r]+$//;
+        my @row = split(/\t/);
+        my ($r, $c, $g) = map { $row[$_] } @inds;
+        next unless ($r && $c && $g);
+        my ($rv, $cv) = ("","");
+        if ($r =~ /(.+)\.(\d+)$/) { ($r, $rv) = ($1, $2); }
+        if ($c =~ /(.+)\.(\d+)$/) { ($c, $cv) = ($1, $2); }
+        my $cm = $cmeta{$c} ||= {
+            name       => $c,
+            order      => ++$cnum,
+            SeqVersion => $cv,
+            ## In this data source we don't really have any other
+            ## information (symbols, descriptions, etc), just the
+            ## Ensembl accessions.
+        };
+        my $rm = $rmeta{$r} ||= {
+            name        => $r,
+            order       => ++$rnum,
+            hits        => {},
+            SeqVersion  => $rv,
+            ## Copy locus metadata for now
+            Symbol      => $geneMeta->{$g}{Symbol},
+            Type        => $geneMeta->{$g}{Type},
+            Description => $geneMeta->{$g}{Description},
+        };
+        my $hits = $rm->{hits};
+        my $cn   = $cm->{order};
+        # We have no quantification or qualification of these
+        # assignments - just use a boolean 0/1:
+        $hits->{$cn} = 1; 
+    }
+    close EF;
+    my @rowIds = map { $_->{name} } sort 
+    { $a->{order} <=> $b->{order} } values %rmeta;
+    my @colIds = map { $_->{name} } sort 
+    { $a->{order} <=> $b->{order} } values %cmeta;
+
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || &death("Failed to write $ns[0]-$ns[1] map", $tmp, $!);
+    print MTX &_initial_mtx_block
+        ( "Mapping", $rnum, $cnum, $nznum, "$auth $specID $ns[0]-to-$ns[1] Map",
+          "Accession conversion from $ns[0] to $ns[1], as defined by $auth",
+          "Un-quantified flag connecting $ns[0] to $ns[1] (all values are 1)",
+          $ns[0], $ns[1]);
+
+    print MTX &_dim_block({
+        %{$fmeta},
+        RowDim    => $ns[0],
+        RowUrl    => $nsUrl->{$ns[0]},
+        ColDim    => $ns[1],
+        ColUrl    => $nsUrl->{$ns[1]}, 
+        Authority => $authLong });
+
+    print MTX &_citation_MTX();
+    print MTX &_species_MTX( $taxDat->{'scientific name'} );
+
+        print MTX &_mtx_comment_block("","Limited metadata available:", "Entrez provides minimal inforamtion about related Ensembl accessions; At most transcripts and proteins also include the accession version number. For Ensembl symbols and descriptions consider data sources from Ensembl. For alignment metrics (similarity scores, indel locations, etc) consider de novo alignments between the sequences.", "");
+
+    print MTX &_cardinality_block( \%rmeta );
+
+    print MTX &_rowcol_meta_comment_block();
+
+    ## Note row metadata
+    print MTX &_generic_meta_block(\@rowIds, 'Row', \%rmeta, $metCols[0]);
+
+    ## Column metadata
+    print MTX "% $bar\n";
+    print MTX &_generic_meta_block(\@colIds, 'Col', \%cmeta, $metCols[1]);
+
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+    for my $i (0..$#rowIds) {
+        while (my ($j, $sc) = each %{$rmeta{$rowIds[$i]}{hits}}) {
+            printf(MTX "%d %d %d\n", $i+1, $j, $sc);
+        }
+    }
+    close MTX;
+    rename($tmp, $trg);
+    &msg("Generated $ns[0] to $ns[1] mapping", $trg);
+    &post_process( %fbits, meta => $fmeta );
+    return $trg;
 }
 
 
@@ -1688,27 +2192,74 @@ sub extract_taxa_info {
                  $srcFile, "") unless (-s $srcFile);
         &msg("Extracted Taxonomy names", $srcFile);
     }
-    open(TAX, "<$srcFile") || die 
-        join("\n", "Failed to parse taxonomy file", $srcFile, $!, "");
-    my $obj = { taxid => 0 };
+    ## With orthologues a fair number of taxa will need to be
+    ## parsed. Set up caches of parsed information to allow faster
+    ## re-dumping
+    my $cDir    = "$tmpDir/taxInfo"; &mkpath([$cDir]);
+    my $cFile   = "$cDir/$req.json";
+    unless (-s $cFile) {
+        open(TAX, "<$srcFile") || die 
+            join("\n", "Failed to parse taxonomy file", $srcFile, $!, "");
+        my $obj = { taxid => 0 };
 
-    while (<TAX>) {
-        my ($txid, $name, $uniq, $cls) = split(/\s*\|\s*/);
-        if ($txid != $obj->{taxid}) {
-            ## New name block
-            if ($obj->{found}) {
-                ## This is what we came for
-                close TAX;
-                return $obj;
+        while (<TAX>) {
+            my ($txid, $name, $uniq, $cls) = split(/\s*\|\s*/);
+            if ($txid != $obj->{taxid}) {
+                ## New name block
+                if ($obj->{found}) {
+                    ## Got what we came for
+                    close TAX;
+                    last;
+                }
+                $obj = { taxid => $txid };
+                $obj->{found} = "tax_id" if ($req eq $txid);
             }
-            $obj = { taxid => $txid };
-            $obj->{found} = "tax_id" if ($req eq $txid);
+            push @{$obj->{$cls}}, $name;
+            $obj->{found} = $cls if (lc($req) eq lc($name));
         }
-        push @{$obj->{$cls}}, $name;
-        $obj->{found} = $cls if (lc($req) eq lc($name));
+        close TAX;
+        $obj->{error} = "-species '$req' could not be found in $srcFile"
+            unless ($obj->{found});
+        open(JF, ">$cFile") || die 
+            "Failed to write taxa cache file\n  $cFile\n  $!\n  ";
+        print JF encode_json($obj);
+        close JF;
     }
-    close TAX;
-    return { error => "-species '$req' could not be found in $srcFile" };
+    open(JF, "<$cFile") || die 
+        "Failed to read taxa cache file\n  $cFile\n  $!\n  ";
+    my $jtxt = "";
+    while (<JF>) { $jtxt .= $_ }
+    close JF;
+    return decode_json($jtxt);
+}
+
+sub species_id_for_tax {
+    my $td = shift;
+    ## Fallback is the taxonomy id prefixed with 'taxa'. We hopefully
+    ## will never need this (they should all have a scientific name,
+    ## right?)
+    my $rv = "taxa".$td->{taxid};
+    if (my $gcn = $td->{'genbank common name'}) { 
+        $rv = $gcn->[0];
+        ## dog -> Dog
+        substr($rv, 0, 1, uc( substr($rv, 0, 1) ));
+    } elsif (my $sn = $td->{'scientific name'}) { 
+        $rv = $sn->[0];
+    }
+    return $rv;
+}
+
+sub species_meta_hash {
+    my ($req) = shift;
+    my $td  = &extract_taxa_info( $req );
+    my $tid = $td->{taxid};
+    my $sci = $td->{'scientific name'}[0] || "Unknownium unknowius";
+    my $org = &species_id_for_tax( $td );
+    return {
+        TaxID   => $tid,
+        OrgName => $org,
+        SciName => $sci,
+    };
 }
 
 sub backfill_pubmed {
@@ -1796,6 +2347,21 @@ sub _pmid_from_db {
     my $dat = $getPMID->fetchall_arrayref();
     my ($newest) = sort { $b->[0] <=> $a->[0] } @{$dat};
     return @{$newest || [0, '','']};
+}
+
+sub _safe_file_fragment {
+    ## Replaces characters that might cause issues in filenames,
+    ## either because they are awkward or illegal, or because they
+    ## interfer with token separation.
+    my $txt = shift;
+    ## Apostrophes end up looking weird if replaced with an
+    ## underscore, eg "Coquerel_s_sifaka" (the "Coquerel's sifaka"
+    ## lemur)
+    $txt =~ s/\'//g;
+    ## For everything else, just allow letters and numbers, turn all
+    ## others into underscores.
+    $txt =~ s/[^a-z0-9]+/_/gi;
+    return $txt;
 }
 
 sub _backfill_tools {

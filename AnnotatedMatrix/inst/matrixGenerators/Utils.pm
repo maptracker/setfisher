@@ -402,6 +402,7 @@ sub _initial_mtx_block {
 }
 
 sub _dim_block {
+    ## Parsed comment block with descriptive elements for the 
     my $tags = shift || {};
     my $rv  = "";;
     my $rnm = $tags->{RowDim} || "";
@@ -420,12 +421,83 @@ sub _dim_block {
 
 
 sub _rowcol_meta_comment_block {
-    return "%% $bar
+    my $rv = "%% $bar
 % Comment blocks for [Row Name] and [Col Name] follow (defining row
 % and column names, plus metadata), followed finally by the triples
 % that store the actual mappings.
-%% $bar
 ";
+    if (my $cols = shift) {
+        $rv .= "%\n";
+        foreach my $col (sort keys %{$cols}) {
+            if (my $desc = $cols->{$col}) {
+                $rv .= sprintf("%% ColumnDescription \"%s\" %s\n", $col, $desc);
+            }
+        }
+        $rv .= "%\n";
+    }
+    $rv .= "%% $bar\n";
+    return $rv;
+}
+
+sub _cardinality_block {
+    my ($data, $byCol, $max, $levels) = @_;
+    my @dir = ("Column","Row");
+    if ($byCol) {
+        ## report on rows for columns instead
+        @dir = reverse @dir;
+        my %t;
+        while (my ($r, $hash) = each %{$data}) {
+            while (my ($cn, $sc) = each %{$hash->{hits}}) {
+                $t{$cn}{hits}{$r} = $sc if (!$t{$cn}{hits}{$r} || 
+                                            $t{$cn}{hits}{$r} < $sc);
+            }
+        }
+        $data = \%t;
+    }
+    $max = 5 unless ($max);
+    my %counts;
+    while (my ($r, $hash) = each %{$data}) {
+        my $hits = $hash->{hits};
+        if ($levels) {
+            ## Break out by factor level
+            my %fac;
+            map { $fac{$_}++ } values %{$hits};
+            while (my ($l, $n) = each %fac) {
+                $n = $max + 1 if ($n > $max);
+                $counts{$levels->[$l]}{$n}++;
+            }
+        } else {
+            my @u = keys %{$hits};
+            my $n = $#u + 1;
+            $n = $max + 1 if ($n > $max);
+            $counts{""}{$n}++;
+        }
+    }
+    ## Make the table header:
+    my ($seen) = sort { $b <=> $a } map { keys %{$_} } values %counts;
+    my @tab = ([]);
+    push @{$tab[0]}, $levels ? "Level" : "$dir[0] Count:";
+    push @{$tab[0]}, (1..$seen);
+    $tab[0][-1] = ">$max" if ($seen > $max);
+    ## Make table rows:
+    foreach my $key (sort keys %counts) {
+        my @row;
+        push @row, $key || "Num $dir[1]s:";
+        push @row, map { $counts{$key}{$_} } (1..$seen);
+        push @tab, \@row;
+    }
+    my @fmt;
+    for my $i (0..$#{$tab[0]}) {
+        my ($w) = sort { $b <=> $a } map { CORE::length($_->[$i]) } @tab;
+        $w = 3 if ($w < 3);
+        push @fmt, $i ? '%'.$w.'d' : '%'.$w.'s';
+    }
+    my $f = '%%%% '.join(' ', @fmt)."\n";
+    my $rv = "% Cardinality summary - Number of $dir[0]s for each $dir[1]\n";
+    $rv .= join('', map { sprintf($f, @{$_}) } @tab);
+    $rv .= "%\n";
+    return $rv;
+    
 }
 
 sub gene_symbol_stats_block {
@@ -614,9 +686,17 @@ sub _default_parameter {
             die "Unrecognized filter value '$val'";
         }
     }
-    my $rv = "";
-    $rv .= "% $com\n" if ($com);
-    $rv .= sprintf("%%%% DEFAULT %s %s\n", $key, $val);
+    my $rv = sprintf("%%%% DEFAULT %s %s", $key, $val);
+    if ($com) {
+        if ($com =~ /^#\s*(.+?)/) {
+            ## Comment directly associated with the value
+            $rv .= " ## $1";
+        } else {
+            ## Comment above the value
+            $rv = "% $com\n$rv";
+        }
+    }
+    $rv .= "\n";
     return $rv;
 }
 
@@ -711,10 +791,20 @@ sub primary_folder {
     ## tree (eg GeneOntology with its own data version, but needs to
     ## be colocated with Entrez)
     my $dir  = "$aDir/". ($param->{DIR} || sprintf('%s/%s', $auth, $vers));
+    my $tFile = "byAuthorityReadme.md";
+    if (my $type = $param->{TYPE}) {
+        if ($type eq 'Metadata') {
+            # Large numbers of metadata files can collect,
+            # particularly for orthologue calculations. Let's put
+            # these in a subdirectory
+            $dir  .= "/metadata";
+            $tFile = "metadataReadme.md";
+        }
+    }
     unless ($tasks{"PrimaryFolder-$dir"}++) {
         ## Make sure folder exists, add README
         &mkpath([$dir]);
-        &copy_template_file("byAuthorityReadme.md", "$aDir/README.md");
+        &copy_template_file($tFile, "$aDir/README.md");
     }
     return $dir;
 }

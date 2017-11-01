@@ -187,12 +187,15 @@ sub accession_maps {
                 Namespace => [$nsi, $nsj],
             };
             my $fmeta = { %{$stashMeta}, %{$meta} };
-            my @fbits = ("Map", $mod, $nsi, $nsj, $auth, $vers);
-            my $trg   = &primary_path(@fbits);
+            my %fbits = (type => "Map",  mod  => $mod, 
+                         ns1  => $nsi,   ns2  => $nsj,
+                         auth => $auth,  vers => $vers);
+
+           my $trg   = &primary_path(%fbits);
             unless (&output_needs_creation($trg)) {
                 ## File is already made, and clobber is not set
                 &msg("Keeping existing accession map:", $trg);
-                &post_process( @fbits, $fmeta );
+                &post_process( %fbits, meta => $fmeta );
                 next;
             }
 
@@ -298,7 +301,7 @@ sub accession_maps {
             close MTX;
             rename($tmp, $trg);
             &msg("Generated $nsi to $nsj mapping", $trg);
-            &post_process( @fbits, $fmeta );
+             &post_process( %fbits, meta => $fmeta );
         }
     }
 
@@ -339,12 +342,14 @@ sub symbol_maps {
             Namespace => [$nsi, $nsj],
         };
         my $fmeta = { %{$stashMeta}, %{$meta} };
-        my @fbits = ("Map", $mod, $nsi, $nsj, $auth, $vers);
-        my $trg   = &primary_path(@fbits);
+        my %fbits = (type => "Map",  mod  => $mod, 
+                     ns1  => $nsi,   ns2  => $nsj,
+                     auth => $auth,  vers => $vers);
+       my $trg   = &primary_path(%fbits);
         unless (&output_needs_creation($trg)) {
             ## File is already made, and clobber is not set
             &msg("Keeping existing $nsi map:", $trg);
-            &post_process( @fbits, $fmeta );
+            &post_process( %fbits, meta => $fmeta );
             next;
         }
 
@@ -419,7 +424,7 @@ sub symbol_maps {
         close MTX;
         rename($tmp, $trg);
         &msg("Generated $nsi to $nsj mapping", $trg);
-        &post_process( @fbits, $fmeta );
+        &post_process( %fbits, meta => $fmeta );
     }
 
 }
