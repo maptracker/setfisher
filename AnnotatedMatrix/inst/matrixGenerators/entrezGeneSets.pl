@@ -915,7 +915,7 @@ sub map_orthologue {
                     $head = [split(/\t/)];
                 }
             }
-            if ($#pop != -1) {
+            if ($#pop == -1) {
                 &msg("?? A file of 'popular' species was parsed, but none of the species IDs were recognized", $popFile);
             } else {
                 &msg(scalar(@pop)." species will be flagged as 'popular' based on $popFile");
@@ -1012,6 +1012,8 @@ sub map_orthologue {
         RowUrl    => $nsUrl->{$nsi},
         ColDim    => $nsj,
         ColUrl    => $nsUrl->{$nsj}, 
+        CellDim   => "Orth$nsj", ## Cells are the same namespace as the rows
+        CellUrl   => $nsUrl->{$nsj}, 
         Authority => $authLong });
 
  

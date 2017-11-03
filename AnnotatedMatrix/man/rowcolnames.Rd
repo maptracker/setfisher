@@ -19,6 +19,11 @@ matrix. See \link{matObj} for more information. A fatal error
 will be thrown if raw is TRUE and new is not NULL (can not
 alter raw matrix)}
 
+\item{nonzero}{Default \code{FALSE}. If TRUE, will fitler the
+returned list of names to only include those that have at least
+one non-zero cell associated with them. This parameter is
+ignored if changes are being made to the names.}
+
 \item{reason}{Default NA. Only relevant when row is not
 NULL. Optional human-readable reason for why the alteration was
 made, will be recorded in \link{filterLog} and used to

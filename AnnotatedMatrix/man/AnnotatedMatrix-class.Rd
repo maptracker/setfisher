@@ -81,13 +81,17 @@ make.unique() if (valid = FALSE)}
 
 \item{\code{cCounts(obj = NULL, help = FALSE, ...)}}{Return the counts of non-zero rows for each column}
 
-\item{\code{cNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set colnames for the matrix}
+\item{\code{cNames(new = NULL, raw = FALSE, nonzero = FALSE, reason = NA,
+  help = FALSE)}}{Get/set colnames for the matrix}
 
 \item{\code{filterByCount(MARGIN, min = NULL, max = NULL, relative = TRUE,
   filterEmpty = FALSE, reason = NA, help = FALSE)}}{Filter rows or columns based on number of non-zero connections}
 
 \item{\code{filterByFactorLevel(x, keep = TRUE, ignore.case = TRUE,
   filterEmpty = FALSE, reason = NA, help = FALSE)}}{Zero-out cells in the matrix that fail factor criteria}
+
+\item{\code{filterById(id, MARGIN = NULL, keep = FALSE, ignore.case = TRUE,
+  exact = TRUE, filterEmpty = FALSE, reason = NA, help = FALSE)}}{Filter rows or columns based on specific IDs}
 
 \item{\code{filterByMetadata(key, val, MARGIN = NULL, keep = TRUE, type = "like",
   op = "or", filterEmpty = FALSE, reason = NA, help = FALSE)}}{Zero-out rows or columns that match metadata criteria}
@@ -110,8 +114,8 @@ make.unique() if (valid = FALSE)}
   collapse.name = NULL, collapse.token = ",", collapse.score = NULL,
   integer.factor = NULL, add.metadata = TRUE, input.metadata = FALSE,
   warn = TRUE, append.to = NULL, append.col = 1L, recurse = 0,
-  in.name = "Input", out.name = "Output", prefix.metadata = TRUE,
-  help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
+  in.name = "Input", out.name = "Output", score.name = NULL,
+  prefix.metadata = TRUE, help = FALSE)}}{Map (convert) names from one dimension of the matrix to the other}
 
 \item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 
@@ -136,7 +140,8 @@ make.unique() if (valid = FALSE)}
 
 \item{\code{reset(help = FALSE)}}{Reset the matrix to the 'raw' (unfiltered) state}
 
-\item{\code{rNames(new = NULL, raw = FALSE, reason = NA, help = FALSE)}}{Get/set rownames for the matrix}
+\item{\code{rNames(new = NULL, raw = FALSE, nonzero = FALSE, reason = NA,
+  help = FALSE)}}{Get/set rownames for the matrix}
 
 \item{\code{show(...)}}{A wrapper for showLog}
 }}

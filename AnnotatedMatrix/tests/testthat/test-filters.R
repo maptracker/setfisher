@@ -75,7 +75,28 @@ test_that("Matrix filters", {
     expect_identical(s2e$rNames(), c("p75", "SIGLEC19P", "SIGLECP2"))
     expect_identical(s2e$cNames(), c("LOC27036"))
     
-    
+    ## Filter by ID
+    s2e$reset()
+    rN <- s2e$rNames()
+    expect_identical(length(rN), 167L, "Sanity check")
+    keepRow <- c("AR","AIRE1","APSI","PGA1")
+    crc <- s2e$filterById(keepRow, keep=TRUE, MARGIN='row')
+    expect_equivalent(crc, c(202L, 163L, 63L), "Heavy filter keeping 4 IDs")
+    expect_identical(s2e$rNames(nonzero=TRUE), keepRow,
+                     "Filter keeps just 4 IDs")
+    s2e$reset()
+    ## Restrict to some weirdly specific symbol patterns.
+    s2e$filterById(c('[a-z][0-9][a-z][0-9][a-z]','[0-9]-[0-9]'),
+                   keep=TRUE, exact=FALSE, MARGIN='row')
+    expect_identical(s2e$rNames(nonzero=TRUE),
+                     c("RP3-426F10.1", "RP11-397D12.1", "NT5C1B"),
+                     "Regular expression ID filter")
+
+    s2e$reset()
+    ## Verify that we get a warning when we remove everything when
+    ## MARGIN is NULL
+    expect_message(s2e$filterById("AIRE1", keep=TRUE),
+                   "removed ALL matrix entries")
     
     ## Applied filters field
     s2e$reset()

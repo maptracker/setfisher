@@ -116,22 +116,22 @@ parse_MatrixMarket_file <- function( file ) {
     ## Find the row and column header lines, and optionally Cell metadata
     rcPos <- grep("^(Row|Col|Cell) Name", allCom)
     rcLen <- length(rcPos)
-    parseRow <- function (x, sep = NA) {
-        ## strsplit() on spaces discards trailing spaces, which causes
-        ## problems for a space-containing metadata token (eg the
-        ## default ' :: ') when the last metadata column is empty. So
-        ## use CatMisc::parenRegExp to get the index number instead:
+    ## Function to extract each comment row as metadata. strsplit() on
+    ## spaces discards trailing spaces, which causes problems for a
+    ## space-containing metadata token (eg the default ' :: ') when
+    ## the last metadata column is empty. So use CatMisc::parenRegExp
+    ## to get the index number instead
 
-        indDat <- CatMisc::parenRegExp("^(\\d+)\\s+(.+)", x)
-        if (is.na(sep)) {
-            ## No metadata separator defined
-            indDat
-        } else {
+    parseRow <- if (is.na(sep)) {
+        ## No metadata separator defined
+        function (x) CatMisc::parenRegExp("^(\\d+)\\s+(.+)", x)
+    } else {
+        function (x) {
+            indDat <- CatMisc::parenRegExp("^(\\d+)\\s+(.+)", x)
             ## Split the data section on the separator
             c(indDat[1], unlist(base::strsplit(indDat[2], sep)) )
         }
     }
-
     padRow <- function (x, len = 0) {
         ## Make sure a vector is at least len long, padding with NAs
         if (length(x) < len) x[len] <- NA
@@ -165,7 +165,7 @@ parse_MatrixMarket_file <- function( file ) {
         ## Remove non-coordinate rows
         isCoord <- grep("^\\d+\\s+\\S", rows)
         ## Make a (possibly) ragged list
-        ragged  <- lapply(rows[ isCoord ], parseRow, sep = sep)
+        ragged  <- lapply(rows[ isCoord ], parseRow)
         ## Find the maximum number of columns
         maxCol  <- max(unlist(lapply(ragged, length)))
         ## Pad and convert to character matrix
@@ -185,10 +185,9 @@ parse_MatrixMarket_file <- function( file ) {
         dimChngs[[ what ]] <- mnn$changes
         mlen <- length(meta)
         if (mlen > 1) {
-            ## Reliably building the DT proved
-            ## non-intuitive. Using the matrix directly with
-            ## as.data.table() seems to be the most reliable
-            ## mechanism.
+            ## Reliably building the DT proved non-intuitive. Using
+            ## the matrix directly with as.data.table() seems to be
+            ## the most reliable mechanism.
 
             ## https://stackoverflow.com/a/10235618
             ## Convert the matrix to a DT, leaving out the index column

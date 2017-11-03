@@ -8,6 +8,9 @@ directories. This text (above the horizontal rule) will not be copied.
 
 These files are primarily support files used during the creation of
 the MatrixMarket files in the parent directory,
-[byAuthority](../). The files may be of utility in themselves. Most or
-all should be TSV format with header rows.
+[byAuthority](../). The files may be of direct utility if 'connection'
+information is not needed. Most or all should be TSV format with
+header rows.
+
+The nomenclature follows the same format as 
 

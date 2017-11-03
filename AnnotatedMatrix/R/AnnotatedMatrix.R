@@ -200,14 +200,20 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         rv
     },
 
-    rNames = function(new=NULL, raw=FALSE, reason=NA, help=FALSE) {
+    rNames = function(new=NULL, raw=FALSE, nonzero=FALSE, reason=NA,
+                      help=FALSE) {
         "Get/set rownames for the matrix"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         obj   <- matObj(raw)
         if (is.null(new)) {
             ## Just asking for the current names
-            return (rownames(obj))
+            rv <- rownames(obj)
+            if (nonzero) {
+                ## Limit to elements with at least one non-zero entry
+                rv <- rv[ populatedRows(raw=raw) ]
+            }
+            return (rv)
         }
         ## User is also reodering names, or removing/adding some
         if (raw) err("$rNames() can not set new names while specifying raw=TRUE", fatal=TRUE)
@@ -256,14 +262,20 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         new
     },
 
-    cNames = function(new=NULL, raw=FALSE, reason=NA, help=FALSE) {
+    cNames = function(new=NULL, raw=FALSE, nonzero=FALSE, reason=NA,
+                      help=FALSE) {
         "Get/set colnames for the matrix"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         obj   <- matObj(raw)
         if (is.null(new)) {
             ## Just asking for the current names
-            return (colnames(obj))
+            rv <- colnames(obj)
+            if (nonzero) {
+                ## Limit to elements with at least one non-zero entry
+                rv <- rv[ populatedCols(raw=raw) ]
+            }
+            return (rv)
         }
         ## User is also reodering names, or removing/adding some
         if (raw) err("$cNames() can not set new names while specifying raw=TRUE", fatal=TRUE)
@@ -523,7 +535,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     },
 
     filterById = function(id, MARGIN=NULL, keep=FALSE, ignore.case=TRUE,
-                             filterEmpty=FALSE, reason=NA, help=FALSE) {
+                          exact=TRUE, filterEmpty=FALSE, reason=NA, help=FALSE) {
         "Filter rows or columns based on specific IDs"
         if (help) return(CatMisc::methodHelp(match.call(), class(.self),
                                              names(.refClassDef@contains)))
@@ -540,14 +552,36 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             chk <- tolower(chk)
         }
         idtxt <- paste(id, collapse='//')
+
+        ## Function to determine which names match the user-provided `id`
+        matcherFunc <- if (exact) {
+            ## Simple exact match (after case adjustment if
+            ## ignore.case is true)
+            function (n) is.element(n, id)
+        } else {
+            ## `id` is treated as a regular expression. If multiple
+            ## values are provided, a match will be considered if any
+            ## of the regexps match. I distrust apply to predictably
+            ## handle dimensions.  Use lapply to get a logical vector
+            ## for each id (regular expression), convert to a matrix
+            ## with a column for each user-supplied id and a row for
+            ## each element in our original matrix, and then use
+            ## rowsums (thanks Scott) to find matched elements.
+            function (n) {
+                matchMat <- matrix(unlist(lapply(id, function(x) grepl(x, n))),
+                                   ncol=length(id))
+                rowSums(matchMat) != 0
+            }
+        }
         if (is.null(MARGIN) || grepl('(1|row)', MARGIN, ignore.case=TRUE)) {
             ## Filter by rowname
             n <- rNames()
             if (ignore.case) n <- tolower(n)
-            ## Get the indices for the matched names
-            ival <- which(is.element(n, id)) - 1
-            fail <- is.element(obj@i, ival)
+            ## Find the matched names, and convert to 0-indexed indices
+            inds <- which( matcherFunc(n) ) - 1
+            fail <- is.element(obj@i, inds) # @i = rows
             if (keep) fail <- !fail
+            ## Only consider newly-zeroed out connections:
             fail <- fail & obj@x != 0
             numF <- sum(fail)
             if (numF > 0) {
@@ -563,9 +597,11 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             n <- cNames()
             if (ignore.case) n <- tolower(n)
             ## Get the indices for the matched names
-            jval <- which(is.element(n, id)) - 1
-            fail <- is.element(obj@j, jval)
+            ## Find the matched names, and convert to 0-indexed indices
+            inds <- which( matcherFunc(n) ) - 1
+            fail <- is.element(obj@j, inds) # @j = cols
             if (keep) fail <- !fail
+            ## Only consider newly-zeroed out connections:
             fail <- fail & obj@x != 0
             numF <- sum(fail)
             if (numF > 0) {
@@ -577,17 +613,6 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             .addAppliedFilter("COLID", idtxt, reason, chk)
         }
 
-        message("
-
-TODO / WORK HERE
-
-* Verify core functions!! Also .addAppliedFilter
-* tests
-* documentation
-* think about regexp??
-
-")
-
         if (rv[1] != 0) {
             matrixUse <<- obj
             if (filterEmpty) {
@@ -595,6 +620,9 @@ TODO / WORK HERE
                 metric <- paste("IDs", chk, idtxt)
                 if (CatMisc::is.something(reason)) metric <- paste(metric,reason)
                 removeEmpty(metric)
+            }
+            if (is.null(MARGIN) && sum(obj@x) == 0) {
+                message("filterById( ..., MARGIN=NULL ) has removed ALL matrix entries. Perhaps you didn't intend to match both margins?", prefix="[WARNING]", color='yellow')
             }
         }
         invisible(setNames(rv, .filterNames))
@@ -1058,7 +1086,8 @@ TODO / WORK HERE
                    collapse.score=NULL, integer.factor=NULL,
                    add.metadata=TRUE, input.metadata=FALSE, warn=TRUE,
                    append.to=NULL, append.col=1L, recurse=0,
-                   in.name="Input", out.name="Output", prefix.metadata=TRUE,
+                   in.name="Input", out.name="Output", score.name=NULL,
+                   prefix.metadata=TRUE,
                    help=FALSE
                    ) {
         "Map (convert) names from one dimension of the matrix to the other"
@@ -1356,14 +1385,24 @@ TODO / WORK HERE
         }
         
         
+        scName <- score.name[1]
+        if (is.null(scName)) {
+            ## Try to get name from dimension *parameter*
+            d <- param("CellDim")
+            if (CatMisc::is.something(d)) {
+                scName <- d
+            } else {
+                scName <- "Score"
+            }
+        }
         if (!isFac || all(integer.factor)) {
             ## Add a numeric score column
             if (isFac) {
-                rv$Score <- as.integer(scrCol[sl])
+                rv[[ scName ]] <- as.integer(scrCol[sl])
             } else {
-                rv$Score <- scrCol[sl]
+                rv[[ scName ]] <- scrCol[sl]
             }
-            colHelp$Score <- "The recorded numeric value that connects input to output"
+            colHelp[[ scName ]] <- "The recorded numeric value that connects input to output"
         }
 
         multOut <- base::duplicated(rv[[ outName ]])
@@ -1382,7 +1421,7 @@ TODO / WORK HERE
                     ## We will keep the first row:
                     keep  <- nInds[1]
                     ## Aggregate the scores, stuff into the first index:
-                    rv[keep, "Score"] <- valueCollapseFunction(scrCol[ nInds ])
+                    rv[keep, scName] <- valueCollapseFunction(scrCol[ nInds ])
                     ## ... and the input names:
                     rv[keep, inName]  <- nameCollapseFunction( inpCol[ nInds ])
                     if (recurse != 0L) {
@@ -1413,7 +1452,7 @@ TODO / WORK HERE
         
         if (isFac && !any(integer.factor)) {
             ## Add factor text column
-            inds <- as.integer(rv$Score)
+            inds <- as.integer(rv[[ scName ]])
             ## If we recognized the input but failed to find a map,
             ## the score is zero. This will evaluate as character(0)
             ## inside lvlVal[], so map these values to NA instead:
@@ -1435,21 +1474,33 @@ TODO / WORK HERE
 ### token-separated string of IDs. That is, need to grab metadata in
 ### some fashion for these synthetic values. Should probably hold a
 ### temp list for each row of original values
+            
             metacols <- character()
             metasrc  <- character()
             
             srcCols <- outName
             if (input.metadata) srcCols <- c(srcCols, inName)
+            ## If Cell-level metadata is defined, include the 'score'
+            ## column as well, presuming the column is in the output:
+            cellMeta <- param("CellMetadata")
+            if (CatMisc::is.something(cellMeta) &&
+                is.element(scName, colnames(rv))) srcCols <- c(srcCols, scName)
             
             for (src in srcCols) {
                 ## Request to include metadata columns
                 ## Map our output IDs to the Metadata data.table :
                 md  <- matrixMD[rv[[ src ]], setdiff(colnames(matrixMD), "id"),
                                 with=FALSE]
-                mdc <- colnames(md) # All available metadata columns
-                ## If the param is not a character vector, take all
-                if (!is.character(add.metadata)) add.metadata <- mdc
-                for (col in add.metadata) {
+                mdc    <- colnames(md) # All available metadata columns
+                addCol <- add.metadata # What we will be taking/showing
+                if (src == scName) {
+                    ## Cell level is 'special'
+                    addCol <- cellMeta
+                } else if (!is.character(addCol)) {
+                    ## If the param is not a character vector, take all
+                    addCol <- mdc
+                }
+                for (col in addCol) {
                     rvCol <- col
                     if (prefix.metadata) rvCol <- paste(src, col)
                     nowNames <- colnames(rv)
@@ -1513,7 +1564,7 @@ TODO / WORK HERE
             ## Matrix format
             ## Find all valid edges (both Input and Output defined):
             ok <- !is.na(rv[[ inName ]]) & !is.na(rv[[ outName ]])
-            sc <- rv$Score
+            sc <- rv[[ scName ]]
             if (is.null(sc)) {
                 err("Score column is NULL, all weights set to 1 in matrix")
                 sc <- rep(1L, sum(ok))
@@ -1549,8 +1600,8 @@ TODO / WORK HERE
                 
                 opts  <- list( )
                 if (isFac) {
-                    opts$Factor = list(factor=TRUE)
-                    opts$Score  = list(byFactor="Factor")
+                    opts$Factor      <- list(factor=TRUE)
+                    opts[[ scName ]] <- list(byFactor="Factor")
                 }
                 opts[[ inName ]]  <- list( url = urlParams[1] )
                 opts[[ outName ]] <- list( url = urlParams[2] )
@@ -1575,7 +1626,7 @@ TODO / WORK HERE
                 edges    <- data.frame(id1=inNode, id2=outNode,
                                        stringsAsFactors=FALSE)
                 outCols  <- colnames(rv)
-                portCols <- c("Depth", "Score", "Factor")
+                portCols <- c("Depth", scName, "Factor")
                 for (pc in portCols) {
                     if (is.element(pc, outCols))
                         edges[[ pc ]] <- rv[ !notEdge, pc]
@@ -1612,7 +1663,8 @@ TODO / WORK HERE
                 edges <- as.vector(t(pairs))
                 g <- graph(edges, directed=TRUE)
                 vertex_attr(g, "name") <- nodes
-                if (!is.null(rv$Score))  edge_attr(g, "weight") <- rv$Score
+                if (!is.null(rv[[ scName ]]))
+                    edge_attr(g, "weight") <- rv[[ scName ]]
                 if (!is.null(rv$Factor)) edge_attr(g, "name")   <- rv$Factor
                 rv <- g
             } else {

@@ -120,6 +120,12 @@ dimension name corresponding to the input.}
 \item{out.name}{Default "Output". As per \code{in.name}, but for
 the Output data.}
 
+\item{score.name}{Default \code{NULL}. The column header for the
+Score column. Can be set explicitly with a non-null
+value. Otherwise, if the 'celldim' object parameter has been
+set, that value will be used. If not, the "Score" will be
+utilized.}
+
 \item{prefix.metadata}{Default TRUE, which will prefix metadata
 column headers with \code{out.name} and \code{in.name}, as
 relevant.}
@@ -148,7 +154,8 @@ myObject$map(input=NULL, via=NULL, format="data.frame", ignore.case=TRUE,
              integer.factor=FALSE, add.metadata=TRUE,
              input.metadata=FALSE, warn=TRUE,
              append.to=NULL, append.col=1L,
-             in.name="Input", out.name="Output", prefix.metadata=TRUE,
+             in.name="Input", out.name="Output", score.name=NULL,
+             prefix.metadata=TRUE,
              help=FALSE )
 }
 

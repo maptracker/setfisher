@@ -51,6 +51,8 @@ request:
     \item MinScore    MaxScore
     \item MinRowCount MaxRowCount
     \item MinColCount MaxColCount
+    \item KeepRow     TossRow
+    \item KeepCol     TossCol
     \item KeepLevel   TossLevel
     \item TossMeta
 
@@ -89,7 +91,7 @@ s2e$showParameters( na.rm=FALSE )
 }
 \seealso{
 \link{filterByScore}, \link{filterByFactorLevel},
-    \link{filterByMetadata}, \link{filterByCount}, \link{reset},
-    \link{filterSummary}, \link{appliedFilters},
-    \link[ParamSetI]{showParameters}
+    \link{filterByMetadata}, \link{filterByCount},
+    \link{filterById}, \link{reset}, \link{filterSummary},
+    \link{appliedFilters}, \link[ParamSetI]{showParameters}
 }

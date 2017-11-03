@@ -387,6 +387,10 @@ NULL
 #'     matrix. See \link{matObj} for more information. A fatal error
 #'     will be thrown if raw is TRUE and new is not NULL (can not
 #'     alter raw matrix)
+#' @param nonzero Default \code{FALSE}. If TRUE, will fitler the
+#'     returned list of names to only include those that have at least
+#'     one non-zero cell associated with them. This parameter is
+#'     ignored if changes are being made to the names.
 #' @param reason Default NA. Only relevant when row is not
 #'     NULL. Optional human-readable reason for why the alteration was
 #'     made, will be recorded in \link{filterLog} and used to
@@ -663,18 +667,28 @@ NULL
 #'     against.
 #' @param MARGIN Default \code{NULL}, defines the dimensions to be
 #'     filtered. Can specify rows with '1' or 'row', columns with '2'
-#'     or 'col'. If NULL, then both rows and columns will be matched.
+#'     or 'col'. If NULL, then both rows and columns will be
+#'     matched. \strong{BE CAREFUL} - When keep=TRUE, you will almost
+#'     always want to set a margin! Otherwise it is unlikely that your
+#'     desired IDs are represented on both the rows and columns, and
+#'     you will end up with an empty matrix (a warning will be shown
+#'     in such cases to remind you that you might want MARGIN to be
+#'     defined).
 #' @param keep Default \code{FALSE}, which will cause matching IDs to
 #'     be removed. If TRUE, then non-matching IDs will be removed.
-#' @param ignore.case Default TRUE, which ignores the capitilazation
-#'     of IDs
-#' @param filterEmpty Default FALSE. If true, then rows or columns
-#'     that are empty after filtering will be removed from the matrix
-#'     using \link{removeEmpty}. If no cells were affected by the
-#'     \code{filterByCount} call, then \code{removeEmpty} will not be
-#'     called. If you wish to assure that empty rows and columns are
-#'     removed after this filter, you should call \code{removeEmpty}
-#'     explicitly.
+#' @param ignore.case Default \code{TRUE}, which ignores the
+#'     capitilazation of IDs
+#' @param exact Default \code{TRUE}, which will consider each value of
+#'     \code{id} as an exact match. If FALSE, then the values provided
+#'     in id will be treated as regular expressions. A name will match
+#'     if \strong{any} of the regular expressions matches it.
+#' @param filterEmpty Default \code{FALSE}. If true, then rows or
+#'     columns that are empty after filtering will be removed from the
+#'     matrix using \link{removeEmpty}. If no cells were affected by
+#'     the \code{filterByCount} call, then \code{removeEmpty} will not
+#'     be called. If you wish to assure that empty rows and columns
+#'     are removed after this filter, you should call
+#'     \code{removeEmpty} explicitly.
 #' @param reason Default NA. Optional human-readable reason for why
 #'     the alteration was made, will be recorded in \link{filterLog}
 #'     and used to structure \link{filterSummary}
@@ -689,13 +703,24 @@ NULL
 #'
 #' @examples
 #'
-#' ## Fitler the example matrix to find symbols that have 3 or more genes:
 #' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$reset()
+#' # Filter down to just a handful of symbols
+#' s2e$filterById(c("AR","AIRE1","APSI"), MARGIN='row', keep=TRUE)
+#' message(s2e$as.gmt(transpose=TRUE))
 #'
-#'  ### NEED EXAMPLES HERE
-#' 
+#' s2e$reset()
+#' # Use RegExp pattern to remove genes with LocusLink IDs longer than 3 digits
+#' s2e$filterById(c('^LOC[0-9]{4,}'), exact=FALSE)
+#' message(s2e$as.gmt(transpose=TRUE))
 #' s2e$filterSummary()
-#' 
+#'
+#' s2e$reset()
+#' ## Unintended removal of all data can occur when you pass a
+#' ## specific keep list and fail to specify the margin. You will be
+#' ## warned when this happens, though.
+#' s2e$filterById(c("AR","AIRE1","APSI"), keep=TRUE)
+#'
 NULL
 
 #' Filter by Count
@@ -1194,7 +1219,8 @@ NULL
 #'              integer.factor=FALSE, add.metadata=TRUE,
 #'              input.metadata=FALSE, warn=TRUE,
 #'              append.to=NULL, append.col=1L,
-#'              in.name="Input", out.name="Output", prefix.metadata=TRUE,
+#'              in.name="Input", out.name="Output", score.name=NULL,
+#'              prefix.metadata=TRUE,
 #'              help=FALSE )
 #' }
 #'
@@ -1332,6 +1358,11 @@ NULL
 #'     dimension name corresponding to the input.
 #' @param out.name Default "Output". As per \code{in.name}, but for
 #'     the Output data.
+#' @param score.name Default \code{NULL}. The column header for the
+#'     Score column. Can be set explicitly with a non-null
+#'     value. Otherwise, if the 'celldim' object parameter has been
+#'     set, that value will be used. If not, the "Score" will be
+#'     utilized.
 #' @param prefix.metadata Default TRUE, which will prefix metadata
 #'     column headers with \code{out.name} and \code{in.name}, as
 #'     relevant.
