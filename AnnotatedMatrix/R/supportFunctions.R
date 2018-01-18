@@ -1,4 +1,134 @@
 
+#' Find Matrices
+#'
+#' Searches a directory for matrices matching your criteria
+#' 
+#' @param ns1 Default \code{NULL}. Optional, the "first" namespace
+#'     (but will be matched to either the first or second namespace
+#'     field)
+#' @param ns2 Default \code{NULL}. Options, the "second" namespace,
+#'     will be matched to the other field relative to \code{ns1}
+#' @param mod Default \code{NULL}. A modifier assigned to some
+#'     matrices, often a species name like "Human" or "Mouse".
+#' @param type Default \code{NULL}. The type of the matrix, generally
+#'     "Map" or "Ontology"
+#' @param auth Default \code{NULL}. The authority that provided the
+#'     data used to make the matrix, for example "Entrez",
+#'     "GeneOntology", "PubMed" etc
+#' @param vers Default \code{NULL}. The version of the matrix, eg
+#'     "2017-11-05", "GRCh37", etc
+#' @param dir Default
+#'     \code{getOption("annotatedmatrixdir")}. Required, the folder to
+#'     search in on your file system.
+#' @param ignore.case Default \code{TRUE}. Should matches ignore case?
+#' @param most.recent Default \code{TRUE}. If TRUE, keep the most
+#'     recently modified version of files with otherwise identical
+#'     metadata. THIS MAY NOT BE THE MOST CURRENT MATRIX - the metric
+#'     used is the file system modified time.
+#' @param recursive Default \code{TRUE}, should subdirectories be
+#'     searched as well.
+#' @param regexp Default \code{FALSE}. Should matches be performed by
+#'     regular expression?
+#'
+#' @details
+#'
+#' The expected file format will be one of:
+#'
+#' \code{<TYPE>@<MOD>-<NS>_to_<NS>@<AUTH>@<VERS>.mtx}
+#' \code{<TYPE>@<NS>_to_<NS>@<AUTH>@<VERS>.mtx}
+#'
+#' ... keeping in mind that the relative order of NS1 and NS2 is
+#' irrelevant, and noting that some matricies will not have a modifier
+#' (MOD). It will be expected that the suffix be lower case.
+#' 
+#' @importFrom CatMisc is.something
+#' @export
+
+findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
+                         vers=NULL, dir=getOption("annotatedmatrixdir"),
+                         recursive=TRUE, ignore.case=TRUE, most.recent=TRUE,
+                         regexp=FALSE) {
+    if (!CatMisc::is.something(dir)) {
+        message("findMatrices(): You must provide the location of your matrix files with the dir parameter")
+        return(NA)
+    }
+
+    ## I considered building a single pattern for list.files(), but
+    ## the filters are complex enough that I think it's best to
+    ## recover all files, break out the fields, then filter in code.
+    
+    files <- list.files(path=dir, pattern='\\.mtx$', recursive=recursive)
+    bits  <- CatMisc::parenRegExp("^(.+/)?([^@]+)@(?:(.+?)-)?(.+?)_to_(.+?)@([^@]+)@([^@]+).mtx$", files, unlist=FALSE)
+    bits[ bits == "" ] <- NA
+    mat   <- matrix(bits, ncol=7, byrow=TRUE)
+    colnames(mat) <- c("SubDir", "Type", "Modifier", "NS1", "NS2",
+                       "Authority", "Version")
+    df <- as.data.frame(mat, stringsAsFactors=FALSE)
+    df$Path <- files
+
+    ## TO DO - What if supplied with multiple values for any of the filters?
+
+    ## Start filtering the df
+
+    if (!is.null(ns1) || !is.null(ns2)) {
+        ## Filter for one or two namespaces
+        if (!is.null(ns1) && !is.null(ns2)) {
+            ## Testing for two namespaces. ORDER NOT IMPORTANT
+            if (!regexp) {
+                ns1 <- sprintf("^%s$", ns1)
+                ns2 <- sprintf("^%s$", ns2)
+            }
+            df <- df[ (grepl(ns1, df$NS1, ignore.case=ignore.case) &
+                       grepl(ns2, df$NS2, ignore.case=ignore.case)) |
+                      (grepl(ns1, df$NS2, ignore.case=ignore.case) &
+                       grepl(ns2, df$NS1, ignore.case=ignore.case)), ]
+
+        } else {
+            ## Testing for just one namespace. Either can match.
+            ns <- ifelse(is.null(ns1), ns2, ns1)
+            if (!regexp) ns <- sprintf("^%s$", ns)
+            df <- df[ grepl(ns, df$NS1, ignore.case=ignore.case) |
+                      grepl(ns, df$NS2, ignore.case=ignore.case) , ]
+
+        }
+    }
+
+    if (!is.null(mod)) {
+        ## Modifier filtermod
+        if (!regexp) mod <- sprintf("^%s$", mod)
+        df <- df[ grepl(mod, df$Modifier, ignore.case=ignore.case), ]
+    }
+    if (!is.null(type)) {
+        ## Type filter
+        if (!regexp) type <- sprintf("^%s$", type)
+        df <- df[ grepl(type, df$Type, ignore.case=ignore.case), ]
+    }
+    if (!is.null(auth)) {
+        ## Authority filter
+        if (!regexp) auth <- sprintf("^%s$", auth)
+        df <- df[ grepl(auth, df$Authority, ignore.case=ignore.case), ]
+    }
+    if (!is.null(vers)) {
+        if (!regexp) vers <- sprintf("^%s$", vers)
+        df <- df[ grepl(vers, df$Version, ignore.case=ignore.case), ]        
+    }
+
+    ## Add the modified date to the data frame
+    df$Modified <- file.info(file.path(dir, df$Path))$mtime
+    if (most.recent) {
+
+
+        message("TODO:
+    Need to implement clustering and sorting by $Modified
+")
+
+    }
+    
+    
+    attr(df, "Directory") <- dir # Hang the original directory from the df
+    df
+}
+
 #' Take Lowest Thing
 #'
 #' From a list of strings, take the lowest/smallest thing
