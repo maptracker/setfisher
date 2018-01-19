@@ -1,4 +1,7 @@
 
+.myPkgEnv <- new.env(parent=emptyenv())
+assign(".matrixCache", list(), envir=.myPkgEnv)
+
 #' Find Matrices
 #'
 #' Searches a directory for matrices matching your criteria
@@ -21,14 +24,22 @@
 #'     \code{getOption("annotatedmatrixdir")}. Required, the folder to
 #'     search in on your file system.
 #' @param ignore.case Default \code{TRUE}. Should matches ignore case?
-#' @param most.recent Default \code{TRUE}. If TRUE, keep the most
-#'     recently modified version of files with otherwise identical
-#'     metadata. THIS MAY NOT BE THE MOST CURRENT MATRIX - the metric
-#'     used is the file system modified time.
+#' @param most.recent Default \code{NULL}. If NULL, keep all
+#'     results. Otherwise, cluster the matrices by all fields except
+#'     version, and keep only the "most recent" version of each
+#'     cluster. If \code{most.recent} contains the substring "vers",
+#'     this will be done by sorting the Version field of the
+#'     data.frame. Otherwise, the Modified field (file system
+#'     modification time) will be used.
 #' @param recursive Default \code{TRUE}, should subdirectories be
 #'     searched as well.
 #' @param regexp Default \code{FALSE}. Should matches be performed by
 #'     regular expression?
+#' @param clear.cache Default \code{FALSE}. File lists are cached for
+#'     each \code{dir} requested (as long as \code{recursive} is
+#'     TRUE). This allows faster recovery of subsequent searches, but
+#'     will prevent discovery of newly-created matrices. Pass a value
+#'     of TRUE to assure an explicit search of the directory.
 #'
 #' @details
 #'
@@ -40,6 +51,20 @@
 #' ... keeping in mind that the relative order of NS1 and NS2 is
 #' irrelevant, and noting that some matricies will not have a modifier
 #' (MOD). It will be expected that the suffix be lower case.
+#'
+#' @return A data.frame with the following fields:
+#'
+#' \itemize{
+#'   \item SubDir - subdirectory relative to \code{dir}
+#'   \item Type - The type of conversion matrix
+#'   \item Modifier - A modifier, generally a species
+#'   \item NS1 - The row namespace / database
+#'   \item NS2 - The column namespace / database
+#'   \item Authority - The authority for the underlying data
+#'   \item Version - The version of the matrix
+#'   \item Path - The path to the matrix file, relative to \code{dir}
+#'   \item Modified - The file modification time
+#' }
 #' 
 #' @importFrom CatMisc is.something
 #' @export
@@ -47,19 +72,38 @@
 findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
                          vers=NULL, dir=getOption("annotatedmatrixdir"),
                          recursive=TRUE, ignore.case=TRUE, most.recent=TRUE,
-                         regexp=FALSE) {
+                         regexp=FALSE, clear.cache=FALSE) {
     if (!CatMisc::is.something(dir)) {
         message("findMatrices(): You must provide the location of your matrix files with the dir parameter")
         return(NA)
     }
 
-    ## I considered building a single pattern for list.files(), but
-    ## the filters are complex enough that I think it's best to
-    ## recover all files, break out the fields, then filter in code.
-    
-    files <- list.files(path=dir, pattern='\\.mtx$', recursive=recursive)
-    bits  <- CatMisc::parenRegExp("^(.+/)?([^@]+)@(?:(.+?)-)?(.+?)_to_(.+?)@([^@]+)@([^@]+).mtx$", files, unlist=FALSE)
-    bits[ bits == "" ] <- NA
+    ## I considered building a single, monolithic pattern for
+    ## list.files(), but the filters are complex enough that I think
+    ## it's best to recover all files, break out the fields, then
+    ## filter as a data.frame in code.
+
+    cache    <- get(".matrixCache", envir=.myPkgEnv)
+    viaCache <- NULL
+    if (recursive && !is.null(cache[[ dir ]]) && !clear.cache) {
+        ## Use a previously-cached file list for this directory
+        files    <- cache[[ dir ]]
+        viaCache <- attr(files, "CacheTime")
+    } else {
+        ## Find the .mtx files in this folder:
+        files <- list.files(path=dir, pattern='\\.mtx$', recursive=recursive)
+        if (recursive) {
+            ## Cache the result as long as a default recursive search
+            ## was run
+            attr(files, "CacheTime") <- Sys.time()
+            cache[[ dir ]] <- files
+            assign(".matrixCache", cache, envir=.myPkgEnv)
+        }
+    }
+    ## Parse out the fields:
+    bits  <- CatMisc::parenRegExp("^(.+/)?([^@]+)@(?:(.+?)-)?(.+?)_to_(.+?)@([^@]+)@([^@]+).mtx$", files, unlist=TRUE)
+    bits[ bits == "" ] <- NA # Empty string to NA
+    ## Structure as matrix, then as data frame
     mat   <- matrix(bits, ncol=7, byrow=TRUE)
     colnames(mat) <- c("SubDir", "Type", "Modifier", "NS1", "NS2",
                        "Authority", "Version")
@@ -69,7 +113,8 @@ findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
     ## TO DO - What if supplied with multiple values for any of the filters?
 
     ## Start filtering the df
-
+    usedFilt <- list()
+    
     if (!is.null(ns1) || !is.null(ns2)) {
         ## Filter for one or two namespaces
         if (!is.null(ns1) && !is.null(ns2)) {
@@ -83,49 +128,78 @@ findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
                       (grepl(ns1, df$NS2, ignore.case=ignore.case) &
                        grepl(ns2, df$NS1, ignore.case=ignore.case)), ]
 
+            usedFilt$Namespace <- c(ns1, ns2)
         } else {
-            ## Testing for just one namespace. Either can match.
+            ## Testing for just one namespace. Can match to either
+            ## rows or columns.
             ns <- ifelse(is.null(ns1), ns2, ns1)
             if (!regexp) ns <- sprintf("^%s$", ns)
             df <- df[ grepl(ns, df$NS1, ignore.case=ignore.case) |
                       grepl(ns, df$NS2, ignore.case=ignore.case) , ]
 
+            usedFilt$Namespace <- ns
         }
     }
 
     if (!is.null(mod)) {
         ## Modifier filtermod
+        usedFilt$Modifier <- mod
         if (!regexp) mod <- sprintf("^%s$", mod)
         df <- df[ grepl(mod, df$Modifier, ignore.case=ignore.case), ]
     }
     if (!is.null(type)) {
         ## Type filter
+        usedFilt$Type <- type
         if (!regexp) type <- sprintf("^%s$", type)
         df <- df[ grepl(type, df$Type, ignore.case=ignore.case), ]
     }
     if (!is.null(auth)) {
         ## Authority filter
+        usedFilt$Authority <- auth
         if (!regexp) auth <- sprintf("^%s$", auth)
         df <- df[ grepl(auth, df$Authority, ignore.case=ignore.case), ]
     }
     if (!is.null(vers)) {
+        ## Version filter
+        usedFilt$Version <- vers
         if (!regexp) vers <- sprintf("^%s$", vers)
         df <- df[ grepl(vers, df$Version, ignore.case=ignore.case), ]        
     }
 
     ## Add the modified date to the data frame
     df$Modified <- file.info(file.path(dir, df$Path))$mtime
-    if (most.recent) {
-
-
-        message("TODO:
-    Need to implement clustering and sorting by $Modified
+    if (!is.null(most.recent) && !is.na(most.recent[1]) && most.recent[1]) {
+        ## Make a synthetic column for aggregation
+        df$temp <- paste(df$Type, df$Modifier, df$NS1, df$NS2, df$Authority,
+                         sep='@')
+        sortCol <- if (grepl("vers", most.recent, ignore.case=TRUE)) {
+            message("Most recent version chosen by max() of $Version column.
+  If version identifiers do not sort simply, this choice may be incorrect.
 ")
+            "Version"
+        } else {
+            message("Most recent version chosen by max() of $Modified column.
+  If older files were modified on disk recently, you will not recover the most recent data.
+")
+            "Modified"
+        }
+        usedFilt$MostRecent <- paste("Via column", sortCol)
+        ## Thanks to Scott for reminding me tapply works well here
+        
+        ## filt will be a named vector; Names will correspond to the
+        ## temporary aggregating column, and values will be the "most
+        ## recent" value of Version or Modified:
+        filt  <- tapply(df[[ sortCol ]], df$temp, max)
+        ## Use the named vector as a "lookup hash" to identify rows
+        ## that should be kept:
+        df    <- df[ df[[ sortCol ]] == filt[ df$temp ], ]
 
+        df$temp <- NULL # Remove the synthetic column
     }
     
-    
-    attr(df, "Directory") <- dir # Hang the original directory from the df
+    attr(df, "Filter")    <- usedFilt # Note the applied filters
+    attr(df, "Directory") <- dir      # Hang the original directory from the df
+    attr(df, "CacheTime") <- viaCache # Note if the data were via a cache
     df
 }
 
