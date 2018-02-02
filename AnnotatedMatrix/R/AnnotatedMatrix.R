@@ -1,3 +1,7 @@
+### For documentation, see MethodsDocumentation.R - This is a
+### Reference Class object, which at the moment (2018) does not have
+### mature mechanisms for documenting object methods.
+
 sfSep <- ' || ' # Token for separating text while recording filters
 
 #' Annotated Matrix
@@ -52,6 +56,7 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #'     names after processing with make.names() (if valid = TRUE) or
 #'     make.unique() if (valid = FALSE)
 #' @field colChanges As per rowChanges, but for column names
+#' @field colDefs list of definitions for metadata columns
 #'
 #' @importFrom methods new setRefClass
 #' @importFrom utils read.table
@@ -108,7 +113,8 @@ AnnotatedMatrix <-
 
                     ## If row or column names need to be remapped:
                     rowChanges = "character",
-                    colChanges = "character"
+                    colChanges = "character",
+                    colDefs    = "list"
                     ),
                 contains = c("ParamSetI")
                 )
@@ -139,7 +145,7 @@ ColDim      [character] Name for the column dimension
 RowUrl      [character] Base URL for row names (%s placeholder for name)
 ColUrl      [character] Base URL for column names (%s placeholder for name)
 LoadComment [character] Optional message displayed when matrix is first loaded
-CellMetadata [character] One or more metadata fields associated with cell values
+CellMetadata [character] Optional, one or more metadata fields associated with cell values
 
 MinScore    [numeric] Minimum score recognized by $autoFilter()
 MaxScore    [numeric] Maximum score recognized by $autoFilter()
@@ -164,7 +170,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         reset()
         if (autofilter) autoFilter()
         com <- param("LoadComment")
-        if (is.something(com)) message(paste(strwrap(com),
+        if (CatMisc::is.something(com)) message(paste(strwrap(com),
             collapse="\n"), color='cyan')
         
     },
@@ -427,11 +433,11 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             message("# More details: <object>$filterSummary()", color='yellow')
             ## If the matrix has an autofilter comment show it now
             com <- param("AutoFilterComment")
-            if (is.something(com)) message(paste(strwrap(com),
+            if (CatMisc::is.something(com)) message(paste(strwrap(com),
                 collapse="\n"), color='cyan')
         }
         
-        invisible(setNames(x, .filterNames))
+        invisible(stats::setNames(x, .filterNames))
     },
 
     .detailZeroedRowCol = function( obj, fail, metric, reason, help=FALSE) {
@@ -531,7 +537,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                 removeEmpty(ttxt)
             }
         }
-        invisible(setNames(rv, .filterNames))
+        invisible(stats::setNames(rv, .filterNames))
     },
 
     filterById = function(id, MARGIN=NULL, keep=FALSE, ignore.case=TRUE,
@@ -625,7 +631,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                 message("filterById( ..., MARGIN=NULL ) has removed ALL matrix entries. Perhaps you didn't intend to match both margins?", prefix="[WARNING]", color='yellow')
             }
         }
-        invisible(setNames(rv, .filterNames))
+        invisible(stats::setNames(rv, .filterNames))
     },
 
     filterByCount = function(MARGIN, min=NULL, max=NULL, relative=TRUE,
@@ -719,7 +725,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                 removeEmpty(ttxt)
             }
         }
-        invisible(setNames(rv, .filterNames))
+        invisible(stats::setNames(rv, .filterNames))
     },
 
     filterByFactorLevel = function( x, keep=TRUE, ignore.case=TRUE,
@@ -729,7 +735,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                                              names(.refClassDef@contains)))
         if (!is.factor()) {
             err("Can not filterByFactorLevel() - matrix is not a factor")
-            return( invisible(setNames(NA,'FilterError') ) )
+            return( invisible(stats::setNames(NA,'FilterError') ) )
          }
         obj  <- matObj()
         rv   <- c(0L, 0L, 0L)
@@ -786,11 +792,11 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         } else {
             err(c(sprintf("filterByFactorLevel() input error: provided %s.",
                           storage.mode(x)), "Expected  character or numeric"))
-            return( invisible(setNames(NA,'FilterError') ) )
+            return( invisible(stats::setNames(NA,'FilterError') ) )
         }
         if (length(xVal) == 0) {
             err("No valid levels provided to filterByFactorLevel()")
-            return( invisible(setNames(NA,'FilterError') ) )
+            return( invisible(stats::setNames(NA,'FilterError') ) )
         }
 
         ## Even if the user asked to keep a set of levels, the set
@@ -829,7 +835,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                 removeEmpty(ttxt)
             }
         }
-        invisible(setNames(rv, .filterNames))
+        invisible(stats::setNames(rv, .filterNames))
     },
 
     filterByMetadata = function(key, val, MARGIN=NULL, keep=TRUE,type="like",
@@ -845,7 +851,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         if (length(x) == 0) {
             err(paste("$filterByMetadata(key='", key,
                       "') does not match any keys"))
-            return( invisible(setNames(NA,'FilterError') ) )
+            return( invisible(stats::setNames(NA,'FilterError') ) )
         }
         if (length(x) > 1) {
             ## Try case insensitive?
@@ -854,7 +860,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             if (length(x) != 1) {
                 err(c("filterByMetadata(key =", key,
                       ") matches multiple columns"))
-                return( invisible(setNames(NA,'FilterError') ) )
+                return( invisible(stats::setNames(NA,'FilterError') ) )
             }
         }
         colN <- metadata_keys()[x] # The column name (key) we will use
@@ -932,7 +938,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         rv     <- c(0L, 0L, 0L)
         metric <- paste(metric, collapse=' ')
         ## No matches
-        if (sum(fail) == 0) return( invisible(setNames(rv, .filterNames)) )
+        if (sum(fail) == 0) return( invisible(stats::setNames(rv, .filterNames)) )
 
         ## Need to consider the hits one by one to check if they've
         ## already been zeroed out or not, and to collect stats. This
@@ -1001,7 +1007,83 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                 removeEmpty(metric)
             }
         }
-        invisible(setNames(rv, .filterNames))
+        invisible(stats::setNames(rv, .filterNames))
+    },
+
+    product = function(mat2, dim1=NULL, dim2=NULL, ignore.case=TRUE,
+                       help=FALSE) {
+        "Take a product of this matrix A.B with another BxC to yield AxC"
+        if (help) return(CatMisc::methodHelp(match.call(), class(.self),
+                                             names(.refClassDef@contains)))
+        obj    <- matObj()
+        obj2   <- mat2$matObj()
+
+        ## Determine what dimensions we are going to merge on
+        dimReq   <- list( l=dim1, r=dim2 )
+        dimCheck <- list( l=integer(), r=integer() )
+        for (side in names(dimCheck)) {
+            req <- dimReq[[ side ]]
+            if (!CatMisc::is.something(req)) {
+                ## No user input, check both
+                dimCheck[[ side ]] <- c(1L, 2L)
+            } else {
+                ## Parse user request for this dimension
+                if (length(req) != 1) {
+                    message("Dimension request (dim1/dim2) must be a single value for $product() ", prefix="[ERROR]", color='red')
+                    return(NA)
+                } else if (grepl('(1|row)', req, ignore.case=TRUE)) {
+                    dimCheck[[ side ]] <= 1L
+                } else if (grepl('(1|row)', req, ignore.case=TRUE)) {
+                    dimCheck[[ side ]] <= 2L
+                } else {
+                    message(sprintf("Unrecognized dimension '%s' for $product(); Should be one of 1/row or 2/col ", req), prefix="[ERROR]", color='red')
+                    return(NA)
+                }
+            }
+        }
+
+        ## What combination of left and right dimensions yields the
+        ## greatest overlap?
+        chkMat <- integer()
+        for (lftDim in dimCheck$l) {
+            ## Cycle through left dimension
+            lftNms <- if (lftDim == 1) { rNames() } else { cNames() }
+            if (ignore.case) lftNms <- tolower(lftNms)
+            for (rgtDim in dimCheck$r) {
+                ## Cycle through right dimension
+                rgtNms <- if (rgtDim == 1) { mat2$rNames() } else { mat2$cNames() }
+                if (ignore.case) rgtNms <- tolower(rgtNms)
+                ## Calculate intersection as string overlap in names
+                overlap <- base::intersect(lftNms, rgtNms)
+                chkMat  <- c(chkMat, lftDim, rgtDim, length(overlap))
+            }
+        }
+        ## Build results as matrix; Makes it a bit easier to
+        ## manipulate and debug.
+        chkMat <- matrix(chkMat, ncol=3, byrow=TRUE,
+                         dimnames=list(c(), c("Lft","Rgt","Count")))
+        ord  <- base::order(chkMat[,"Count"], decreasing=TRUE)
+        ldim <- chkMat[ord[1], "Lft"]
+        rdim <- chkMat[ord[1], "Rgt"]
+        
+        ## What are the shared names between the two matrices?
+        lnames <- if (ldim == 1) { rNames() } else { cNames }
+        rnames <- if (rdim == 1) { mat2$rNames() } else { mat2$cNames() }
+        common <- base::intersect(lnames, rnames)
+
+        ## What are the indices associated with those names
+        lind   <- match(common, lnames)
+        rind   <- match(common, rnames)
+
+        ## The tedious part is now gathering the connections across
+        ## each shared identifier and deciding what single numeric
+        ## value will represent that Lft -> Common -> Rgt collapsed
+        ## edge.
+
+### TODO: Manage factorized matrices
+        
+### TODO: Manage metadata
+        
     },
 
     nnZero = function(obj=NULL, help=FALSE, ...) {
@@ -1096,9 +1178,15 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ## If we are appending to another data.frame, always take the
         ## input as the designated pivot column:
         if (!is.null(append.to)) input <- append.to[[ append.col ]]
-        if (!is.vector(input) || !is.character(input[1])) {
-            err("$map() must be provided with a character vector as input")
+        if (!is.vector(input)) {
+            err("$map() must be provided with a vector as input")
             return(NA)
+        } else if (!is.character(input)) {
+            ## Bad things happen when non-character input is
+            ## used. Some matrices have IDs that are effectively
+            ## integers (eg Entrez Gene accessions). I can't think of
+            ## any reason to keep them numeric, so we will convert here:
+            input <- as.character(input)
         }
         obj   <- matObj()
         ## Build some named vectors to generalize mapping IDs between
@@ -1107,9 +1195,9 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         cn    <- colnames(obj)
         inp   <- input
         if (ignore.case) {
-            rn  <- setNames(tolower(rn), rn)
-            cn  <- setNames(tolower(cn), cn)
-            inp <- setNames(tolower(input), input)
+            rn  <- stats::setNames(tolower(rn), rn)
+            cn  <- stats::setNames(tolower(cn), cn)
+            inp <- stats::setNames(tolower(input), input)
         } else {
             names(rn)  <- rn
             names(cn)  <- cn
@@ -1140,7 +1228,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             } else if (grepl('out', collapse[1], ignore.case=TRUE)) {
                 colOut <- TRUE
             } else {
-                err("mapToCol() collapse parameter must be 'in' or 'out'")
+                err("$map() collapse parameter must be 'in' or 'out'")
             }
         }
 
@@ -1160,7 +1248,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         } else if (grepl('^col', via[1], ignore.case=TRUE)) {
             via   <- 'col'
         } else {
-            err(c("mapToCol() unrecognized 'via' argument.",
+            err(c("$map() unrecognized 'via' argument.",
                   "Should be 'row' or 'col', or NULL for automatic"))
             return(NA)
         }
@@ -1232,7 +1320,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ## Set of novel IDs being used for this recursion cycle. The
         ## IDs being queried are the names, the text to display
         ## (case-preserved) are the values.
-        bait     <- setNames( inpNms[ match(ids, inp) ], ids )
+        bait     <- stats::setNames( inpNms[ match(ids, inp) ], ids )
         while (recLevel <= recurse && length(bait) > 0) {
             newFound      <- character() # Will hold newly-found IDs
             baitIds       <- names(bait)
@@ -1266,7 +1354,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                        } else {
                            ## The '[' opperator is not honoring column names in
                            ## Matrix objects so I need to explicitly setNames:
-                           setNames(rows[1, , drop=TRUE], colnames(rows))
+                           stats::setNames(rows[1, , drop=TRUE], colnames(rows))
                            ## This is maybe because dimensions in dgTMatrix
                            ## objects are stored in slots, not attributes?
                        }
@@ -1289,7 +1377,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                         ## here, since ids represents all unique input IDs
                         nmVal  <- nameCollapseFunction( names(vec) )
                         colVal <- valueCollapseFunction(vec)
-                        vec    <- setNames(colVal, nmVal)
+                        vec    <- stats::setNames(colVal, nmVal)
                     }
                 }
                 vl <- length(vec) # How many results we have
@@ -1313,9 +1401,9 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                 ## normalize case:
                 bait <- unique(newFound)
                 bait <- if (ignore.case) {
-                    setNames(bait, tolower(bait))
+                    stats::setNames(bait, tolower(bait))
                 } else {
-                    setNames(bait, bait)
+                    stats::setNames(bait, bait)
                 }
                 ## Only use IDs we have not already used:
                 bait <- bait[ base::setdiff( names(bait), names(depth) ) ]
@@ -1392,6 +1480,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             if (CatMisc::is.something(d)) {
                 scName <- d
             } else {
+                ## Otherwise, by default set as 'Score'
                 scName <- "Score"
             }
         }
@@ -1484,13 +1573,26 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             ## column as well, presuming the column is in the output:
             cellMeta <- param("CellMetadata")
             if (CatMisc::is.something(cellMeta) &&
-                is.element(scName, colnames(rv))) srcCols <- c(srcCols, scName)
+                is.element(scName, colnames(rv))) srcCols <- c(scName, srcCols)
             
             for (src in srcCols) {
                 ## Request to include metadata columns
-                ## Map our output IDs to the Metadata data.table :
-                md  <- matrixMD[rv[[ src ]], setdiff(colnames(matrixMD), "id"),
-                                with=FALSE]
+                ## Map our output IDs to the Metadata data.table. 
+                md  <- if (src == scName) {
+                    ## Matrix cell/score values are numeric, and
+                    ## presumably integers if they have metadata
+                    ## assigned to them. We *must* convert to
+                    ## character to properly lookup
+                    matrixMD[as.character(rv[[ src ]]),
+                             setdiff(colnames(matrixMD), "id"),
+                             with=FALSE]
+                    ## Doing in an if block to prevent needless
+                    ## conversion for rows/cols
+                } else {
+                    ## Row and colnames should already be strings
+                    matrixMD[rv[[ src ]], setdiff(colnames(matrixMD), "id"),
+                             with=FALSE]
+                }
                 mdc    <- colnames(md) # All available metadata columns
                 addCol <- add.metadata # What we will be taking/showing
                 if (src == scName) {
@@ -1509,7 +1611,10 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                         ## already present. Make it unique
                         rvCol <- make.unique(c(nowNames, rvCol))[ length(nowNames) + 1 ]
                     }
-                    colHelp[[ rvCol ]] <- paste("Metadata values for", col, "associated with", src)
+                    hBits <- c("Metadata values for",col,"associated with",src)
+                    def  <- colDefs[[ col ]]
+                    if (CatMisc::is.something(def)) hBits <- c(def, '-', hBits)
+                    colHelp[[ rvCol ]] <- paste(hBits, collapse=' ')
                     metacols <- c(metacols, rvCol)
                     metasrc  <- c(metasrc, src)
                     if (is.element(col, mdc)) {
@@ -1536,6 +1641,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             Unmapped = "Input ID is also in the matrix, but does not have a target with non-zero score. Score will be zero",
             Unknown = "Input ID could not be matched to any in the matrix. Score will be NA")
 
+        format <- format[1] # de-vectorize
         if (!is.null(append.to)) {
             ## User wants result columns added to their own data.frame
             mainCol  <- if (colOut) { 1L } else { 2L }
@@ -1554,13 +1660,13 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             rv <- append.to
             attr(rv, "Appended") <- added
             Notes[["Appended"]]  <- "Column names that were appended to the data.frame you provided with append.to="
-        } else if (grepl('vec', format[1], ignore.case=TRUE)) {
+        } else if (grepl('vec', format, ignore.case=TRUE)) {
             ## Vector format.
-            rv <- setNames(rv[[ outName ]], rv[[ inName ]])
+            rv <- stats::setNames(rv[[ outName ]], rv[[ inName ]])
             ## This can result in non-unique names. Do we want to use
             ## strict.unique() to uniquify names?
             class(rv) <- c("mapResult", class(rv))
-        } else if (grepl('matrix', format[1], ignore.case=TRUE)) {
+        } else if (grepl('matrix', format, ignore.case=TRUE)) {
             ## Matrix format
             ## Find all valid edges (both Input and Output defined):
             ok <- !is.na(rv[[ inName ]]) & !is.na(rv[[ outName ]])
@@ -1589,7 +1695,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             
             rv <- as(sparseMatrix( i=i, j=j, x=sc, dimnames=dn), "dgTMatrix")
             
-        } else if (grepl('dynamic', format[1], ignore.case=TRUE)) {
+        } else if (grepl('dynamic', format, ignore.case=TRUE)) {
             ## dynamictable HTML output
             if (require("dynamictable", quietly=TRUE)) {
                 ord   <- c('row', 'col')
@@ -1611,7 +1717,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             } else {
                 err("The dynamictable package is not installed; Please run install.packages('dynamictable')")
             }
-        } else if (grepl('canvas', format[1], ignore.case=TRUE)) {
+        } else if (grepl('canvas', format, ignore.case=TRUE)) {
             ## CanvasXpress DHTML network format
             if (require("canvasXpress", quietly=TRUE)) {
                 ## Exclude rows that don't have both input and output:
@@ -1651,7 +1757,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             } else {
                 err("The canvasXpress package is not installed; Please run install.packages('canvasXpress')")
             }
-        } else if (grepl('graph', format[1], ignore.case=TRUE)) {
+        } else if (grepl('graph', format, ignore.case=TRUE)) {
             ## graph format
             if (require("qgraph", quietly=TRUE)) {
                 nodes <- unique(c(rv[[inName]], rv[[outName]]))
@@ -1761,7 +1867,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 
     .addAppliedFilter = function (key, val, com=NULL, pre=NULL, pro=NULL,
                                   help=FALSE) {
-        " Internal method, stores filter text in $setFilters"
+        "Internal method, stores filter text in $setFilters"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         txt <- c(toupper(key))
@@ -1837,21 +1943,57 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         ## Only keep rows (sets) with at least one object:
         hasData  <- populatedRows(obj)
         obj      <- obj[hasData, , drop=FALSE]
-        setNames <- rownames(obj) # Rows are sets
+        setnames <- rownames(obj) # Rows are sets
         memNames <- colnames(obj) # Columns are the potential members
-        descr    <- matrixMD[.(setNames), "Description", with=FALSE]
-        ns       <- length(setNames)
+        descr    <- matrixMD[.(setnames), "Description", with=FALSE]
+        ns       <- length(setnames)
         out      <- character(ns)
         for (i in seq_len(ns)) {
             row    <- obj[i, , drop=TRUE]
-            out[i] <- sprintf("%s\n", paste(c(setNames[i], descr[i],
+            out[i] <- sprintf("%s\n", paste(c(setnames[i], descr[i],
                                            memNames[row != 0]), collapse="\t"))
         }
         if (is.null(file)) {
             paste(out, sep='')
         } else {
             invisible(cat(out, sep='', file=file))
-            
+        }
+    },
+
+    melt = function( obj=NULL, file=NULL, named.dims=TRUE, help=FALSE, ... ) {
+        "Represent matrix as data.frame with three rows: Row, Col, Val"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        if (is.null(obj)) obj <- matObj(...)
+        rn <- rownames(obj)
+        cn <- colnames(obj)
+        x    <- obj@x
+        mask <- x != 0 ## Only consider non-zero cells
+        rv   <- data.frame(Row = rn[ obj@i[ mask ] + 1 ],
+                           Col = cn[ obj@j[ mask ] + 1 ],
+                           Val = x[ mask ],
+                           stringsAsFactors=FALSE)
+        if (named.dims) {
+            ## Add specific namespace names to the header
+            header   <- colnames(rv)
+            dimNames <- names(dimnames(obj))
+            if (CatMisc::is.something(dimNames[1])) header[1] <- dimNames[1]
+            if (CatMisc::is.something(dimNames[2])) header[2] <- dimNames[2]
+            cd <- param("CellDim")
+            if (CatMisc::is.something(cd)) header[3] <- cd
+            colnames(rv) <- header
+        }
+        if (is.null(file)) {
+            rv
+        } else {
+            sep <- "\t"
+            qt  <- FALSE
+            if (grepl('\\.csv$', file, ignore.case=TRUE)) {
+                sep <- ','
+                qt  <- TRUE
+            }
+            write.table(rv, file=file, sep=sep, quote=qt, row.names=FALSE)
+            invisible(rv)
         }
     },
 
@@ -1860,6 +2002,15 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
         if (!CatMisc::is.def(file)) err("AnnotatedMatrix objects must define 'file' when created", fatal = TRUE)
+        if (!file.exists(file) && !grepl('^/', file)) {
+            ## The file does not exist, but appears to be a relative path
+            amDir <- getOption("annotatedmatrixdir")
+            if (CatMisc::is.something(amDir)) {
+                ## A directory is specified in options for storing these files
+                amFile <- file.path(amDir, file)
+                if (file.exists(amFile)) file <- amFile
+            }
+        }
         objFile  <- paste(file,'rds', sep = '.')
         rdsOk    <- rdsIsCurrent( file )
         if (is.na(rdsOk) || rdsOk) {
@@ -1905,7 +2056,9 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
                     data.table::data.table( id = character(), key = "id" )
             dateMessage(paste("Serializing matrix to file",
                               colorize(objFile,"white")), prefix = "  ")
-            saveRDS(rv, objFile)
+            tmpFile <- paste(objFile, 'tmp', sep = '.')
+            saveRDS(rv, tmpFile)
+            file.rename(tmpFile, objFile)
         }
         if (is.null(rv)) err(c("Failed to read file:", file), fatal = TRUE)
 
@@ -1913,6 +2066,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         matrixMD   <<- rv$metadata
         if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
         if (!is.null(rv$colChanges)) colChanges <<- rv$colChanges
+        if (!is.null(rv$colDefs))    colDefs    <<- rv$colDefs
         if (CatMisc::is.def(rv$levels)) lvlVal  <<- rv$levels
         ## Set default parameters, without clobbering any already set
         if (CatMisc::is.def(rv$params)) setParamList(rv$params, clobber = FALSE)
@@ -2027,11 +2181,11 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
             names <- rv[[ "id" ]]
             if (length(cns) == 1) {
                 ## Big batch of nothing (no metadata cols)
-                rv <- setNames(rep(NA, length(names)), names)
+                rv <- stats::setNames(rep(NA, length(names)), names)
             } else {
                 ## What metadata column do we have?
                 mCol <- setdiff(cns, "id")
-                rv   <- setNames(rv[[ mCol[1] ]], names)
+                rv   <- stats::setNames(rv[[ mCol[1] ]], names)
             }
         }
         rv
@@ -2051,7 +2205,8 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
             setFilters = "Machine- and human-parsable list of applied filters",
             lvlVal     = "Level names for factor matrices",
             rowChanges = "Named vector of any row names that needed alteration",
-            colChanges = "Named vector of any col names that needed alteration"
+            colChanges = "Named vector of any col names that needed alteration",
+            colDefs    = "List of metadata column definitions"
         )
         if (update) {
             hfmt <- " help('%s', 'AnnotatedMatrix') # More information on field "
@@ -2067,8 +2222,9 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     show = function (...) { cat( .self$matrixText(...) ) },
 
-    matrixText = function ( pad = "", useObj=NULL, fallbackVar=NULL,
-                          compact=FALSE, color=NULL ) {
+    matrixText = function (pad="", useObj=NULL, fallbackVar=NULL,
+                           compact=FALSE, color=NULL, help=FALSE ) {
+        "Generate a compact text summary of the object, used by show()"
         ## Check for stub object created when calling help on the base class:
         if (CatMisc::is.empty.field(EvLogObj)) return("")
 
@@ -2198,7 +2354,11 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
                                  whtName, doCol(mcol,"red"),
                                  doCol(exid, "cyan"),
                                  doCol(exval, "magenta"))
-                msg <- paste(c(msg, mline), collapse ="")
+                bits <- mline
+                def  <- colDefs[[ mcol ]]
+                if (CatMisc::is.something(def)) bits <- c(bits, doCol(sprintf(
+                       "      # %s\n",strwrap(def)),'yellow'))
+                msg <- paste(c(msg, bits), collapse ="")
             }
         }
         if (!compact) msg <- paste(msg, sprintf("%s$help() %s\n", whtName,
@@ -2229,13 +2389,15 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
         ## Organization of primary methods:
         sections <- list(
-            "Primary Operation" = c("map", "as.gmt"),
-            "Filtering the Matrix" = c("filterByScore", "filterByCount", "filterByFactorLevel","filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "removeEmpty", "reset", "autoFilter", "filterSummary", "appliedFilters"),
+            "Primary Operation" = c("map", "matObj", "as.gmt", "melt"),
+            "Filtering the Matrix" = c("filterByScore", "filterByCount", "filterByFactorLevel", "filterById", "filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "removeEmpty", "reset", "autoFilter", "filterSummary", "appliedFilters"),
             "Matrix Information" = c("rCounts", "cCounts","populatedRows", "populatedCols", "nnZero", "is.factor", "levels"),
             "Metadata" = c("metadata", "metadata_keys"),
             "Parameter Management" = c("param", "showParameters", "allParams", "defineParameters","paramClass", "paramDefinition", "paramName", "setParamList", "hasParam" ),
             "Event Logging" = c("message","showLog","verbose","useColor" ),
-            "SKIP" = c("actionMessage","dateMessage","debugMessage","err"),
+            "SKIP" = c("actionMessage","dateMessage","debugMessage","err",
+                       "colNameToFunc","colorMap","colorize",
+                       "initialize","tidyTime"),
             "Internal Methods" = allMeth[ grepl('^\\.', allMeth) ])
         ## Everything else:
         sections[["Other Methods"]] <- setdiff(allMeth, unname(unlist(sections)))
@@ -2292,14 +2454,20 @@ whtName, doCol("# Inspect the object structure", comCol))
                 txt <- c(txt, "\n")
             }
         }
+        noHelp <- setdiff(noHelp, 'help')
         if (length(noHelp) > 0) txt <- c(txt,
               doCol("\n### Methods lacking help\n", comCol),
               sprintf("# %s\n", strwrap(paste(noHelp, collapse=' '))))
 
         txt <- c(txt, doCol("\n### Object fields\n", comCol))
+        ## Some fields are expected to be small structures, don't need str():
+        simpleFields <- unlist(strsplit("file fromRDS filterLog setFilters lvlVal colDefs", " ")) # Just a lazy way to manage the list
+        strFmt <- "str(%s$%s) %s\n"
+        simFmt <- "%s$%s %s\n"
         fields <- .fieldDescriptions( )
         for (field in names(fields)) {
-            txt <- c(txt, sprintf("str(%s$%s) %s\n", whtName, field,
+            fmt <- ifelse(is.element(field, simpleFields), simFmt, strFmt)
+            txt <- c(txt, sprintf(fmt, whtName, field,
                                   doCol(paste("#",fields[[field]]), comCol)))
         }
         base::message(paste(txt, collapse='', sep=''))
