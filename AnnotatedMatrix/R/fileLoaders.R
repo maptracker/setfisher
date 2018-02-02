@@ -43,7 +43,7 @@
 ##    1.233 s | Reading serialized matrix HG-U219LL-GO.mtx.rds
 
 parse_MatrixMarket_file <- function( file ) {
-    rv  <- list()
+    rv  <- list( colDefs=list() )
     ## Begin by simply reading the matrix data
     fhDat <- CatMisc::.flexFilehandle(file)
     if (is.na(fhDat[1])) {
@@ -58,12 +58,17 @@ parse_MatrixMarket_file <- function( file ) {
     ## just those rows as a character vector. Doing this in the
     ## (potentially misguided) hope that streaming readLines through
     ## grep and max will minimize RAM overhead for large files
+
+    ## This process is managable for 'typical' files (several Mb) but
+    ## took a half hour for a 300Gb file. Because of RDS caching, this
+    ## step is only needed once per file, though.
+    
     message("  Reading comment lines...")
-    fhDat <- CatMisc::.flexFilehandle(file)
+    fhDat   <- CatMisc::.flexFilehandle(file)
     lastCom <- max(grep("^%", readLines(fhDat$fh)))
     close(fhDat$fh)
     
-    fhDat <- CatMisc::.flexFilehandle(file)
+    fhDat   <- CatMisc::.flexFilehandle(file)
     allCom  <- readLines(fhDat$fh, warn = FALSE, n = lastCom)
     close(fhDat$fh)
 
@@ -97,7 +102,15 @@ parse_MatrixMarket_file <- function( file ) {
         ## Remove leading and trailing whitespace:
         rv$levels <- gsub('^\\s+','', gsub('\\s+$', '', lvl))
     }
-    
+
+    ## Metadata column definitions
+    cd <- grepl("^ColumnDescription\\s+", allCom)
+    cdefs <- CatMisc::parenRegExp('^ColumnDescription\\s+"([^"]+)"\\s+(.+?)\\s*$', allCom[cd], unlist=FALSE)
+    for (cd in cdefs) {
+        if (CatMisc::is.something(cd[1]) && CatMisc::is.something(cd[2]))
+            rv$colDefs[[ cd[1] ]] <- cd[2]
+    }
+        
     ## Get any defaults that have been set
     def <- grep("^DEFAULT\\s+", allCom)
     params <- list()
@@ -146,7 +159,7 @@ parse_MatrixMarket_file <- function( file ) {
         ## Is this specifying Row or Col, and what are the headers?
         targDat <- CatMisc::parenRegExp("^(\\S+)\\s+(.+?)\\s*$",
                                         allCom[rcPos[i]])
-        what    <- targDat[1] # Row / Col
+        what    <- targDat[1] # Row / Col ... or Cell
         meta    <- targDat[2]
         if (!is.na(sep))
             meta <- base::strsplit(meta, sep, fixed = TRUE)[[1]]
@@ -181,8 +194,10 @@ parse_MatrixMarket_file <- function( file ) {
         names <- character()
         names[ inds ] <- cmat[, 2]
         mnn <- uniqueNames(names,paste(what, "Names"))
-        dimNames[[ what ]] <- mnn$names
-        dimChngs[[ what ]] <- mnn$changes
+        if (what == 'Row' || what == 'Col') {
+            dimNames[[ what ]] <- mnn$names
+            dimChngs[[ what ]] <- mnn$changes
+        }
         mlen <- length(meta)
         if (mlen > 1) {
             ## Reliably building the DT proved non-intuitive. Using
@@ -780,6 +795,10 @@ parse_GMT_file <- function (file) {
 #' @export
 
 rdsIsCurrent <- function (file) {
+
+    ## Consider also comparing the file age to the compilation age of
+    ## the package?
+    
     objFile  <- paste(file,'rds', sep = '.')
     ## If RDS is not present, it's not current either:
     if (!file.exists(objFile)) return( FALSE )
@@ -790,4 +809,48 @@ rdsIsCurrent <- function (file) {
     mtime    <- file.mtime(objFile)
     sidecars <- sidecarFiles( file )
     all( mtime >= file.mtime(c(file, sidecars)) )
+}
+
+
+#' Precache Matrix Directory
+#'
+#' Attempts to load all MTX files in a directory, generating RDS files
+#'
+#' @details
+#'
+#' There are two reasons to precache a folder of matrix files; First,
+#' to generate the serialized RDS files in advance, and second, to
+#' scan for files that are malformed and not loading.
+#'
+#' @param dir Default '.', the directory to scan
+#'
+#' @return A list with two elements; 'pass', the matrix files that
+#'     were succesfully loaded, and 'fail', those that did not.
+#'
+#' @export
+
+preCacheMatrixDirectory <- function(dir='.') {
+    files  <- list.files(dir, pattern="\\.mtx$")
+    if (length(files) == 0) message("No matrix files found in directory")
+    failed <- character()
+    passed <- character()
+    for (file in files) {
+        message("Loading ", file)
+        path <- file.path(dir, file)
+        obj  <- NULL
+        try(obj  <- AnnotatedMatrix(path))
+        if (is.null(obj)) {
+            failed <- c(failed, file)
+        } else {
+            ## Seems ok?
+            rm(obj)
+            passed <- c(passed, file)
+        }
+    }
+    nf <- length(failed)
+    if (nf != 0) message(nf," files failed:\n  ",
+                         paste(failed, collapse="\n  "))
+    rv <- list(pass=passed, fail=failed)
+    attr(rv, "dir") <- dir
+    rv
 }
