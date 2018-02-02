@@ -32,6 +32,10 @@
 %% symbol that is listed first in NCBI listings.
 %
 % - - - - - - - - - - - - - - - - - - - - 
+%
+% ColumnDescription "Description" Short descriptive text for an Entrez Gene
+% ColumnDescription "Symbol" Official Entrez Gene symbol if available, otherwise one of the unofficial symbols
+%
 % Comment blocks for [Row Name] and [Col Name] follow, followed finally by
 % the triples that store the actual mappings.
 %-------------------------------------------
