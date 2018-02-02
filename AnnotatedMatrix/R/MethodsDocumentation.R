@@ -303,6 +303,42 @@ NULL
 #' @seealso \link{rNames}, link{cNames}, link{uniqueNames}
 NULL
 
+#' Column Definitions
+#'
+#' Internal AnnotatedMatrix field holding metadata column descriptions
+#'
+#' @name colDefs
+#'
+#' @details
+#'
+#' This list holds optional descriptive text for the metadata columns
+#' associated with the matrix. It can be set 'automatically' by '%
+#' ColumnDescription' comments in an MTX file, but in theory could be
+#' 'manually' set by code as well.
+#'
+#' The descriptions will be shown as 'comments' when available
+#' metadata columns are summarized, and will be included in the
+#' "Columns" attribute of \link{map} output.
+#' 
+#' @return A list, keyed to column names with descriptive text as
+#'     values
+#'
+#' @seealso \link{matrixMD}, \link{map}
+#'
+#' @examples
+#'
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$colDefs
+#'
+#' # Definitions are also shown in summary text:
+#' s2e
+#' 
+#' # They are also embedded in the attributes of $map() results:
+#' myMap <- s2e$map('AIRE1')
+#' attr(myMap, "Columns")[[ "Output Symbol" ]]
+
+NULL
+
 #' Get Matrix Object
 #'
 #' AnnotatedMatrix object method to recover the 'current' matrix data
@@ -553,6 +589,7 @@ NULL
 #' ## Show all recognized parameters:
 #' s2e$showParameters( na.rm=FALSE )
 #'
+#' @importFrom stats setNames
 NULL
 
 #' Detail Zeroed Rows and Columns
@@ -634,6 +671,7 @@ NULL
 #' sum( s2e$populatedRows() )  # 28
 #' s2e$filterSummary()
 #' 
+#' @importFrom stats setNames
 NULL
 
 #' Filter by ID
@@ -721,6 +759,7 @@ NULL
 #' ## warned when this happens, though.
 #' s2e$filterById(c("AR","AIRE1","APSI"), keep=TRUE)
 #'
+#' @importFrom stats setNames
 NULL
 
 #' Filter by Count
@@ -802,6 +841,7 @@ NULL
 #' message(s2e$as.gmt())
 #' s2e$filterSummary()
 #' 
+#' @importFrom stats setNames
 NULL
 
 #' Filter by Factor Level
@@ -872,6 +912,8 @@ NULL
 #' # We set filterEmpty to TRUE in order to more easily inspect the
 #' # matrix iteslf:
 #' s2e$matrixUse
+#' 
+#' @importFrom stats setNames
 NULL
 
 #' Filter by Metadata
@@ -961,6 +1003,46 @@ NULL
 #'
 #' # Verify that we found what we were looking for:
 #' s2e$metadata( colnames(s2e$matrixUse), "Description" )
+#'
+#' @importFrom stats setNames
+NULL
+
+#' Matrix Product
+#'
+#' Chain two matrices together based on a common dimension
+#'
+#' @details
+#'
+#' Designed to chain / bridge two matrices that share a common
+#' dimension. For example, if you have a \code{Foo vs Bar} matrix, and
+#' a \code{Pop vs Bar} matrix, you can take their 'product' by finding
+#' shared entities in the 'Pop' dimension, resulting in a \code{Foo vs
+#' Pop} matrix.
+#'
+#' Because each AnnotatedMatrix is really representing a miniature
+#' graph database, this isn't a formally traditional matrix product,
+#' but rather a graph traversal across the two matrices. The primary
+#' challenge is numericly representing the final score assigned to
+#' each Foo-vs-Pop connection, since the scores held by the matrices
+#' are rarely going to make sense as a product. Additionally, two or
+#' more paths will be available for any Foo-Pop combination if they
+#' can traverse two or more intermediate Bar entries. Normalizing /
+#' Aggregating those multiple scores into a single useful value will
+#' not have a generic solution.
+#'
+#' @param mat2 Required, the second ('right') annotated matrix object
+#' @param dim1 Default \code{NULL}, the shared dimension on the left
+#'     matrix. If NULL, will automatically pick the one with maximal
+#'     overlap. Tie-breaking logic is not implemented. Otherwise can
+#'     be either '1'/'row', or '2'/'col'
+#' @param dim2 Default \code{NULL}. Like \code{dim1}, but for the
+#'     second (right) matrix.
+#' @param ignore.case Default \code{TRUE}, which will intersect the
+#'     matrices without regard to case.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @importFrom CatMisc is.something
 NULL
 
 
@@ -1418,6 +1500,7 @@ NULL
 #' # transparent. Check the attributes to identify non-unique IDs
 #' attr(evilLoci, 'Mult.In')
 #' 
+#' @importFrom stats setNames
 NULL
 
 #' Auto Level
@@ -1719,6 +1802,53 @@ NULL
 #' s2e$as.gmt( transpose=TRUE )
 NULL
 
+#' Melt
+#'
+#' AnnotatedMatrix object method to convert matrix into three column table
+#'
+#' @name melt
+#' @method melt AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$melt( help=TRUE )
+#'
+#' myObject$melt( obj=NULL, file=NULL, named.dims=TRUE, ...)
+#' }
+#'
+#' Will represent the matrix as a "melted" table with three columns;
+#' row name, column name, value. Every non-zero cell in the matrix
+#' will be represented as a row. Zero-values are excluded.
+#'
+#' The return value is a data.frame, which can be optionally written
+#' to a file.
+#'
+#' @param obj Default NULL, the matrix object to serialize. If NULL,
+#'     will call \link{matObj} to recover the current filtered matrix.
+#' @param file Default NULL. When NULL, the data.frame is simply
+#'     returned. If not NULL, the table is written to the specified
+#'     file, and the data.frame is invisibly returned.
+#' @param named.dims Default \code{TRUE}. If FALSE, then the table
+#'     will have a column header of "Row","Col","Value". When TRUE,
+#'     Row and Col will be replaced by the relevant dimnames for the
+#'     matrix, if available. If a 'CellDim' parameter has been set, it
+#'     will replace Value.
+#' @param ... Will be passed to \link{matObj}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A data.frame, invisibly if \code{file} is specified
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' ## Strip down to a smaller size for easier illustration
+#' s2e$rNames(c("HFH2","AIS1","p63"))
+#' s2e$melt( )
+NULL
+
 #' Read Matrix Data
 #'
 #' Internal AnnotatedMatrix object method to parse file contents
@@ -1826,6 +1956,8 @@ NULL
 #' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #' s2e$metadata(c("LOC9588","LOC7038","LOC3921"))
 #' s2e$metadata(key="Symbol")
+#' 
+#' @importFrom stats setNames
 NULL
 
 #' Field Descriptions
@@ -1858,3 +1990,49 @@ NULL
 #' @seealso \link{help}
 NULL
 
+#' Matrix Text
+#'
+#' Generate text summary of the AnnotatedMatrix object
+#'
+#' @aliases matrixText
+#' @method matrixText AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$matrixText( help=TRUE )
+#'
+#' myObject$matrixText(pad = "", useObj=NULL, fallbackVar=NULL,
+#'                     compact=FALSE, color=NULL)
+#' }
+#'
+#' All RefClass objects include a \code{show()} method, which is
+#' similar to \code{print} in other classes - it will generate output
+#' when the object is evaluated "as-is". AnnotatedMatrix uses
+#' \code{matrixText} to assemble the text shown by show().
+#'
+#' @param pad Default \code{""}, text to prefix the object. Intended
+#'     to allow nested construction of the summary, such that multiple
+#'     AnnotatedMatrix objects embedded in a more complex object (eg
+#'     SetFisher) can be visually combined.
+#' @param useObj Default \code{NULL}, the Matrix object to
+#'     summarize. When NULL \code{$matObj()} will be used.
+#' @param fallbackVar Default \code{NULL}, a variable name to use when
+#'     \code{.selfVarName()} fails to extract the actual variable
+#'     name.
+#' @param compact Default \code{FALSE}. If TRUE, then a more compact
+#'     report (fewer details) is produced.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A single string holding the text to be displayed
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$matrixText()         # just the raw text, with ANSI codes
+#' cat( s2e$matrixText() )  # ... print it pretty, which is the same as:
+#' s2e$show()               # ... which is the same as:
+#' s2e                      # ... how $show() is "meant to be used"
+NULL
