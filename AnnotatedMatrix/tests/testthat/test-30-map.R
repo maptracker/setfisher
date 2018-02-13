@@ -1,5 +1,7 @@
 library("AnnotatedMatrix")
 
+message("Testing: $map()")
+
 s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 
 test_that("Basic mapping", {

@@ -1,5 +1,7 @@
 library("AnnotatedMatrix")
 
+message("Testing: Export")
+
 s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 
 test_that("Export functions", {
@@ -18,10 +20,16 @@ test_that("Export functions", {
     expect_identical(mdf[[2]], c("LOC260402", "LOC27022", "LOC373071", "LOC27022", "LOC10970", "LOC7405"))
     expect_identical(mdf[[3]], c(2, 2, 4, 2, 2, 2))
 
+    ## Generate GMT text
     gmt <- s2e$as.gmt()
     expect_identical(s2e$as.gmt(),
                      c("HFH2\tNA\tLOC27022\n",
                        "AIS1\tNA\tLOC27022\tLOC260402\tLOC373071\n",
                        "p63\tNA\tLOC7405\tLOC10970\n"), "GMT format")
-   
+
+    ## Generate melted / IJX text
+    ijx  <- s2e$as.ijx()
+    mdat <- s2e$melt()
+    
+    
 })

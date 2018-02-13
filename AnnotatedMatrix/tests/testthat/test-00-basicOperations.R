@@ -1,8 +1,10 @@
 library("AnnotatedMatrix")
 
-symFile <- AnnotatedMatrix:::.makeTempFile("Symbol-To-Gene.mtx")
-chk <- annotatedMatrixExampleFile()
+message("Testing: Basic Operations")
+
 test_that("Temp file copy", {
+    symFile <- AnnotatedMatrix:::.makeTempFile("Symbol-To-Gene.mtx")
+    chk     <- annotatedMatrixExampleFile()
     expect_true(file.size(symFile) > 0,
                 ".makeTempFile found sample file")    
     expect_identical(symFile, chk,
@@ -10,6 +12,7 @@ test_that("Temp file copy", {
 })
 
 s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+
 test_that("Object properties", {
     expect_identical("AnnotatedMatrix", class(s2e)[1],
                      "Proper class generated")
