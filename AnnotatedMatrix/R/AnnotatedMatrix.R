@@ -1,6 +1,15 @@
-### For documentation, see MethodsDocumentation.R - This is a
-### Reference Class object, which at the moment (2018) does not have
-### mature mechanisms for documenting object methods.
+
+### This is a Reference Class object, which at the moment (2018) does
+### not have mature mechanisms for documenting object methods. See:
+###
+###                  MethodsDocumentation.R
+###
+### ... for rich documentation of each object method. Further, you can
+### create the toy object, and use the help function to browse topics:
+###
+###    s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+###    s2e$help()
+
 
 sfSep <- ' || ' # Token for separating text while recording filters
 
@@ -53,8 +62,7 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #'     filters that have been applied
 #' @field rowChanges Named character vector of any row names that
 #'     needed changing. Values are the original name, names are the
-#'     names after processing with make.names() (if valid = TRUE) or
-#'     make.unique() if (valid = FALSE)
+#'     names after processing with make.unique()
 #' @field colChanges As per rowChanges, but for column names
 #' @field colDefs list of definitions for metadata columns
 #'
@@ -100,7 +108,7 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' 
 
 AnnotatedMatrix <-
-    setRefClass("AnnotatedMatrix",
+    methods::setRefClass("AnnotatedMatrix",
                 fields = list(
                     file       = "character",
                     fromRDS    = "logical",
@@ -116,7 +124,7 @@ AnnotatedMatrix <-
                     colChanges = "character",
                     colDefs    = "list"
                     ),
-                contains = c("ParamSetI")
+                contains = c("ParamSetI"),
                 )
 
 ## Names for return values on filters
@@ -132,6 +140,7 @@ AnnotatedMatrix$methods(
                                        names(.refClassDef@contains)) )
             return(NA)
         }
+
         callSuper( params=params, paramDefinitions="
 Name        [character] Short Name assigned to the matrix
 Description [character] Description for the matrix
@@ -164,9 +173,17 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 ", ...)
         if (!CatMisc::is.def(file))
             err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
-        file    <<- file
         fromRDS <<- FALSE
-        .readMatrix( ... )
+        if (inherits(file, "dgTMatrix")) {
+            ## The file path is actually a sparse matrix. We are
+            ## building an object from scratch.
+            matrixRaw <<- file
+            file      <<- as.character(NA)
+            .buildMatrix( ... )
+        } else {
+            file    <<- file
+            .readMatrix( ... )
+        }
         reset()
         if (autofilter) autoFilter()
         com <- param("LoadComment")
@@ -190,12 +207,12 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             ## Awkward problems when presuming that both dimensions
             ## are named. Being cautious in setting up the new dimname list:
             smid <- list()
-            if (is.def(dnn[2])) {
+            if (CatMisc::is.def(dnn[2])) {
                 smid[[ dnn[2] ]] <- dims[[2]]
             } else {
                 smid[[ 1 ]] <- dims[[2]]
             }
-            if (is.def(dnn[1])) {
+            if (CatMisc::is.def(dnn[1])) {
                 smid[[ dnn[1] ]] <- dims[[1]]
             } else {
                 smid[[ 2 ]] <- dims[[1]]
@@ -251,12 +268,13 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             both <- intersect(new, now)
             obj  <- obj[ both, , drop=FALSE ]
             ## ... build a new empty matrix with the new ones.
-            m <- Matrix(0, length(gain), ncol(obj), dimnames = list(gain, NULL))
+            m    <- Matrix::Matrix(0, length(gain), ncol(obj),
+                                   dimnames = list(gain, NULL))
             ## ... bind them into the known rows, and clean up the order:
             obj  <- rbind(obj, m)[ new, ]
             ## Both Matrix() and rbind() generate class 'dgCMatrix'
             ## objects. Coerce it back to dgTMatrix
-            matrixUse <<- as(obj, "dgTMatrix")
+            matrixUse <<- methods::as(obj, "dgTMatrix")
             .filterDetails(id=gain, type="Row", reason=reason,
                           metric="Empty rows added")
         } else {
@@ -316,7 +334,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             obj  <- cbind(obj, m)[ , new ]
             ## Both Matrix() and rbind() generate class 'dgCMatrix'
             ## objects. Coerce it back to dgTMatrix
-            matrixUse <<- as(obj, "dgTMatrix")
+            matrixUse <<- methods::as(obj, "dgTMatrix")
             .filterDetails(id=gain, type="Col", reason=reason,
                            metric="Empty columns added")
         } else {
@@ -334,9 +352,9 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                                              names(.refClassDef@contains)))
         matrixUse  <<- NULL
         setFilters <<- character()
-        filterLog  <<- data.table(id   = character(), metric = character(),
-                                  type = character(), reason = character(),
-                                  key = "id")
+        filterLog  <<- data.table::data.table(
+            id   = character(), metric = character(),
+            type = character(), reason = character(), key = "id")
         invisible(NA)
     },
 
@@ -1010,11 +1028,13 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         invisible(stats::setNames(rv, .filterNames))
     },
 
-    product = function(mat2, dim1=NULL, dim2=NULL, ignore.case=TRUE,
-                       help=FALSE) {
-        "Take a product of this matrix A.B with another BxC to yield AxC"
+    product = function(mat2, dim1=NULL, dim2=NULL, valfunc=NULL,
+                       levels=NULL,
+                       ignore.zero=TRUE, ignore.case=TRUE, help=FALSE) {
+        "Take a product of this matrix AxB with another BxC to yield AxC"
         if (help) return(CatMisc::methodHelp(match.call(), class(.self),
                                              names(.refClassDef@contains)))
+        ## Get the underlying sparse Matrix objects:
         obj    <- matObj()
         obj2   <- mat2$matObj()
 
@@ -1065,25 +1085,210 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ord  <- base::order(chkMat[,"Count"], decreasing=TRUE)
         ldim <- chkMat[ord[1], "Lft"]
         rdim <- chkMat[ord[1], "Rgt"]
+
+        ## Gather relevant metadata from the left and right matrices
+        ## that will be attached to the new product matrix.
+        ## Some metadata will be associated with both matrices:
+        newParams <- list(
+            Source=unique(c(param('Source'), mat2$param('Source'))),
+            Authority=unique(c(param('Authority'), mat2$param('Authority'))),
+            Version=unique(c(param('Version'), mat2$param('Version')))
+        )
+        ## Just stuff the two metadata column definitions together
+        coldef <- c( .self$colDefs, mat2$colDefs )
+        ## Row meta data is only from 'left' matrix (self)
+        defVal <- "LeftValue"
+        if (ldim == 1) {
+            ## If we are merging on row, then we will be showing columns
+            newParams$RowDim <- param('ColDim', default=defVal)
+            newParams$RowUrl <- param('ColUrl')
+        } else {
+            newParams$RowDim <- param('RowDim', default=defVal)
+            newParams$RowUrl <- param('RowUrl')
+        }
+        ## Col metadata from 'right' matrix (mat2)
+        defVal <- "RightValue"
+        if (rdim == 1) {
+            newParams$ColDim <- mat2$param('ColDim', default=defVal)
+            newParams$ColUrl <- mat2$param('ColUrl')
+        } else {
+            newParams$ColDim <- mat2$param('RowDim', default=defVal)
+            newParams$ColUrl <- mat2$param('RowUrl')
+        }
         
         ## What are the shared names between the two matrices?
-        lnames <- if (ldim == 1) { rNames() } else { cNames }
+        lnames <- if (ldim == 1) { rNames() } else { cNames() }
         rnames <- if (rdim == 1) { mat2$rNames() } else { mat2$cNames() }
         common <- base::intersect(lnames, rnames)
+        clen   <- length(common)
 
-        ## What are the indices associated with those names
-        lind   <- match(common, lnames)
-        rind   <- match(common, rnames)
+        ## What are the indices associated with those names? These are
+        ## stored internally zero indexed, so subtract one:
+        lind   <- match(common, lnames) - 1
+        rind   <- match(common, rnames) - 1
 
-        ## The tedious part is now gathering the connections across
-        ## each shared identifier and deciding what single numeric
-        ## value will represent that Lft -> Common -> Rgt collapsed
-        ## edge.
+        ## Build structures from both sides that share the common
+        ## index. For each we need to merge on the common dimension,
+        ## record the *other* dimension (they will represent the new
+        ## 'output' dimensions) and also capture the connection
+        ## values, which we are going to try to summarize as new
+        ## values in the returned matrix.
 
-### TODO: Manage factorized matrices
+        ## Initially left loid/roid as matrix indices, but I decided I
+        ## might want to expose those to the summarize callback
+        ## function (the indices are otherwise meaningless values)
+        ltbl <- dplyr::as.tbl( if (ldim == 1) {
+            data.frame(
+                loid = cNames()[ obj@j + 1 ],
+                com  = match(obj@i, lind),
+                lval = obj@x,
+                stringsAsFactors=FALSE
+            )
+        } else {
+            data.frame(
+                loid = rNames()[ obj@i + 1 ],
+                com  = match(obj@j, lind),
+                lval = obj@x,
+                stringsAsFactors=FALSE
+            )
+        }) %>% stats::na.omit()
+        ## Removing NA from tbl: https://stackoverflow.com/a/22358442
+        ## Apparently you can inner_join NAs which in this case is
+        ## ... bad (explosive expansion)
         
-### TODO: Manage metadata
+        rtbl <- dplyr::as.tbl( if (rdim == 1) {
+            data.frame(
+                roid = mat2$cNames()[ obj2@j + 1 ],
+                com  = match(obj2@i, rind),
+                rval = obj2@x,
+                stringsAsFactors=FALSE
+            )
+        } else {
+            data.frame(
+                roid = mat2$rNames()[ obj2@i + 1],
+                com  = match(obj2@j, rind),
+                rval = obj2@x,
+                stringsAsFactors=FALSE
+            )
+        }) %>% stats::na.omit()
+
+        ## Now we need to join on the index
+        jtbl <- dplyr::inner_join( ltbl, rtbl, 'com') %>%
+            dplyr::group_by( loid, roid  )
+
+        ## We now need to summarize the data down to a single
+        ## connection for each leftDim/rightDim pair, and represent
+        ## each pairing by a value.
+
+        ## THERE IS NO GENERIC WAY TO DO THIS THAT IS ALWAYS RIGHT
+
+        ## If the scores are not important to the user, then zero vs
+        ## non-zero is sufficient. Otherwise, it is very unlikely that
+        ## 'traditional' matrix multiplication will yield values that
+        ## are meaningful when multiple paths are available from
+        ## left->right.
+
+        if (is.null(valfunc)) {
+            valfunc <- 'max right'
+            message(c("valfunc=NULL, will use '",valfunc,"' by default. You should really specify this value yourself!"), prefix="[CAUTION]", color="yellow")
+        }
+        vfText <- character()
+        if (is.function(valfunc)) {
+            vfText <- "User-defined function"
+        } else {
+            ## Function specified by text, parse to determine what to
+            ## do, and build a synthetic function to use
+            valfunc <- tolower(valfunc)
+            valMeth <- if (grepl('max', valfunc)) {
+                vfText <- c(vfText, "max()")
+                base::max
+            } else if (grepl('min', valfunc)) {
+                vfText <- c(vfText, "min()")
+                base::min
+            } else if (grepl('mean', valfunc)) {
+                vfText <- c(vfText, "mean()")
+            } else {
+                message(c("Could not determine the method to use for valfunc='",
+                          valfunc,"'"), fatal=TRUE)
+            }
+            vfText <- c(vfText,"of")
+            valfunc <- if (grepl('(right|rgt)', valfunc)) {
+                vfText <- c(vfText, "right matrix")
+                if (is.null(levels)) levels <- mat2$levels()
+                function (l,r) valMeth(r)
+            } else if (grepl('(left|lft)', valfunc)) {
+                vfText <- c(vfText, "left matrix")
+                if (is.null(levels)) levels <- .self$levels()
+                function (l,r) valMeth(l)
+            } else {
+                ## If we don't match anything above, use values from both
+                vfText <- c(vfText, "both right and left matrices")
+                function (l,r) valMeth(c(l,r))
+            }
+        }
+
+        useFunc <- if (ignore.zero) {
+            ## Request to always treat a left/right pair as scored
+            ## zero if all left values are zero, or all right values
+            ## are zero. Zero values are important in sparse matrices
+            ## as they represent a lack of connection between the two
+            ## dimensions.
+            function(l,r) {
+                if (all(l==0) || all(r==0)) {
+                    0
+                } else {
+                    valfunc(l,r)
+                }
+            }
+            ## Request to always treat a left/right pair as scored
+            ## zero if all left values are zero, or all right values
+            ## are zero.
+        } else {
+            ## Use the value function as-is
+            valfunc
+        }
+
+        ## Alex G. points out that the magrittr pipe imposes some
+        ## safety features, like drop=FALSE
+        collapsed <- jtbl %>% dplyr::summarize( val=useFunc(rval,lval) )
+
+        ## We need to make new i/j index values for the new matrix,
+        ## and link them back to their 'original' names and
+        ## metadata. We are going to put the left IDs in rows, right
+        ## IDs in columns
+
+        iNms  <- unique(collapsed$loid)
+        jNms  <- unique(collapsed$roid)
+
+        ## Build the dimnames structure
+        dn <- list()
+        dn[[ newParams$RowDim ]] <- iNms
+        dn[[ newParams$ColDim ]] <- jNms
+        ## UGH. Just noticed that while sparseMatrix objects store
+        ## indices 0-indexed, their constructor has the `index1`
+        ## parameter, which is default TRUE. So we will build
+        ## 1-indexed, and leave an explicit index1=TRUE to remind
+        ## future-self.
+        newObj <- methods::as(Matrix::sparseMatrix(
+            i=match(collapsed$loid, iNms),
+            j=match(collapsed$roid, jNms),
+            x=collapsed$val,
+            index1=TRUE,
+            dimnames=dn), "dgTMatrix")
+
+        ## Gather up the metadata. There may be a better way to do
+        ## this, but it seems that DT keys need to be set somewhat
+        ## awkwardly
+        mdl <- metadata(lnames, drop=FALSE)
+        data.table::setkeyv(mdl, "id")
+        mdr <- mat2$metadata(rnames, drop=FALSE)
+        data.table::setkeyv(mdr, "id")
+        md  <- extendDataTable( mdl, mdr ) # Concatenate rows and cols
+        data.table::setkeyv(md, "id")
         
+        ## We should now have all the parts of our transitive matrix
+        ## ready. Build and return a fully-blessed object:
+        AnnotatedMatrix(newObj, metadata=md, cols=coldef, levels=levels)
     },
 
     nnZero = function(obj=NULL, help=FALSE, ...) {
@@ -1261,7 +1466,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         } else {
             rn # Matching against rows
         }
-        ## What are the original names (prior to any to.lower() operations):
+        ## What are the original names (prior to any tolower() operations):
         matNms <- names(matIds)
         inpNms <- names(inp)
         
@@ -1276,7 +1481,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         }
         
         unMap   <- character() # Unmapped IDs (known, but no path to target)
-        dupMat  <- character() # Matrix IDs in two or more rows (after to.lower)
+        dupMat  <- character() # Matrix IDs in two or more rows (after tolower)
         multIn  <- character() # Input terms that have multiple Outputs
         isFac   <- is.factor() # Just a handy boolean
 
@@ -1327,7 +1532,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             depth[ baitIds ] <- recLevel # Set recursion depth for current bait
             for (id in baitIds) {
                 ## Cycle through each input id, building columns as we go:
-                idNm <- bait[id]  # User's name (before to.lower)
+                idNm <- bait[id]  # User's name (before tolower)
                 ## Select the indices for matrix row(s) matching the id:
                 ind  <- which(id == matIds)
                 rows <- obj[ ind, , drop=FALSE]
@@ -1693,7 +1898,8 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 ### think qgraph may not handle sparse Matrices? I think the
 ### underlying matrix is accurate (TODO: need more tests)
             
-            rv <- as(sparseMatrix( i=i, j=j, x=sc, dimnames=dn), "dgTMatrix")
+            rv <- methods::as(Matrix::sparseMatrix(
+                i=i, j=j, x=sc, dimnames=dn), "dgTMatrix")
             
         } else if (grepl('dynamic', format, ignore.case=TRUE)) {
             ## dynamictable HTML output
@@ -1935,6 +2141,16 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         }
     },
 
+    as.mtx = function( obj=NULL, file=NULL, help=FALSE, ... ) {
+        "Convert the active matrix into Matrix Market text representation"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        message("This feature still needs to be implemented",
+                prefix="[ToDo]", color='red')
+
+        "## MTX output not yet codified"
+    },
+
     as.gmt = function( obj=NULL, transpose=FALSE, file=NULL, help=FALSE, ... ) {
         "Convert the active matrix into GMT text representation"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
@@ -1958,6 +2174,44 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         } else {
             invisible(cat(out, sep='', file=file))
         }
+    },
+
+    as.ijx = function(obj=NULL, file=NULL, sep="\t", help=FALSE, ... ) {
+        "Convert the active matrix into ijx row-col-value text representation"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        if (is.null(obj)) obj <- matObj(...)
+        ## Only keep rows (sets) with at least one object:
+        hasData  <- populatedRows(obj)
+        obj      <- obj[hasData, , drop=FALSE]
+        ## Convert to matrix (AFAICT easiest way to dump quickly to text)
+        m        <- matrix(c(rownames(obj)[ obj@i + 1 ],
+                             colnames(obj)[ obj@j + 1 ],
+                             obj@x), ncol=3, byrow=FALSE,
+                           dimnames=list(NULL, c("i","j","x")))
+        if (is.null(sep)) {
+            ## Just return the matrix
+            m
+        } else {
+            rv <- paste(apply(m, 1, paste, collapse=sep), collapse="\n")
+            if (is.null(file)) {
+                ## Dump to stdout
+                rv
+            } else {
+                ## Write to file and return, but invisibly
+                cat(rv, file=file)
+                invisble(rv)
+            }
+        }
+    },
+
+    as.sidecar = function(obj=NULL, file=NULL, sep="\t", help=FALSE, ... ) {
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        message("This feature still needs to be implemented",
+                prefix="[ToDo]", color='red')
+
+        "## Sidecar metadata output not yet codified"
     },
 
     melt = function( obj=NULL, file=NULL, named.dims=TRUE, help=FALSE, ... ) {
@@ -1992,9 +2246,29 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
                 sep <- ','
                 qt  <- TRUE
             }
-            write.table(rv, file=file, sep=sep, quote=qt, row.names=FALSE)
+            utils::write.table(rv, file=file, sep=sep, quote=qt,
+                               row.names=FALSE)
             invisible(rv)
         }
+    },
+
+    .buildMatrix = function (metadata=NULL, levels=NULL, cols=NULL,
+                             help=FALSE ) {
+        "Internal method to 'manually' build matrix from data structures"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        ## The `matrixRaw` field should have been set in $initialize()
+        ## We will presume that rowChanges and colChanges need not be set
+        matrixMD <<- if (CatMisc::is.something(metadata)) {
+            metadata
+        } else {
+            data.table::data.table( id = character(), key = "id" )
+        }
+        
+        if (CatMisc::is.something(levels)) lvlVal  <<- levels
+        if (CatMisc::is.def(cols))   colDefs <<- cols
+
+        TRUE # Um. What should we return here? Anything?
     },
 
     .readMatrix = function ( format = "", help=FALSE, ... ) {
@@ -2008,7 +2282,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
             if (CatMisc::is.something(amDir)) {
                 ## A directory is specified in options for storing these files
                 amFile <- file.path(amDir, file)
-                if (file.exists(amFile)) file <- amFile
+                if (file.exists(amFile)) file <<- amFile
             }
         }
         objFile  <- paste(file,'rds', sep = '.')
@@ -2024,7 +2298,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         } else {
             if (!file.exists(file)) err(c("Can not make AnnotatedMatrix",
                                           "File does not exist : ", file),
-                                        fatal = TRUE)
+                                        fatal=TRUE)
             fname   <- file
             colName <- colorize(file,"white")
             is.gz   <- CatMisc::parenRegExp('(.+)\\.gz$', fname)
@@ -2047,6 +2321,10 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
                        grepl('\\.(gmt)$', fname, ignore.case = TRUE)) {
                 dateMessage(paste("Reading lists from GMT file", colName))
                 rv <- parse_GMT_file( file=file, ... )
+            } else if (grepl('(ijx)', format, ignore.case = TRUE) ||
+                       grepl('\\.(ijx)$', fname, ignore.case = TRUE)) {
+                dateMessage(paste("Reading lists from IJX file", colName))
+                rv <- parse_IJX_file( file=file, ... )
             } else {
                 err(c("Can not make AnnotatedMatrix - unrecognized file type: ",
                       file), fatal = TRUE)
@@ -2074,7 +2352,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         ## Numeric conversion to prevent integer overflow on product
         cnum       <- as.numeric(ncol(matrixRaw))
         rnum       <- as.numeric(nrow(matrixRaw))
-        nnz        <- nnzero(matrixRaw)
+        nnz        <- Matrix::nnzero(matrixRaw)
         pnz        <- smallNumberFormatter( nnz / (cnum * rnum) )
         actionMessage(sprintf("%d x %d matrix, %s non-zero", rnum, cnum, pnz),
                       prefix = "  ")
@@ -2225,6 +2503,8 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
     matrixText = function (pad="", useObj=NULL, fallbackVar=NULL,
                            compact=FALSE, color=NULL, help=FALSE ) {
         "Generate a compact text summary of the object, used by show()"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
         ## Check for stub object created when calling help on the base class:
         if (CatMisc::is.empty.field(EvLogObj)) return("")
 
@@ -2234,14 +2514,17 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         objName <- .self$.selfVarName("myMatrix", fallbackVar)
         whtName <- doCol(objName, "white")
         msg <- doCol(sprintf("%s sparse matrix\n", class(.self)[1]), "blue")
-        ## Even if we read the file from RDS, we will base the
-        ## reported age on the original data file (if available)
-        src <- ifelse(file.exists(file), file, sprintf("%s.rds", file))
-        age <- sprintf("%.1f",difftime(Sys.time(),file.mtime(src),units="days"))
-        msg <- sprintf("%s    File: %s%s [%s days old]\n",
-                       msg, doCol(file, "white"),
-                       ifelse(fromRDS, doCol('.rds', "purple"),""),
-                       doCol(age,"red"))
+        if (CatMisc::is.something(file)) {
+            ## Even if we read the file from RDS, we will base the
+            ## reported age on the original data file (if available)
+            src <- ifelse(file.exists(file), file, sprintf("%s.rds", file))
+            age <- sprintf("%.1f", difftime(Sys.time(),file.mtime(src),
+                                            units="days"))
+            msg <- sprintf("%s    File: %s%s [%s days old]\n",
+                           msg, doCol(file, "white"),
+                           ifelse(fromRDS, doCol('.rds', "purple"),""),
+                           doCol(age,"red"))
+        }
         name <- param("name")
         if (CatMisc::is.something(name))
             msg <- sprintf("%s    Name: %s\n", msg, doCol(name, "white"))
@@ -2372,8 +2655,10 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         sub("\n+$", "\n", msg)
     },
 
-    help = function (color=NULL) {
+    help = function (color=NULL, help=FALSE) {
         "Display high-level help about all object methods"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
         if (is.null(color)) color <- useColor() # Use EventLogger setting
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         objName <- .self$.selfVarName("myMatrix")
@@ -2427,7 +2712,7 @@ whtName, doCol("# Inspect the object structure", comCol))
             for (meth in meths) {
                 ## Going to see if we can extract the ROxygen
                 ## description string from the method
-                code <- capture.output(AnnotatedMatrix$methods(meth))
+                code <- utils::capture.output(AnnotatedMatrix$methods(meth))
                 ## Should not happen, but be safe:
                 if (is.null(code)) next
                 isHelped <- FALSE
