@@ -1,5 +1,5 @@
 ## ROxygen provides only rudimentary support for documenting Reference
-## Class object methods (as of 2017). It will recognized an unassigned
+## Class object methods (as of 2017). It will recognize an unassigned
 ## character string at the beginning of the method function as a
 ## description, and will parse the parameters. This class is complex
 ## enough that I wanted more formalized documentation. The blocks
@@ -451,6 +451,7 @@ NULL
 #' s2e$removeEmpty()      # Remove rows (and columns) that are only zeros
 #' s2e$matObj()           # A much smaller matrix!
 #'
+#' @importFrom methods as
 NULL
 
 #' Reset Filters
@@ -1011,6 +1012,9 @@ NULL
 #'
 #' Chain two matrices together based on a common dimension
 #'
+#' @name product
+#' @method product AnnotatedMatrix
+#'
 #' @details
 #'
 #' Designed to chain / bridge two matrices that share a common
@@ -1037,12 +1041,113 @@ NULL
 #'     be either '1'/'row', or '2'/'col'
 #' @param dim2 Default \code{NULL}. Like \code{dim1}, but for the
 #'     second (right) matrix.
+#' @param valfunc Default \code{NULL}, which will default to
+#'     'maxright' AND chide you to explicitly pick a value. See the
+#'     'Value Function' section for more information.
+#' @param levels Default \code{NULL}, optional list of factor
+#'     levels. If NULL, and if valfunc is using a simple request (eg
+#'     'right max') to specify that values should come from just one
+#'     matrix, then the levels from that matrix will be
+#'     used. Otherwise you should provide a character vector of levels
+#'     if appropriate (and assure that valfunc is generating
+#'     appropriate integer output)
+#' @param ignore.zero Default \code{TRUE}, which will report a value
+#'     of zero for any left/right pair if all values on either side
+#'     are only zero. In these situations \code{valfunc} will be
+#'     ignored.
 #' @param ignore.case Default \code{TRUE}, which will intersect the
 #'     matrices without regard to case.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
+#' @section Value Function:
+#'
+#' The \code{valfunc} defines a function that controls how the matrix
+#' value will be calculated when multiple paths are available between
+#' two output destinations. It can either be a function with two
+#' numeric arguments reprsenting a vector of 'left' values and a
+#' vector of 'right' values, returning a single numeric value, for
+#' example:
+#'
+#' \code{
+#'    function(lv,rv) {
+#'       max(c(lv,rv)) # Takes the maximum of either left or right value
+#'    }
+#' }
+#'
+#' ... or it can be a text string, which will be parsed by regular
+#' expression:
+#'
+#' \itemize{
+#'   \item 'max' will return the maximum of the values
+#'   \item 'min' returns the minimum
+#'   \item 'mean' returns the mean
+#'   \item 'left' or 'lft' will consider only values from the left input
+#'   \item 'right' or 'rgt' will consider only right matrix values
+#'   \item If neither 'right' nor 'left' (nor an alias) are detected, then both matrices values will be combined
+#' }
+#'
+#' So the default 'right max' will represent the value of each new
+#' transitive pair as \code{max(rightMatrixValues)}.
+#'
+#' @section Value Function Musings:
+#'
+#' Consider the following two matrices; We wish to make a 'foo' ->
+#' 'bar' matrix by using the shared 'boop' dimension:
+#'
+#' \code{
+#'         'boop'          'boop'
+#'          X Y             X  Y
+#'  'foo' A 2 .     'bar' Q 5  7
+#'        B . 3           R . 11
+#'        C 1 4           
+#' }
+#'
+#' The available 'connections' are then:
+#'
+#' \code{
+#'     foo boop bar valRgt valLft
+#'       A   X    Q      2      5
+#'       B   Y    Q      3      7
+#'       B   Y    R      3     11
+#'       C   X    Q      1      5
+#'       C   Y    Q      4      7
+#'       C   Y    R      4     11
+#' }
+#'
+#' Partially collapsing to remove the 'discarded' boop dimension we
+#' then would have the following distinct output dimensions, with
+#' their left/right score pairs:
+#'
+#' \code{
+#'    A -> Q  [ [2, 5] ]
+#'    B -> Q  [ [3, 7] ]
+#'    B -> R  [ [3,11] ]
+#'    C -> Q  [ [1, 5], [4, 7] ]
+#'    C -> R  [ [4,11] ]
+#' }
+#'
+#' Each of these poses a challenge; We have a minimum of two numeric
+#' values (one left, one right), and in the case of C->Q there were
+#' two paths found, for four values total.
+#'
+#' The matrix values could represent a wide variety of measurements;
+#' p-values, percent similarities, rank order, factorized categories,
+#' or simply boolean 1/0 unqualified flags. Because of this, it is
+#' impossible to naively assure a 'relevant' mechanism to collapse /
+#' summarize the values.
+#'
+#' The default, 'max right', presumes that 'bigger is better' (max),
+#' and that the second matrix is probably capturing the "final" value
+#' we wish to use. It's a not-unreasonable approach, but given the
+#' diversity of available approaches, will be inappropriate in many
+#' cases.
+#'
 #' @importFrom CatMisc is.something
+#' @importFrom dplyr as.tbl inner_join
+#' @importFrom stats na.omit
+#' @importFrom Matrix sparseMatrix
+#' @importFrom magrittr "%>%"
 NULL
 
 
@@ -1071,7 +1176,7 @@ NULL
 #'     \link{matObj}. Optionally can be a user-provided sparse Matrix.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
-#' @param ... Passed to \link{matObj} (for example, \code{raw})
+#' @param \dots Passed to \link{matObj} (for example, \code{raw})
 #'
 #' @return An integer
 #'
@@ -1127,7 +1232,7 @@ NULL
 #'     \link{matObj}. Optionally can be a user-provided sparse Matrix.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
-#' @param ... Passed to \link{matObj} (for example, \code{raw})
+#' @param \dots Passed to \link{matObj} (for example, \code{raw})
 #'
 #' @return A named vector of integers, which will be as long as the
 #'     number of rows (for rCounts) or columns (for cCounts). Names
@@ -1185,7 +1290,7 @@ NULL
 #'     \link{matObj}. Optionally can be a user-provided sparse Matrix.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
-#' @param ... Passed to \link{matObj} (for example, \code{raw})
+#' @param \dots Passed to \link{matObj} (for example, \code{raw})
 #'
 #' @return A named logical vector, which will be as long as the
 #'     number of rows (for rCounts) or columns (for cCounts). Names
@@ -1760,6 +1865,52 @@ NULL
 #' str( s2e$levels( asFactor=TRUE ) )
 NULL
 
+#' As MTX
+#'
+#' AnnotatedMatrix object method to represent matrix as Matrix Market format
+#'
+#' @name as.mtx
+#' @method as.mtx AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$as.mtx( help=TRUE )
+#'
+#' myObject$as.mtx( obj=NULL, file=NULL, ...)
+#' }
+#'
+#' Will represent the matrix as Matrix Market format, a basic flat
+#' file format that is well-suited for encoding sparse
+#' matrices. Additionally, rich metadata will be added as comments
+#' that can then be parsed by AnnotatedMatrix.
+#'
+#'  #################################
+#'  ### THIS FEATURE IS NOT YET CODED
+#'  #################################
+#'
+#' @param obj Default NULL, the matrix object to serialize. If NULL,
+#'     will call \link{matObj} to recover the current filtered matrix.
+#' @param file Default NULL. If not NULL, will be treated as a file
+#'     path and passed to \link{cat}.
+#' @param \dots Will be passed to \link{matObj}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return The MTX text, invisibly if file is not NULL
+#'
+#' @seealso \href{https://math.nist.gov/MatrixMarket/formats.html}{MTX Format at Broad Institute}
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' ## Filter the matrix so that it is smaller:
+#' s2e$rNames(c("HFH2","AIS1","p63"))
+#' s2e$as.mtx()
+#' 
+NULL
+
 #' As GMT
 #'
 #' AnnotatedMatrix object method to represent matrix as GMT format
@@ -1786,7 +1937,7 @@ NULL
 #'     sets.
 #' @param file Default NULL. If not NULL, will be treated as a file
 #'     path and passed to \link{cat}.
-#' @param ... Will be passed to \link{matObj}
+#' @param \dots Will be passed to \link{matObj}.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
@@ -1800,6 +1951,39 @@ NULL
 #' ## Generate GMT data for the symbols associated for each gene in
 #' ## the example:
 #' s2e$as.gmt( transpose=TRUE )
+NULL
+
+#' As IJX
+#'
+#' AnnotatedMatrix object method to represent matrix as ijx three column format
+#'
+#' @name as.ijx
+#' @method as.ijx AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$as.ijx( help=TRUE )
+#'
+#' myObject$as.ijx( obj=NULL, file=NULL, ...)
+#' }
+#'
+#' @param obj Default NULL, the matrix object to serialize. If NULL,
+#'     will call \link{matObj} to recover the current filtered matrix.
+#' @param file Default NULL. If not NULL, will be treated as a file
+#'     path and passed to \link{cat}.
+#' @param sep Default \code{"\t"}, the separator to use between
+#'     columns. The special value \code{NULL} will return a character
+#'     \code{matrix} object rather than a text representation.
+#' @param \dots Will be passed to \link{matObj}. If you wish to
+#'     transpose the matrix, you can pass the argument here.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return If sep is \code{NULL}, a character matrix. Otherwise the
+#'     text, invisibly if file is not NULL
+
 NULL
 
 #' Melt
@@ -1835,7 +2019,7 @@ NULL
 #'     Row and Col will be replaced by the relevant dimnames for the
 #'     matrix, if available. If a 'CellDim' parameter has been set, it
 #'     will replace Value.
-#' @param ... Will be passed to \link{matObj}
+#' @param \dots Will be passed to \link{matObj}
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
@@ -1847,6 +2031,38 @@ NULL
 #' ## Strip down to a smaller size for easier illustration
 #' s2e$rNames(c("HFH2","AIS1","p63"))
 #' s2e$melt( )
+#'
+#' @importFrom utils write.table
+#' @importFrom CatMisc is.something
+NULL
+
+#' Build Matrix
+#'
+#' Internal AnnotatedMatrix object method to generate matrix 'by hand'
+#'
+#' @name DOTbuildMatrix
+#' @aliases .buildMatrix
+#' @method .buildMatrix AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' Internal method, should not be called directly. It is called
+#' automatically when a new object is created with
+#' \code{AnnotatedMatrix(someDataStructure)}.
+#'
+#' @param metadata Default \code{NULL}. Optional metadata
+#'     table. Should be a \code{data.table} keyed to column 'id'.
+#' @param levels Default \code{NULL}. Optional character vector of
+#'     levels. Will cause the matrix to be treated as a pseudo-factor.
+#' @param cols Default \code{NULL}. Optional metadata column
+#'     definitions. Should be a list with column names as keys,
+#'     human-readable descriptions as values.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return At the moment, just \code{TRUE}.
+#'
+#' @seealso \link{.readMatrix}
 NULL
 
 #' Read Matrix Data
@@ -1859,7 +2075,9 @@ NULL
 #' 
 #' @details
 #' 
-#' Internal method, should not be called directly
+#' Internal method, should not be called directly. It is called
+#' automatically when a new object is created with
+#' \code{AnnotatedMatrix(pathToSomeFile)}.
 #' 
 #' This method will take the \link{file} field as a file path and
 #' attempt to parse it as a matrix. Once parsed, the method will
@@ -1880,7 +2098,8 @@ NULL
 #' @seealso The individual format parsing functions:
 #'     \link{parse_MatrixMarket_file}, link{filesToMTX},
 #'     link{parse_ListOfLists_file}, link{parse_Text_file},
-#'     link{parse_GMT_file}
+#'     link{parse_GMT_file}. Also \link{.buildMatrix}, used to
+#'     generate objects from data structures (rather than files)
 NULL
 
 #' Metadata Keys
@@ -1994,7 +2213,7 @@ NULL
 #'
 #' Generate text summary of the AnnotatedMatrix object
 #'
-#' @aliases matrixText
+#' @name matrixText
 #' @method matrixText AnnotatedMatrix
 #' 
 #' @details
@@ -2036,3 +2255,34 @@ NULL
 #' s2e$show()               # ... which is the same as:
 #' s2e                      # ... how $show() is "meant to be used"
 NULL
+
+#' Annotated Matrix Help
+#'
+#' Object method summarizing available help for AnnotatedMatrix objects
+#'
+#' @name help
+#' @method help
+#'
+#' @details
+#'
+#' #' \preformatted{
+#' ## Method Usage:
+#' myObject$help( color=NULL, help=TRUE )
+#' }
+#'
+#' Summarizes the methods available for the object. Documentation
+#' options for Reference Class objects is very simple, AnnotatedMatrix
+#' utilizes a heavy-weight internal system to associate richer help
+#' topics with each method. The \code{$help} method summarizes the
+#' available methods, and provides an example call of how to get
+#' richer help for each.
+#'
+#' @param color Default \code{NULL}, which will use the EventLogger
+#'     useColor() setting. Otherwise a logical value
+#'
+#' @examples
+#' 
+#' s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$help()
+#'
+#' @importFrom utils capture.output
