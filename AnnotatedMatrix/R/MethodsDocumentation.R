@@ -1966,8 +1966,10 @@ NULL
 #' ## Method Usage:
 #' myObject$as.ijx( help=TRUE )
 #'
-#' myObject$as.ijx( obj=NULL, file=NULL, ...)
+#' myObject$as.ijx( obj=NULL, file=NULL, sep="\t", ...)
 #' }
+#'
+#' Represents the matrix as a simple three column file
 #'
 #' @param obj Default NULL, the matrix object to serialize. If NULL,
 #'     will call \link{matObj} to recover the current filtered matrix.
@@ -1983,7 +1985,42 @@ NULL
 #'
 #' @return If sep is \code{NULL}, a character matrix. Otherwise the
 #'     text, invisibly if file is not NULL
+NULL
 
+#' As Metadata Sidecar
+#'
+#' AnnotatedMatrix object method to export metadata as a 'sidecar' file
+#'
+#' @name as.sidecar
+#' @method as.sidecar AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$as.sidecar( help=TRUE )
+#'
+#' myObject$as.sidecar( obj=NULL, file=NULL, sep="\t", ...)
+#' }
+#'
+#'  #################################
+#'  ### THIS FEATURE IS NOT YET CODED
+#'  #################################
+#'
+#' @param obj Default NULL, the matrix object to serialize. If NULL,
+#'     will call \link{matObj} to recover the current filtered matrix.
+#' @param file Default NULL. If not NULL, will be treated as a file
+#'     path and passed to \link{cat}.
+#' @param sep Default \code{"\t"}, the separator to use between
+#'     columns. The special value \code{NULL} will return a character
+#'     \code{matrix} object rather than a text representation.
+#' @param \dots Will be passed to \link{matObj}. If you wish to
+#'     transpose the matrix, you can pass the argument here.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return If sep is \code{NULL}, a character matrix. Otherwise the
+#'     text, invisibly if file is not NULL
 NULL
 
 #' Melt
