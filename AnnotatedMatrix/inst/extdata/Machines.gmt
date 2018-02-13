@@ -1,0 +1,4 @@
+Rover	Wheeled explorer	GearBox	DriveShaft	Bumper
+RockDrill	Extracts samples	MountingPlate	GearBox	CuttingBit
+Collector	Gathers samples	MountingPlate	Actuator
+Teleporter	Example with no connections to Components.gmt	Crystal	Wormhole

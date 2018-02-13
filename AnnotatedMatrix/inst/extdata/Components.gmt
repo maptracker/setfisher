@@ -1,0 +1,7 @@
+MountingPlate	For attaching to surfaces	SteelPlate	Bolt
+GearBox	For changing speed	SteelPlate	Gear
+Actuator	Produces linear motion	Gear	Rod
+DriveShaft	Transfers Power	Rod
+Bumper	Collision protection	SteelPlate	Rod
+CuttingBit	For boring holes	Gear	Rod	Blade
+Console	Example with no connections to Machines.gmt	Lever	Button
