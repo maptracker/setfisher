@@ -1,0 +1,5 @@
+Name        = Components associated with Machines
+Description = Tallies the number of components used in each machine
+RowDim      = Machine
+ColDim      = Component
+ScoreDesc   = Count of components used in machine

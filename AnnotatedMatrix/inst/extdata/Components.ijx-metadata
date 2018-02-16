@@ -1,0 +1,18 @@
+id	Description
+MountingPlate	For attaching to surfaces
+GearBox	For changing speed
+Actuator	Produces linear motion
+DriveShaft	Transfers Power
+Bumper	Collision protection
+CuttingBit	For boring holes
+Console	Example with no connections to Machines.ijx
+Rover	Wheeled explorer
+RockDrill	Extracts samples
+Collector	Gathers samples
+SteelPlate	A flat metal surface
+Bolt	Threaded attachment
+Gear	Rotational power transfer
+Rod	Stiff cylinder
+Blade	Cutting part
+Lever	Variable adjustment
+Button	Simple toggle

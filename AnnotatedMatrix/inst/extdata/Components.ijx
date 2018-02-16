@@ -1,0 +1,15 @@
+## IJX file, showing the number of parts various components have
+MountingPlate	SteelPlate	1
+MountingPlate	Bolt	4
+GearBox	SteelPlate	6
+GearBox	Gear	7
+Actuator	Gear	4
+Actuator	Rod	2
+DriveShaft	Rod	1
+Bumper	SteelPlate	3
+Bumper	Rod	2
+CuttingBit	Gear	2
+CuttingBit	Rod	1
+CuttingBit	Blade	1
+Console	Lever	2
+Console	Button	9

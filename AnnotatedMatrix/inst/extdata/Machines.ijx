@@ -1,0 +1,11 @@
+## IJX file, showing the number of components various machines have
+Rover	GearBox	1
+Rover	DriveShaft	2
+Rover	Bumper	4
+RockDrill	MountingPlate	6
+RockDrill	GearBox	1
+RockDrill	CuttingBit	1
+Collector	MountingPlate	1
+Collector	Actuator	2
+Teleporter	Crystal	7
+Teleporter	Wormhole	1

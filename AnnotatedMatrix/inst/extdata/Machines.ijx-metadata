@@ -1,0 +1,11 @@
+id	Description
+Rover	Wheeled explorer
+RockDrill	Extracts samples
+Collector	Gathers samples
+Teleporter	Example with no connections to Components.ijx
+MountingPlate	For attaching to surfaces
+GearBox	For changing speed
+Actuator	Produces linear motion
+DriveShaft	Transfers Power
+Bumper	Collision protection
+CuttingBit	For boring holes

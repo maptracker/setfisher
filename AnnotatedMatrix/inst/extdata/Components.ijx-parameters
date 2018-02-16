@@ -1,0 +1,5 @@
+Name        = Parts associated with Components
+Description = Tallies the number of parts used in each component
+RowDim      = Component
+ColDim      = Part
+ScoreDesc   = Count of parts used in component
