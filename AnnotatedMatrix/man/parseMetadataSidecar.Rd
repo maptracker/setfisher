@@ -40,7 +40,12 @@ path of the 'main' data file, and <SOMETHING> is any other text
 
 The metadata files should be TSV tabular and include a header
 row. The function will look for an 'id' column - if not found, it
-will rename the first column 'id' and use it
+will rename the first column 'id' and use it.
+
+Also supported are files of format
+\code{<BASENAME>-parameters<SOMETHING>}, which will be parsed into
+a list structure and added as an attribute. These will then be used
+to set \code{$param()} values.
 }
 \examples{
 
@@ -49,6 +54,5 @@ lolFile <- AnnotatedMatrix:::.makeTempFile("ListOfLists.inp")
 
 ## There are two sidecars associated with this file
 parseMetadataSidecar( lolFile )
-
 
 }

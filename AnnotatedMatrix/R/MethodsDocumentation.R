@@ -1017,6 +1017,14 @@ NULL
 #'
 #' @details
 #'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$product( help=TRUE )
+#'
+#' myObject$product(mat2, dim1=NULL, dim2=NULL, valfunc=NULL, levels=NULL,
+#'                  ignore.zero=TRUE, ignore.case=TRUE)
+#' }
+#'
 #' Designed to chain / bridge two matrices that share a common
 #' dimension. For example, if you have a \code{Foo vs Bar} matrix, and
 #' a \code{Pop vs Bar} matrix, you can take their 'product' by finding
@@ -1117,7 +1125,7 @@ NULL
 #'
 #' Partially collapsing to remove the 'discarded' boop dimension we
 #' then would have the following distinct output dimensions, with
-#' their left/right score pairs:
+#' their [left,right] score pairs:
 #'
 #' \code{
 #'    A -> Q  [ [2, 5] ]
@@ -1143,6 +1151,29 @@ NULL
 #' diversity of available approaches, will be inappropriate in many
 #' cases.
 #'
+#' @examples
+#'
+#' # The `machines` toy matrix associates machines with components 
+#' mach <- AnnotatedMatrix( annotatedMatrixExampleFile("Machines.ijx") )
+#' # The `components`  matrix associates them with parts
+#' comp <- AnnotatedMatrix( annotatedMatrixExampleFile("Components.ijx") )
+#'
+#' # We can use $product to associate machines with parts. These
+#' # particular matrices have scores that are counts, so "traditional"
+#' # matrix math is how we should set up scores:
+#' matProd <- function(l, r) sum( l * r )
+#'
+#' # Now we can calcualte the 'transitive' product of the two matrices:
+#' prod <- mach$product(comp, valfunc=matProd)
+#'
+#' # Inspect the input matrices as well as the product:
+#' mach$matObj()
+#' comp$matObj()
+#' prod$matObj()
+#' 
+#' # `prod` now shows how many parts are in each machine, having
+#' # 'joined' via the shared "Component" dimension.
+#' 
 #' @importFrom CatMisc is.something
 #' @importFrom dplyr as.tbl inner_join
 #' @importFrom stats na.omit
@@ -1953,40 +1984,6 @@ NULL
 #' s2e$as.gmt( transpose=TRUE )
 NULL
 
-#' As IJX
-#'
-#' AnnotatedMatrix object method to represent matrix as ijx three column format
-#'
-#' @name as.ijx
-#' @method as.ijx AnnotatedMatrix
-#' 
-#' @details
-#' 
-#' \preformatted{
-#' ## Method Usage:
-#' myObject$as.ijx( help=TRUE )
-#'
-#' myObject$as.ijx( obj=NULL, file=NULL, sep="\t", ...)
-#' }
-#'
-#' Represents the matrix as a simple three column file
-#'
-#' @param obj Default NULL, the matrix object to serialize. If NULL,
-#'     will call \link{matObj} to recover the current filtered matrix.
-#' @param file Default NULL. If not NULL, will be treated as a file
-#'     path and passed to \link{cat}.
-#' @param sep Default \code{"\t"}, the separator to use between
-#'     columns. The special value \code{NULL} will return a character
-#'     \code{matrix} object rather than a text representation.
-#' @param \dots Will be passed to \link{matObj}. If you wish to
-#'     transpose the matrix, you can pass the argument here.
-#' @param help Default FALSE. If TRUE, show this help and perform no
-#'     other actions.
-#'
-#' @return If sep is \code{NULL}, a character matrix. Otherwise the
-#'     text, invisibly if file is not NULL
-NULL
-
 #' As Metadata Sidecar
 #'
 #' AnnotatedMatrix object method to export metadata as a 'sidecar' file
@@ -2021,6 +2018,34 @@ NULL
 #'
 #' @return If sep is \code{NULL}, a character matrix. Otherwise the
 #'     text, invisibly if file is not NULL
+NULL
+
+#' As IJX
+#'
+#' AnnotatedMatrix object method to convert matrix into three column format
+#'
+#' @name as.ijx
+#' @method as.ijx AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' This method is very similar to \code{\link{melt}}, which it calls
+#' to structure the data. Unlike \code{melt}, it is primarily designed
+#' to return a block of text (rather than a data.frame), or a
+#' character matrix. It can also be used to write the text block to a
+#' file.
+#'
+#' @param file Default NULL. When NULL, a character matrix is
+#'     returned. If not NULL, the serialized data are written to the
+#'     specified file, as well as being invisibly returned.
+#' @param sep Default \code{"\t"}, the field separator
+#' @param obj Default \code{NULL}, will be passed to \code{melt}. If
+#'     \code{NULL}, then a character matrix will be returned,
+#'     otherwise a string representing the text is generated.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @seealso \code{\link{melt}} to get a three column data.frame
 NULL
 
 #' Melt
@@ -2061,6 +2086,8 @@ NULL
 #'     other actions.
 #'
 #' @return A data.frame, invisibly if \code{file} is specified
+#'
+#' @seealso \code{\link{as.ijx}} to generate a matrix or a block of text.
 #'
 #' @examples
 #' 

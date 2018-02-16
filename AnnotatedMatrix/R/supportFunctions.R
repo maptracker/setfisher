@@ -1,4 +1,5 @@
 
+## Package-scoped environment to hold items shared across objects
 .myPkgEnv <- new.env(parent=emptyenv())
 assign(".matrixCache", list(), envir=.myPkgEnv)
 
@@ -270,7 +271,7 @@ takeLowestThing <- function (x) {
 #' uniqueNames(foo, rpt="IDs")
 #'
 #' @importFrom crayon bgCyan
-#' 
+#' @importFrom stats setNames
 #' @export
 
 uniqueNames <- function(names = character(), rpt = NULL,
@@ -288,7 +289,7 @@ uniqueNames <- function(names = character(), rpt = NULL,
     if (!identical(names, goodNames)) {
         ## Some changes were made. Note them as a (good)named subset
         diff    <- goodNames != names
-        changes <- setNames(names[diff], goodNames[diff])
+        changes <- stats::setNames(names[diff], goodNames[diff])
         if (!is.null(rpt) && verbose) {
             ## Note the changes to STDERR
             num <- sum(diff)
@@ -314,12 +315,32 @@ uniqueNames <- function(names = character(), rpt = NULL,
 #' that pulls up a gene symbol -to-> Entrez Gene ID mapping matrix
 #' (subset of human genes). The file is factorized and has metadata on
 #' both dimensions.
+#'
+#' @param file Default \code{"Symbol-To-Gene.mtx"}. The file to
+#'     recover from inst/
+#' @param list Default \code{FALSE}. If TRUE, then list all available
+#'     example files
+#'
+#' @return The path to the file requested, unless list is TRUE, which
+#'     will return a listing of all files in \code{extdata/}
+#' @examples
+#'
+#' ef1 <- annotatedMatrixExampleFile()
+#' ef2 <- annotatedMatrixExampleFile("Machines.gmt")
 #' 
 #' @export
 
-annotatedMatrixExampleFile <- function () {
-    .makeTempFile("Symbol-To-Gene.mtx")
+annotatedMatrixExampleFile <- function (file="Symbol-To-Gene.mtx", list=FALSE) {
+    if (list) {
+        srcDir <- file.path(inst.path.package("AnnotatedMatrix"), "extdata")
+        rv     <- list.files(srcDir)
+        rv[ !grepl('~$', rv) ]
+    } else {
+        .makeTempFile(file)
+    }
 }
+
+
 
 #' Development Package Path
 #'
@@ -385,7 +406,7 @@ inst.path.package <- function(pkg="AnnotatedMatrix") {
     trg <- NA
     if (dir.exists(src)) {
         ## Source is a directory, set target to the tmp parent
-        trg <- tmpDir
+        trg <- file.path(tmpDir, basename(src))
         file.copy(src, tmpDir, recursive=TRUE)
     } else {
         ## Basic file

@@ -132,7 +132,15 @@ Optional Arguments:
 }
 my ($geneMeta, $goMeta, $goClosure);
 my @stndMeta   = qw(Symbol Type Description);
+my %defColDef = ( Symbol => "Official Entrez Gene symbol if available, otherwise one of the unofficial symbols",
+                  Type => "Entrez Gene Type, eg protein-coding or ncRNA",
+                  Description => "Short descriptive text for an Entrez Gene" );
 my @stndGoMeta = qw(Name Namespace Description Parents Synonyms);
+my %defGoDef = ( Name => "A short name associated with the GO accession, eg 'actin binding'",
+    Namespace => "The high-level GO tree the term belongs to",
+    Description => "A longer definition of a GO term, taken from the 'def' field",
+    Parents => "The parent terms associated with the GO term, either through is_a or part_of, concatenated with '|'",
+    Synonyms => "Alternate (unofficial) short names for the GO term, concatenated with '|'");
 ## Ensembl does not provide a 'clean' way to get to an accession
 ## without also knowing the species name. If we recover the species
 ## name later (a few dozen lines below), we will build a
@@ -151,6 +159,8 @@ my $nsUrl = {
     EnsemblRNA     => $ensSearch,
     EnsemblProtein => $ensSearch,
 };
+
+
 
 my $taxid = $taxDat->{taxid};
 my $dbf   = $args->{pubmeddb};
@@ -274,8 +284,9 @@ sub make_entrez_metadata_file {
                  ns1  => $cont,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Species    => $spec,
-        MatrixType => $type,
         FileType   => "TSV",
         Version    => $fVers,
         'Format'   => "TSV",
@@ -445,9 +456,10 @@ sub make_go_metadata_file {
                  ns1  => $cont,
                  auth => $cont,  vers => $fVers);
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Species    => undef,
         Authority  => $cont,
-        MatrixType => $type,
         FileType   => "TSV",
         Version    => $fVers,
         'Format'   => "TSV",
@@ -735,8 +747,9 @@ sub make_orthologue_file {
                  ns1  => $cont,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Species    => $specID,
-        MatrixType => $type,
         FileType   => "CSV",
         Version    => $fVers,
         'Format'   => "CSV",
@@ -836,6 +849,15 @@ sub make_orthologue_file {
 }
 
 sub map_orthologue {
+
+    ## Overview of human 'whole' conversion matrix (Oct 2017):
+    ##  * 19300 human genes
+    ##  * 233 other species assigned
+    ##  * 68% of all cells populated (not too sparse, a good thing)
+    ##  * Weighs 356Mb as MTX, 65Mb as RDS
+    ##  * Takes 28 minutes to parse the first time
+    ##  * Takes only 20 seconds to read pre-parsed RDS
+
     my $src   = &ftp_url($sources->{Gene2Orth});
     my $mFile = &make_orthologue_file();
     my $fVers = &_datestamp_for_file( $mFile );
@@ -844,13 +866,18 @@ sub map_orthologue {
                  ns1  => $nsi,   ns2  => $nsj,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        Source    => $src,
-        Namespace => [$nsi, $nsj],
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
+        Source     => $src,
+        Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(%fbits);
     unless (&output_needs_creation($trg)) {
         &msg("Keeping existing $nsi map:", $trg);
+        &msg("
+NOTE - this will also skip (re)calculation of species-specific matrices
+");
         &post_process( %fbits, meta => $fmeta );
         return $trg;
     }
@@ -896,6 +923,7 @@ sub map_orthologue {
     }
     my $popFilt = undef;
     my $popFile = "$scriptDir/popularSpecies.tsv";
+    my %popDetail;
     if (-s $popFile) {
         if (open(POPF,"<$popFile")) {
             my $head;
@@ -907,7 +935,23 @@ sub map_orthologue {
                     my @r = split(/\t/);
                     my %h = map { $head->[$_] => $r[$_] } (0..$#{$head});
                     if (my $n = $h{$taxCol}) {
-                        push @pop, $n if (exists $colMeta{$n});
+                        if (exists $colMeta{$n}) {
+                            next if ($n eq $specID);
+                            push @pop, $n;
+                            my $cm = $colMeta{$n};
+                            my $oi = $cm->{order} - 1;
+                            my $pd = $popDetail{ $oi } = {
+                                name  => $n,
+                                oind  => $oi,
+                                rnum  => 0,
+                                cnum  => 0,
+                                nznum => 0,
+                                colm  => {},
+                                rowm  => {},
+                            };
+                            map {$pd->{$_} = $cm->{$_}} 
+                            qw(TaxID OrgName SciName);
+                        }
                     } else { 
                         &err("Could not find '$taxCol' species identifier", $_);
                     }
@@ -960,6 +1004,24 @@ sub map_orthologue {
                          "Will be excluded from global orthologue file");
                     $multHits{$gid}{$i} = [split(/\|/, $oid)];
                 }
+                
+            }
+        }
+        ## Capture connections for selected 'popular' species:
+        while (my ($oi, $dat) = each %popDetail) {
+            if (my $oids = $row[$oi]) {
+                my $rm = $dat->{rowm}{$gid} ||= {
+                    order => ++$dat->{rnum},
+                    name  => $gid,
+                };
+                foreach my $oid (split(/[^0-9]+/, $oids)) {
+                    my $cm = $dat->{colm}{$oid} ||= {
+                        order => ++$dat->{cnum},
+                        name  => $oid,
+                    };
+                    push @{$dat->{hits}}, [ $rm->{order}, $cm->{order} ];
+                    $dat->{nznum}++;
+                }
             }
         }
     }
@@ -998,10 +1060,82 @@ sub map_orthologue {
     &msg("Summary files generated:", $spInfoFile, $locInfoFile);
     ##################################################################
 
+
+
+    &msg("Creating specific orthologue files based on 'popular' species");
+    foreach my $dat (sort { $a->{oind} <=> $b->{oind} } values %popDetail) {
+        ## Bunch of locally-scoped variables here that are derived
+        ## from $dat (eg $rnum), or just re-cycled explicitly (eg $nsi)
+        my $ospec = $dat->{name};
+        my ($type, $nsi, $nsj, $mod) = ("Map", $specID, $ospec, "EntrezGene");
+        my %fbits = (type => $type,  mod  => $mod,
+                     ns1  => $nsi,   ns2  => $nsj,
+                     auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
+        my $meta = {
+            MatrixType => $fbits{type},
+            Modifier   => $fbits{mod},
+            Source     => $src,
+            Namespace  => [$mod],
+            Species    => [$taxDat->{'scientific name'}[0], $dat->{SciName}],
+        };
+        my $fmeta = { %{$stashMeta}, %{$meta} };
+        my $trg   = &primary_path(%fbits);
+        unless (&output_needs_creation($trg)) {
+            &msg("Keeping existing $nsi/$nsj focused map:", $trg);
+            &post_process( %fbits, meta => $fmeta );
+            next;
+        }
+        my $tmp = "$trg.tmp";
+        open(FOC, ">$tmp") || &death("Failed to write $nsi $nsj $type",
+                                     $tmp, $!);
+        my ($rnum, $cnum, $nznum) = map { $dat->{$_} } qw(rnum cnum nznum);
+        print FOC &_initial_mtx_block
+            ( $type, $rnum, $cnum, $nznum, "$nsi to $nsj $type for $mod",
+              "Focused $mod orthologue $type from $nsi to $nsj",
+              "Scores are all 1, no details on similarity of genes are available",
+              $nsi, $nsj);
+
+        print FOC &_dim_block({
+            %{$fmeta},
+            RowDim    => $nsi,
+            RowUrl    => $nsUrl->{$nsi},
+            ColDim    => $nsj,
+            ColUrl    => $nsUrl->{$nsj}, 
+            Authority => $authLong });
+        
+        my %rm     = %{$dat->{rowm}};
+        my %cm     = %{$dat->{colm}};
+        my @gids   = sort { $rm{$a}{order} <=> $rm{$b}{order} } keys %rm;
+        my @oids   = sort { $cm{$a}{order} <=> $cm{$b}{order} } keys %cm;
+        
+        print FOC &_citation_MTX();
+        print FOC &_species_MTX( $meta->{Species} );
+
+        print FOC &_rowcol_meta_comment_block( \%defColDef );
+        ## Row metadata
+        print FOC &_generic_meta_block(\@gids, 'Row', $allMeta, \@stndMeta);
+        print FOC "% $bar\n";
+
+        print FOC &_generic_meta_block(\@oids, 'Col', $allMeta, \@stndMeta);
+        print FOC "% $bar\n";
+        
+        
+        print FOC &_triple_header_block( $dat->{rnum}, $dat->{cnum},
+                                         $dat->{nznum} );
+        foreach my $h (@{$dat->{hits}}) {
+            printf(FOC "%d %d 1\n", @{$h});
+        }
+        close FOC;
+        rename($tmp, $trg);
+        &post_process( %fbits, meta => $fmeta );
+        &msg("Generated focused orthologue file for $specID to $ospec", $trg);
+    }
+
+
     my $tmp = "$trg.tmp";
-    open(MTX, ">$tmp") || &death("Failed to write $$nsi $nsj $type", $tmp, $!);
+    open(MTX, ">$tmp") || &death("Failed to write $nsi $nsj $type", $tmp, $!);
     print MTX &_initial_mtx_block
-        ( $type, $rnum, $rnum, $nznum, "$nsj $type for $specID $nsi",
+        ( $type, $rnum, $cnum, $nznum, "$nsj $type for $specID $nsi",
           "$specID $nsi mapped to orthologues in multiple species",
           "Scores are integer $nsi IDs, recover metadata with \$metadata() calls against the score values",
           $nsi, $nsj);
@@ -1012,7 +1146,7 @@ sub map_orthologue {
         RowUrl    => $nsUrl->{$nsi},
         ColDim    => $nsj,
         ColUrl    => $nsUrl->{$nsj}, 
-        CellDim   => "Orth$nsj", ## Cells are the same namespace as the rows
+        CellDim   => "Orth$nsi", ## Cells are the same namespace as the rows
         CellUrl   => $nsUrl->{$nsj}, 
         Authority => $authLong });
 
@@ -1037,9 +1171,7 @@ sub map_orthologue {
     }
 
     print MTX &_rowcol_meta_comment_block({
-        Symbol => "Official Entrez Gene symbol if available, otherwise one of the unofficial symbols",
-        Type => "Entrez Gene Type, eg protein-coding or ncRNA",
-        Description => "Short descriptive text for an Entrez Gene",
+        %defColDef,
         SpeciesCount => "For a $rID gene, the number of other species with a reported orthologue. Should roughly correlate with evolutionary preservation (less so conservation) within the set of available species.",
         TaxID => "The NCBI taxonomy ID for a species",
         OrthCount => "For a species, the number of orthologues reported in $rID. This will be a function both of evolutionary distance and the relative maturity of the two genome projects.",
@@ -1067,11 +1199,10 @@ sub map_orthologue {
         }
     }
     close MTX;
-
-    die "temp file: $tmp";
     rename($tmp, $trg);
-
-    close MTX;
+    &post_process( %fbits, meta => $fmeta );
+    &msg("Generated global orthologue file for $specID", $trg);
+    return $trg;
 }
 
 sub map_locuslink {
@@ -1082,8 +1213,10 @@ sub map_locuslink {
                  ns1  => $nsi,   ns2  => $nsj,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        Source    => $src,
-        Namespace => [$nsi, $nsj],
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
+        Source     => $src,
+        Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(%fbits);
@@ -1120,7 +1253,7 @@ sub map_locuslink {
     print MTX &_mtx_comment_block("", "This is just a very simple identity matrix that maps a LocusLink identifier to its numeric Entrez ID. Given an Entrez ID '#' the LocusLink ID would be 'LOC#'. That is, 'LOC859' is Entrez ID '859'.",
                                   "", "This mapping can of course be done very efficiently in code by simply adding or stripping 'LOC' as needed. If possible, you should take that approach. However, this matrix is generated to aid in automated analysis of diverse query inputs.", "");
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block(\%defColDef);
 
     ## Note row metadata
     ## Locus IDs are just the GeneIDs with "LOC" prefixed.
@@ -1174,11 +1307,11 @@ sub map_refseq_objects {
     my $type  = "Map";
     my $fVers = &_datestamp_for_file(&fetch_url($src));
     my %fbits = (type => $type,  mod  => $specID,
-                 ns1  => $ns[0],   ns2  => $ns[1],
+                 ns1  => $ns[0],  ns2 => $ns[1],
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        Species    => $specID,
-        MatrixType => $type,
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Version    => $fVers,
         Source     => &ftp_url($src),
     };
@@ -1280,7 +1413,7 @@ sub map_refseq_objects {
            "  https://www.ncbi.nlm.nih.gov/books/NBK21091/table/ch18.T.refseq_status_codes/"],
         \%counts);
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block(\%defColDef);
 
     ## Note row metadata
     print MTX &_generic_meta_block(\@rowIds, 'Row', \%rmeta, $metCols[0]);
@@ -1313,7 +1446,8 @@ sub make_ensembl_file {
                  ns1  => $cont,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        MatrixType => $type,
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         FileType   => "TSV",
         Version    => $fVers,
         'Format'   => "TSV",
@@ -1405,8 +1539,9 @@ sub map_ensembl_objects {
                  ns1  => $ns[0],   ns2  => $ns[1],
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Species    => $specID,
-        MatrixType => $type,
         Version    => $fVers,
         Source     => &ftp_url($src),
     };
@@ -1493,7 +1628,9 @@ sub map_ensembl_objects {
 
     print MTX &_cardinality_block( \%rmeta );
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block({
+        %defColDef,
+        SeqVersion => "Sequence version number used to relate this accession"});
 
     ## Note row metadata
     print MTX &_generic_meta_block(\@rowIds, 'Row', \%rmeta, $metCols[0]);
@@ -1525,7 +1662,8 @@ sub make_refseq_file {
                  ns1  => $cont,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        MatrixType => $type,
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         FileType   => "TSV",
         Version    => $fVers,
         'Format'   => "TSV",
@@ -1650,8 +1788,10 @@ sub map_symbol {
                  ns1  => $nsi,   ns2  => $nsj,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
-        Source    => $src,
-        Namespace => [$nsi, $nsj],
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
+        Source     => $src,
+        Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
     my $trg   = &primary_path(%fbits);
@@ -1739,7 +1879,10 @@ sub map_symbol {
                              });
     print MTX &gene_symbol_stats_block( \%symbols, \@rowIds, $lvls, $scH );
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block({
+        %defColDef,
+        Official => "Count of gene accessions for which this is an official symbol",
+        NotOfficial => "Count of gene accessions for which this is an unofficial symbol" });
 
     ## Note row metadata
     print MTX &gene_symbol_meta( \%symbols, \@rowIds, 'Row');
@@ -1771,8 +1914,9 @@ sub ontology_pubmed {
                  ns1  => $nsi,   ns2  => $nsj,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Source     => &ftp_url($src),
-        MatrixType => $type,
         Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
@@ -1866,7 +2010,11 @@ sub ontology_pubmed {
         MinRowCount => "2 ## Genes with few publications generally do not bring much insight to the analysis",
                              });
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block({
+        %defColDef,
+        Date => "The date on which the article was published",
+        Description => "For genes, a sort description; For publications, the title"
+                                          });
 
     ## Row metadata
     print MTX &_generic_meta_block(\@gids, 'Row', $geneMeta, \@stndMeta);
@@ -1917,8 +2065,9 @@ sub go_hierarchy {
                  auth => $cont,  vers => $fVers );
 
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Source     => &ftp_url($src),
-        MatrixType => $type, 
         Authority  => $cont,
         Namespace  => [$nsi, $nsj],
     };
@@ -1983,7 +2132,7 @@ sub go_hierarchy {
            "http://www.geneontology.org/page/ontology-relations"],
         \%counts);
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block(\%defGoDef);
     ## Row metadata
     print MTX &_generic_meta_block(\@gids, 'Row', $goMeta, \@stndGoMeta);
 
@@ -2015,8 +2164,9 @@ sub ontology_go {
                  ns1  => $nsi,   ns2  => $nsj,
                  auth => $auth,  vers => $fVers,  dir => "$auth/$vers");
     my $meta = {
+        MatrixType => $fbits{type},
+        Modifier   => $fbits{mod},
         Source     => &ftp_url($src),
-        MatrixType => $type,
         Namespace  => [$nsi, $nsj],
     };
     my $fmeta = { %{$stashMeta}, %{$meta} };
@@ -2157,7 +2307,7 @@ sub ontology_go {
            "http://geneontology.org/page/guide-go-evidence-codes"],
           {map { $lvls->[$_] => $counts[$_] || 0 } (0..$#{$lvls}) });
 
-    print MTX &_rowcol_meta_comment_block();
+    print MTX &_rowcol_meta_comment_block( {%defColDef, %defGoDef, Description => "Descriptive text (either for Entrez ID or GO term)"});
 
     ## Row metadata
     print MTX &_generic_meta_block(\@gids, 'Row', $geneMeta, \@stndMeta);
@@ -2349,21 +2499,6 @@ sub _pmid_from_db {
     my $dat = $getPMID->fetchall_arrayref();
     my ($newest) = sort { $b->[0] <=> $a->[0] } @{$dat};
     return @{$newest || [0, '','']};
-}
-
-sub _safe_file_fragment {
-    ## Replaces characters that might cause issues in filenames,
-    ## either because they are awkward or illegal, or because they
-    ## interfer with token separation.
-    my $txt = shift;
-    ## Apostrophes end up looking weird if replaced with an
-    ## underscore, eg "Coquerel_s_sifaka" (the "Coquerel's sifaka"
-    ## lemur)
-    $txt =~ s/\'//g;
-    ## For everything else, just allow letters and numbers, turn all
-    ## others into underscores.
-    $txt =~ s/[^a-z0-9]+/_/gi;
-    return $txt;
 }
 
 sub _backfill_tools {

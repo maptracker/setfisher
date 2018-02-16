@@ -92,6 +92,7 @@ s2e$matrixUse
 
 # Verify that we found what we were looking for:
 s2e$metadata( colnames(s2e$matrixUse), "Description" )
+
 }
 \seealso{
 \link{filterLog}, \link{filterSummary},

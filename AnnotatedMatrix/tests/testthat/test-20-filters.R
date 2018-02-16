@@ -7,49 +7,49 @@ s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 test_that("Matrix filters", {
     afCon <- 180L
     expect_identical(afCon, s2e$nnZero(),
-                     "Valid number of auto-filtered connections")
+                     info="Valid number of auto-filtered connections")
     
     s2e$reset()
     rawCon <- 208L
     expect_identical(rawCon, s2e$nnZero(),
-                     "Valid number of connections after reset")
+                     info="Valid number of connections after reset")
 
     ## Score filters
     s2e$filterByScore(min=2, max=3)
     expect_identical(152L, s2e$nnZero(),
-                     "Valid number of connections after score filter")
+                     info="Valid number of connections after score filter")
     s2e$reset()
     expect_null(s2e$matrixUse, "Clearing of $matrixUse after reset")
     expect_identical(rawCon, s2e$nnZero(),
-                     "Valid number of connections after reset")
+                     info="Valid number of connections after reset")
     
     ## Filter by factor levels
     s2e$reset()
     expect_identical(s2e$map("LOC7038")$Output, c("TG", "TGN", "AITD3"),
-                     "Unfiltered data")
+                     info="Unfiltered data")
     s2e$filterByFactorLevel("Official")
     
     expect_identical(s2e$map("LOC7038")$Output, c("TG"),
-                     "Official symbols only")
+                     info="Official symbols only")
 
     ## Filter by metadata text
     s2e$reset()
     sym <- "AITD3"
     expect_equivalent(unclass(s2e$map(sym, format="vector")),
                       c("LOC7038", "LOC57623", "LOC387580"),
-                      "Symbol with scruffy link")
+                      info="Symbol with scruffy link")
     ## Remove genes with "{Deprecated}" in the description:
     s2e$filterByMetadata(key="Description", keep=FALSE, val="{Deprecated}")
     expect_equivalent(unclass(s2e$map(sym, format="vector")),
                       c("LOC7038", "LOC57623"),
-                      "Symbol with scruffy link, unscrufified")
+                      info="Symbol with scruffy link, unscrufified")
 
     ## Check summary information
     fs <- s2e$filterSummary()
     expect_identical(fs[1, "metric"], "Description LIKE {Deprecated}",
-                     "Summary metric")
+                     info="Summary metric")
     expect_identical(fs[1, "Col"], 5L,
-                     "Summary counts")
+                     info="Summary counts")
 
     ## Filter by row and column names
     s2e$reset()
@@ -58,9 +58,10 @@ test_that("Matrix filters", {
     s2e$rNames( newRow )
     expect_identical(s2e$nnZero(), 2L, "Restricted rows")
     ## Some issues with Matrix falling back to dgCMatrix:
-    expect_identical(class(s2e$matrixUse)[1], "dgTMatrix", "Class safety check")
+    expect_identical(class(s2e$matrixUse)[1], "dgTMatrix",
+                     info="Class safety check")
     expect_identical(s2e$map(bogus)[bogus, "Score"], 0L,
-                     "Verify novel row is recognized (Score = 0 != NA)")
+                     info="Verify novel row is recognized (Score = 0 != NA)")
 
     ## Filter by row or column counts
     s2e$reset()
@@ -83,31 +84,33 @@ test_that("Matrix filters", {
     expect_identical(length(rN), 167L, "Sanity check")
     keepRow <- c("AR","AIRE1","APSI","PGA1")
     crc <- s2e$filterById(keepRow, keep=TRUE, MARGIN='row')
-    expect_equivalent(crc, c(202L, 163L, 63L), "Heavy filter keeping 4 IDs")
+    expect_equivalent(crc, c(202L, 163L, 63L),
+                      info="Heavy filter keeping 4 IDs")
     expect_identical(s2e$rNames(nonzero=TRUE), keepRow,
-                     "Filter keeps just 4 IDs")
+                     info="Filter keeps just 4 IDs")
     s2e$reset()
     ## Restrict to some weirdly specific symbol patterns.
     s2e$filterById(c('[a-z][0-9][a-z][0-9][a-z]','[0-9]-[0-9]'),
                    keep=TRUE, exact=FALSE, MARGIN='row')
     expect_identical(s2e$rNames(nonzero=TRUE),
                      c("RP3-426F10.1", "RP11-397D12.1", "NT5C1B"),
-                     "Regular expression ID filter")
+                     info="Regular expression ID filter")
 
     s2e$reset()
     ## Verify that we get a warning when we remove everything when
     ## MARGIN is NULL
     expect_message(s2e$filterById("AIRE1", keep=TRUE),
-                   "removed ALL matrix entries")
+                   info="removed ALL matrix entries")
     
     ## Applied filters field
     s2e$reset()
     s2e$autoFilter()
     af <- s2e$appliedFilters()
     sf <- s2e$setFilters
-    expect_identical(af, sf, "Method without args should just be setFilters")
+    expect_identical(af, sf,
+                     info="Method without args should just be setFilters")
     expect_identical(length(af), 2L, "Two automatic filters")
-    expect_identical(af[1], "LEVELS == Unknown ## Unknown status = uncertain provenance in MapTracker", "First example filter")
+    expect_identical(af[1], "LEVELS == Unknown ## Unknown status = uncertain provenance in MapTracker", info="First example filter")
 
     
    

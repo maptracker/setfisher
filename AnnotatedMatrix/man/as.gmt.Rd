@@ -14,7 +14,7 @@ sets.}
 \item{file}{Default NULL. If not NULL, will be treated as a file
 path and passed to \link{cat}.}
 
-\item{...}{Will be passed to \link{matObj}}
+\item{\dots}{Will be passed to \link{matObj}.}
 
 \item{help}{Default FALSE. If TRUE, show this help and perform no
 other actions.}

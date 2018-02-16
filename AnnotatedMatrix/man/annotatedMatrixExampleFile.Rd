@@ -4,7 +4,18 @@
 \alias{annotatedMatrixExampleFile}
 \title{Annotated Matrix Example File}
 \usage{
-annotatedMatrixExampleFile()
+annotatedMatrixExampleFile(file = "Symbol-To-Gene.mtx", list = FALSE)
+}
+\arguments{
+\item{file}{Default \code{"Symbol-To-Gene.mtx"}. The file to
+recover from inst/}
+
+\item{list}{Default \code{FALSE}. If TRUE, then list all available
+example files}
+}
+\value{
+The path to the file requested, unless list is TRUE, which
+    will return a listing of all files in \code{extdata/}
 }
 \description{
 Path to a small example file used for demonstrations
@@ -14,4 +25,10 @@ This is just a wrapper around the internal .makeTempFile() function
 that pulls up a gene symbol -to-> Entrez Gene ID mapping matrix
 (subset of human genes). The file is factorized and has metadata on
 both dimensions.
+}
+\examples{
+
+ef1 <- annotatedMatrixExampleFile()
+ef2 <- annotatedMatrixExampleFile("Machines.gmt")
+
 }

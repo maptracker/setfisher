@@ -1199,11 +1199,16 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             ## Function specified by text, parse to determine what to
             ## do, and build a synthetic function to use
             valfunc <- tolower(valfunc)
+            copyLevelsMakesSense <- FALSE
             valMeth <- if (grepl('max', valfunc)) {
                 vfText <- c(vfText, "max()")
+                ## max is a reasonable function to pick a level:
+                copyLevelsMakesSense <- TRUE
                 base::max
             } else if (grepl('min', valfunc)) {
                 vfText <- c(vfText, "min()")
+                ## min is a reasonable function to pick a level:
+                copyLevelsMakesSense <- TRUE
                 base::min
             } else if (grepl('mean', valfunc)) {
                 vfText <- c(vfText, "mean()")
@@ -1214,11 +1219,13 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             vfText <- c(vfText,"of")
             valfunc <- if (grepl('(right|rgt)', valfunc)) {
                 vfText <- c(vfText, "right matrix")
-                if (is.null(levels)) levels <- mat2$levels()
+                if (is.null(levels) && copyLevelsMakesSense)
+                    levels <- mat2$levels()
                 function (l,r) valMeth(r)
             } else if (grepl('(left|lft)', valfunc)) {
                 vfText <- c(vfText, "left matrix")
-                if (is.null(levels)) levels <- .self$levels()
+                if (is.null(levels) && copyLevelsMakesSense)
+                    levels <- .self$levels()
                 function (l,r) valMeth(l)
             } else {
                 ## If we don't match anything above, use values from both
@@ -1279,12 +1286,14 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ## Gather up the metadata. There may be a better way to do
         ## this, but it seems that DT keys need to be set somewhat
         ## awkwardly
-        mdl <- metadata(lnames, drop=FALSE)
+        mdl <- metadata(iNms, drop=FALSE)
         data.table::setkeyv(mdl, "id")
-        mdr <- mat2$metadata(rnames, drop=FALSE)
+        mdr <- mat2$metadata(jNms, drop=FALSE)
         data.table::setkeyv(mdr, "id")
         md  <- extendDataTable( mdl, mdr ) # Concatenate rows and cols
         data.table::setkeyv(md, "id")
+
+### ToDo - Set up some parameters with reasonable auto-generated values
         
         ## We should now have all the parts of our transitive matrix
         ## ready. Build and return a fully-blessed object:
@@ -2176,19 +2185,11 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         }
     },
 
-    as.ijx = function(obj=NULL, file=NULL, sep="\t", help=FALSE, ... ) {
-        "Convert the active matrix into ijx row-col-value text representation"
+    as.ijx = function( file=NULL, sep="\t", obj=NULL, help=FALSE ) {
+        "Serialize matrix as IJX row/col/val three-column format"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        if (is.null(obj)) obj <- matObj(...)
-        ## Only keep rows (sets) with at least one object:
-        hasData  <- populatedRows(obj)
-        obj      <- obj[hasData, , drop=FALSE]
-        ## Convert to matrix (AFAICT easiest way to dump quickly to text)
-        m        <- matrix(c(rownames(obj)[ obj@i + 1 ],
-                             colnames(obj)[ obj@j + 1 ],
-                             obj@x), ncol=3, byrow=FALSE,
-                           dimnames=list(NULL, c("i","j","x")))
+                                              names(.refClassDef@contains)) )
+        m <- as.matrix(melt(obj=obj))
         if (is.null(sep)) {
             ## Just return the matrix
             m
@@ -2200,18 +2201,9 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
             } else {
                 ## Write to file and return, but invisibly
                 cat(rv, file=file)
-                invisble(rv)
+                invisible(rv)
             }
         }
-    },
-
-    as.sidecar = function(obj=NULL, file=NULL, sep="\t", help=FALSE, ... ) {
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        message("This feature still needs to be implemented",
-                prefix="[ToDo]", color='red')
-
-        "## Sidecar metadata output not yet codified"
     },
 
     melt = function( obj=NULL, file=NULL, named.dims=TRUE, help=FALSE, ... ) {
@@ -2250,6 +2242,15 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
                                row.names=FALSE)
             invisible(rv)
         }
+    },
+
+    as.sidecar = function(obj=NULL, file=NULL, sep="\t", help=FALSE, ... ) {
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        message("This feature still needs to be implemented",
+                prefix="[ToDo]", color='red')
+
+        "## Sidecar metadata output not yet codified"
     },
 
     .buildMatrix = function (metadata=NULL, levels=NULL, cols=NULL,
@@ -2342,6 +2343,8 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
         matrixRaw  <<- rv$matrix
         matrixMD   <<- rv$metadata
+        mdParam    <- attr(rv$metadata, "params")
+        if (!is.null(mdParam)) setParamList(mdParam, is.scalar=FALSE)
         if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
         if (!is.null(rv$colChanges)) colChanges <<- rv$colChanges
         if (!is.null(rv$colDefs))    colDefs    <<- rv$colDefs
@@ -2674,7 +2677,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
         ## Organization of primary methods:
         sections <- list(
-            "Primary Operation" = c("map", "matObj", "as.gmt", "melt"),
+            "Primary Operation" = c("map", "product", "matObj", "as.gmt", "as.ijx", "as.mtx", "as.sidecar", "melt"),
             "Filtering the Matrix" = c("filterByScore", "filterByCount", "filterByFactorLevel", "filterById", "filterByMetadata", "rNames", "cNames", "removeEmptyRows", "removeEmptyCols", "removeEmpty", "reset", "autoFilter", "filterSummary", "appliedFilters"),
             "Matrix Information" = c("rCounts", "cCounts","populatedRows", "populatedCols", "nnZero", "is.factor", "levels"),
             "Metadata" = c("metadata", "metadata_keys"),

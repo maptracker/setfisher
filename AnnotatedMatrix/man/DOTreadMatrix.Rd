@@ -21,7 +21,9 @@ A list containing the \link{Matrix} object, metadata as a
 Internal AnnotatedMatrix object method to parse file contents
 }
 \details{
-Internal method, should not be called directly
+Internal method, should not be called directly. It is called
+automatically when a new object is created with
+\code{AnnotatedMatrix(pathToSomeFile)}.
 
 This method will take the \link{file} field as a file path and
 attempt to parse it as a matrix. Once parsed, the method will
@@ -33,5 +35,6 @@ parse it instead.
 The individual format parsing functions:
     \link{parse_MatrixMarket_file}, link{filesToMTX},
     link{parse_ListOfLists_file}, link{parse_Text_file},
-    link{parse_GMT_file}
+    link{parse_GMT_file}. Also \link{.buildMatrix}, used to
+    generate objects from data structures (rather than files)
 }

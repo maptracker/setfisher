@@ -125,7 +125,9 @@ sub death {
 sub _ftp {
     ## http://perlmeme.org/faqs/www/ftp_file_list.html
     my $site = shift || $args->{ftp};
-    my $ftp = Net::FTP->new($site) ||
+    ## Passive flag required for some servers if you're connecting
+    ## from an internal network (eg 192.168.1)
+    my $ftp = Net::FTP->new($site, Passive => 1) ||
         &death("Failed to connect to FTP", $site, $!);
     my $pass = $site =~ /ncbi/ ? $args->{email} : "";
     $ftp->login("anonymous", $pass) ||
@@ -411,6 +413,9 @@ sub _dim_block {
     $rv .= &_default_parameter( "RowUrl", $tags->{RowUrl});
     $rv .= &_default_parameter( "ColDim", $cnm, "Columns are ${cnm}s" );
     $rv .= &_default_parameter( "ColUrl", $tags->{ColUrl});
+    $rv .= &_default_parameter( "CellDim", $tags->{CellDim},
+                                "Cells are themselves distinct objects!" );
+    $rv .= &_default_parameter( "CellUrl", $tags->{CellUrl});
     $rv .= &_default_parameter( "Source", $tags->{Source},
                                 "Data source(s):", " // ");
     $rv .= &_default_parameter( "Authority", $tags->{Authority});
@@ -763,9 +768,9 @@ sub file_name {
         sfx    => 'mtx',
         @_ );
     my $file = $param->{TYPE}.'@';
-    if (my $mod = $param->{MOD}) { $file .= "$mod-"; }
-    $file .= $param->{NS1};
-    if (my $ns2 = $param->{NS2}) { $file .= "_to_$ns2"; }
+    if (my $mod = $param->{MOD}) { $file .= &_safe_file_fragment($mod)."-"; }
+    $file .= &_safe_file_fragment($param->{NS1});
+    if (my $ns2 = $param->{NS2}) { $file .= "_to_".&_safe_file_fragment($ns2); }
     
     $file .= sprintf("@%s@%s.%s", $param->{AUTH}, $param->{VERS}, $param->{SFX});
 
@@ -804,7 +809,9 @@ sub primary_folder {
     unless ($tasks{"PrimaryFolder-$dir"}++) {
         ## Make sure folder exists, add README
         &mkpath([$dir]);
-        &copy_template_file($tFile, "$aDir/README.md");
+        &copy_template_file($tFile, "$dir/README.md", {
+            AUTHORITY => $auth,
+                            });
     }
     return $dir;
 }
@@ -819,7 +826,8 @@ sub symlinked_paths {
     ## Name of symlink is just the file:
     my $lnk   = &file_name(@_);
     ## Target is up three levels, then into byAuthority:
-    my $targ  = sprintf("../../../byAuthority/%s/%s/%s", $auth, $vers, $lnk);
+    my $dir   = $param->{DIR} || sprintf('%s/%s', $auth, $vers);
+    my $targ  = sprintf("../../../byAuthority/%s/%s", $dir, $lnk);
     my $nsDir = sprintf('%s/byNamespace', $outDir );
     unless ($tasks{Symlinks}++) {
         # Set up the namespace folder
@@ -831,49 +839,20 @@ sub symlinked_paths {
     foreach my $np ([$ns1, $ns2], [$ns2, $ns1]) {
         my ($nsa, $nsb) = @{$np};
         next unless ($nsa);
-        my $nd = "$nsDir/$nsa";
+        my $nd = "$nsDir/". &_safe_file_fragment($nsa);
         unless ($tasks{"NS-$nsa"}++) {
             &mkpath([$nd]);
-            my $rdm = "$nd/README.md";
-            unless (-s $rdm) {
-                if (open(RDM, ">$rdm")) {
-                    print RDM "# Namespace $nsa
-
-This folder holds matrix files that have the `$nsa` namespace assigned
-to _either_ their row _or_ column dimensions. The files themselves
-will be in one of the subfolders, which describe the other namespace.
-
-";
-                    close RDM;
-                } else {
-                    &err("Failed to create namespace readme", $rdm, $!);
-                }
-            }
+            &copy_template_file("byNamespaceLvl1Readme.md", 
+                                "$nd/README.md", $param);
         }
 
         ## Make the second namespace layer
         next unless ($nsb);
-        $nd = "$nd/$nsb";
+        $nd = "$nd/". &_safe_file_fragment($nsb);
         unless ($tasks{"NS-$nsa-$nsb"}++) {
             &mkpath([$nd]);
-            my $rdm = "$nd/README.md";
-            unless (-s $rdm) {
-                if (open(RDM, ">$rdm")) {
-                    print RDM "# Namespace Pair $nsa + $nsb
-
-This folder holds matrix files with both the `$nsa` and `$nsb`
-namespaces, irrespective of whether one is in rows or columns. The
-files are actually symbolic links back to the [byAuthority][BA]
-directory.
-
-\[BA\]: ../../../byAuthority
-
-";
-                    close RDM;
-                } else {
-                    &err("Failed to create namespace readme", $rdm, $!);
-                }
-            }
+            &copy_template_file("byNamespaceLvl2Readme.md", 
+                                "$nd/README.md", $param);
         }
 
         ## Make link
@@ -886,10 +865,26 @@ directory.
     ### TODO : Find older files, move them to an "archive" folder
 }
 
+sub _safe_file_fragment {
+    ## Replaces characters that might cause issues in filenames,
+    ## either because they are awkward or illegal, or because they
+    ## interfer with token separation.
+    my $txt = shift;
+    ## Apostrophes end up looking weird if replaced with an
+    ## underscore, eg "Coquerel_s_sifaka" (the "Coquerel's sifaka"
+    ## lemur)
+    $txt =~ s/\'//g;
+    ## For everything else, just allow letters and numbers, turn all
+    ## others into underscores.
+    $txt =~ s/[^a-z0-9]+/_/gi;
+    return $txt;
+}
+
 sub copy_template_file {
-    my ($template, $dest, $header) = @_;
+    my ($template, $dest, $tags) = @_;
+    $tags ||= {};
     my $tf = "$codeDir/$template";
-    
+
     unless (-s $tf) {
         &err( "Can not copy template '$template' - file not found", $tf);
         return undef;
@@ -903,12 +898,17 @@ sub copy_template_file {
             my $ok = 0;
             while (<IN>) {
                 ## Horizontal rule marks start of actual template
-                if (/^---/ && !$ok) {
-                    $ok = 1;
-                    print OUT "$header\n\n" if ($header);
-                    next;
+                if (!$ok) {
+                    $ok = 1 if (/^---/);
+                } else {
+                    my $line = $_;
+                    while ($line =~ /(<(\S+)>)/) {
+                        my ($rep, $tag) = ($1, $2);
+                        my $ins = $tags->{$tag} || '-UNKNOWN-';
+                        $line =~ s/\Q$rep\E/$ins/g;
+                    }
+                    print OUT $line;
                 }
-                print OUT $_ if ($ok);
             }
             close OUT;
         } else {
@@ -1020,6 +1020,7 @@ Preparing to stash your files...
             @vals = sort keys %u;
         }
         foreach my $val (@vals) {
+            next if (!defined $val || $val eq '');
             $val =~ s/[:,]+/_/g;
             push @meta, "$k:$val";
         }

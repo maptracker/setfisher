@@ -70,6 +70,7 @@ s2e$filterSummary()
 # We set filterEmpty to TRUE in order to more easily inspect the
 # matrix iteslf:
 s2e$matrixUse
+
 }
 \seealso{
 \link{filterLog}, \link{filterSummary},

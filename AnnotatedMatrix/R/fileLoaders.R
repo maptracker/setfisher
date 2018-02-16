@@ -1,21 +1,3 @@
-#' Parse MatrixMarket File
-#'
-#' Parses a MatrixMarket file so it can be read by AnnotatedMatrix
-#'
-#' @details
-#'
-#' Reads the "normal" matrix data from a MatrixMarket file (the
-#' [i,j,x] triples), as well as parses '%' comments to extract
-#' metadata usable by AnnotatedMatrix.
-#'
-#' @param file Required - the path to the .mtx file. Files can be
-#'     gzipped, provided they have a .gz suffix.
-#'
-#' @importFrom CatMisc parenRegExp .flexFilehandle
-#' @importFrom ParamSetI selfSplittingString
-#' @importFrom Matrix readMM
-#' 
-
 ## Metadata can be held either in the comments of the MatrixMarket
 ## file, or as a separate file with a related name. Using a separate
 ## file is faster (roughly two fold)
@@ -42,6 +24,24 @@
 ##    1.569 s | Serializing matrix to file HG-U219LL-GO.mtx.rds
 ##    1.233 s | Reading serialized matrix HG-U219LL-GO.mtx.rds
 
+#' Parse MatrixMarket File
+#'
+#' Parses a MatrixMarket file so it can be read by AnnotatedMatrix
+#'
+#' @details
+#'
+#' Reads the "normal" matrix data from a MatrixMarket file (the
+#' [i,j,x] triples), as well as parses '%' comments to extract
+#' metadata usable by AnnotatedMatrix.
+#'
+#' @param file Required - the path to the .mtx file. Files can be
+#'     gzipped, provided they have a .gz suffix.
+#'
+#' @importFrom CatMisc parenRegExp .flexFilehandle
+#' @importFrom ParamSetI selfSplittingString
+#' @importFrom Matrix readMM
+#' @importFrom data.table as.data.table
+
 parse_MatrixMarket_file <- function( file ) {
     rv  <- list( colDefs=list() )
     ## Begin by simply reading the matrix data
@@ -50,7 +50,7 @@ parse_MatrixMarket_file <- function( file ) {
         message("[!]", "MatrixMarket file '", file,"' was not found");
         return(NULL)
     }
-    mat <- readMM(fhDat$fh)
+    mat <- Matrix::readMM(fhDat$fh)
     close(fhDat$fh)
     
     ## Now begin parsing comments. Check to see if the file includes
@@ -226,9 +226,8 @@ parse_MatrixMarket_file <- function( file ) {
     ## but be additionally suffixed with
     ## "-metadata<any-other-characters>"
 
-    metadata      <- parseMetadataSidecar( file, metadata )
     rv$matrix     <- mat
-    rv$metadata   <- metadata
+    rv$metadata   <- parseMetadataSidecar( file, metadata )
     rv$colChanges <- dimChngs$Col
     rv$rowChanges <- dimChngs$Row
     rv
@@ -335,15 +334,7 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
         jvals[ inds ] <- match(mems, memNames) # Set j coordinate
         done <- done + mlen
     }
-    ## !!! Matrix wants zero-indexed columns!
-    mat  <- new("dgTMatrix",
-                i   = ivals[1:xcnt] - 1L,
-                j   = jvals[1:xcnt] - 1L,
-                x   = rep(val, xcnt),
-                Dim = c(icnt,jcnt))
-    rownames(mat) <- rnDat$names
-    colnames(mat) <- cnDat$names
-
+    
     metadata <- NULL
     if (!is.null(meta) && length(meta) > 0) {
         ## Get all the unique IDs for which there is metadata
@@ -356,6 +347,20 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
     }
     ## Also load any sidecars:
     if (!is.null(file)) metadata <- parseMetadataSidecar( file, metadata )
+    
+    ## Manage dimension names - need to set on the dgTMatrix object:
+    dn   <- .sidecarMatrixDimensions(metadata)
+    dims <- list()
+    dims[[ dn[1] ]] <- rnDat$names
+    dims[[ dn[2] ]] <- cnDat$names
+
+    mat <-  methods::as(Matrix::sparseMatrix(
+        i=ivals[1:xcnt],
+        j=jvals[1:xcnt],
+        x=rep(val, xcnt),
+        index1=TRUE,
+        dimnames=dims), "dgTMatrix")
+
 
     list(matrix = mat, metadata=metadata,
          colChanges = cnDat$changes, rowChanges = cnDat$changes )
@@ -384,7 +389,9 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
 #'              filter=function(x) x[ grepl("^ENSG\\d+$", x) ],
 #'              output="myEnsemblLists.mtx")
 #' }
-#' 
+#'
+#' @importFrom stats filter
+#' @importFrom utils read.table
 #' @export
 
 filesToMTX <- function(files, output="SparseMatrix.mtx",
@@ -401,7 +408,11 @@ filesToMTX <- function(files, output="SparseMatrix.mtx",
         cn <- c(cn, n)
         l  <- utils::read.table(file, stringsAsFactors=F)
         dl <- length(data)
-        data[[ dl+1 ]] <- if (is.null(filter)) { l[[1]] } else {filter(l[[1]])}
+        data[[ dl+1 ]] <- if (is.null(filter)) {
+            l[[1]]
+        } else {
+            stats::filter(l[[1]])
+        }
     }
     allEntries <- unlist(data)
     allIds     <- unique(allEntries)
@@ -454,8 +465,7 @@ filesToMTX <- function(files, output="SparseMatrix.mtx",
 #'
 #' @examples
 #' 
-#' ## .makeTempFile() is an internal helper function; Don't use normally!
-#' lolFile <- AnnotatedMatrix:::.makeTempFile("ListOfLists.inp")
+#' lolFile <- annotatedMatrixExampleFile("ListOfLists.inp")
 #'
 #' sidecarFiles( lolFile )
 #'
@@ -466,7 +476,7 @@ sidecarFiles <- function( file ) {
     ## Remove trailing slashes (eg on directories):
     baseFile  <- gsub("/+$", "", basename(file))
     metafiles <- list.files(fileDir, ignore.case=TRUE,
-                            pattern = sprintf("^%s-metadata", baseFile))
+        pattern = sprintf("^%s-(metadata|parameters)", baseFile))
     ## Exclude junk (currently text editor stuff)
     metafiles <- metafiles[ ! .isTempFile(metafiles) ]
     ## Make paths absolute to fileDir:
@@ -498,7 +508,12 @@ sidecarFiles <- function( file ) {
 #'
 #' The metadata files should be TSV tabular and include a header
 #' row. The function will look for an 'id' column - if not found, it
-#' will rename the first column 'id' and use it
+#' will rename the first column 'id' and use it.
+#'
+#' Also supported are files of format
+#' \code{<BASENAME>-parameters<SOMETHING>}, which will be parsed into
+#' a list structure and added as an attribute. These will then be used
+#' to set \code{$param()} values.
 #'
 #' @param file Required, the path to the primary data file (NOT to the
 #'     metadata file)
@@ -511,9 +526,6 @@ sidecarFiles <- function( file ) {
 #' @param verbose Default TRUE, which will report each found file to
 #'     the terminal.
 #' 
-#' @importFrom crayon white
-#' @importFrom data.table data.table fread setkeyv setnames
-#'
 #' @examples
 #'
 #' ## .makeTempFile() is an internal helper function; Don't use normally!
@@ -522,7 +534,10 @@ sidecarFiles <- function( file ) {
 #' ## There are two sidecars associated with this file
 #' parseMetadataSidecar( lolFile )
 #' 
-#' 
+#' @importFrom crayon white
+#' @importFrom data.table data.table fread setkeyv setnames
+#' @importFrom CatMisc parenRegExp .flexFilehandle
+#'
 #' @export
 
 parseMetadataSidecar <- function (file, metadata=NULL,
@@ -530,8 +545,26 @@ parseMetadataSidecar <- function (file, metadata=NULL,
     sidecars  <- sidecarFiles( file )
     if (is.null(metadata)) metadata <-
           data.table::data.table( id = character(), key = "id" )
+    params <- list()
     for (path in sidecars) {
         if (verbose) message("Reading metadata file - ", crayon::white(path))
+        type <- gsub(paste0('^\\Q', file, '\\E-'), '', path, perl=TRUE)
+        if (grepl('^parameters', type)) {
+            ## This is a parameter file
+            ## Expect key/value pairs separated by '=', eg:
+            ## Name    = My Matrix
+            ## Description = The best matrix
+            ## RowDim = Widget
+            ## ColDim = Nugget
+            fhDat   <- CatMisc::.flexFilehandle(path)
+            while (length(line <- readLines(fhDat$fh, n=1, warn=FALSE)) > 0) {
+                kv <- CatMisc::parenRegExp(
+                    "^\\s*([^=]+?)\\s*=\\s*(.+?)\\s*$", line)
+                if (!is.na(kv[1])) params[[kv[1]]] <- c(params[[kv[1]]], kv[2])
+            }
+            close(fhDat$fh)
+            next
+        }
         scDT <- data.table::fread(path, na.strings=na.strings)
         ## Find the "id" column, or the first one
         scNm    <- names(scDT)
@@ -548,7 +581,36 @@ parseMetadataSidecar <- function (file, metadata=NULL,
         metadata <- extendDataTable(metadata, scDT)
         data.table::setkeyv(metadata, "id")
     }
+    attr(metadata, "params") <- params
     metadata
+}
+
+#' Parse sidecar dimensions
+#' 
+#' Parse row and column dimensions from sidecar information
+#'
+#' @details
+#'
+#' When parsing metadata from sidecar files, parameters are smuggled
+#' into an attribute of the 'main' metadata data.table. When
+#' constructing an AnnotatedMatrix object, the 'RowDim' and 'ColDim'
+#' parameters may be needed before the final processing in the object
+#' method \code{$.readMatrix}. This function checks for those two
+#' parameters and extracts them if present
+#'
+#' @importFrom CatMisc is.something
+#' @keywords internal
+
+.sidecarMatrixDimensions <- function(metadata,
+                                     defRowDim="RowItem", defColDim="ColItem") {
+    rv <- c(defRowDim, defColDim)
+    if (!CatMisc::is.something(metadata)) return(rv)
+    params <- attr(metadata, "params")
+    if (!CatMisc::is.something(params)) return(rv)
+    ## We have some parameters. Pick out the Row/Col dimensions, if found:
+    if (CatMisc::is.something(params$RowDim)) rv[1] <- params$RowDim[1]
+    if (CatMisc::is.something(params$ColDim)) rv[2] <- params$ColDim[1]
+    rv
 }
 
 
@@ -729,6 +791,47 @@ parse_Text_file <- function (files, header=FALSE, rm.suffix=TRUE,
     matrixFromLists(data, file=file)
 }
 
+#' Parse IJX File
+#'
+#' Parses one or more lists from a three column "ijx" (row col val) file
+#'
+#' @details
+#'
+#' This format can be described as one row per cell. Each row
+#' represents the row identifier (first column, i) the column
+#' identifier (second column, j) and the value assigned to that
+#' row/col cell (third column, x).
+#'
+#' Generally you would not call this function directly.
+#'
+#' @param file Required, the path to the IJX file
+#' @param sep Default \code{"\t"}, the field separtor in the input
+#'     file.
+#'
+#' @return A list structure usable by AnnotatedMatrix
+#'
+
+parse_IJX_file <- function (file, sep="\t") {
+    tab  <- read.table(file, sep=sep, stringsAsFactors=FALSE)
+
+    rn   <- unique(tab[[1]])
+    cn   <- unique(tab[[2]])
+    MD   <- parseMetadataSidecar( file )
+    ## Manage dimension names - need to set on the dgTMatrix object:
+    dn   <- .sidecarMatrixDimensions(MD)
+    dims <- list()
+    dims[[ dn[1] ]] <- rn
+    dims[[ dn[2] ]] <- cn
+    mat <-  methods::as(Matrix::sparseMatrix(
+            i=match(tab[[1]], rn),
+            j=match(tab[[2]], cn),
+            x=tab[[3]],
+            index1=TRUE,
+            dimnames=dims), "dgTMatrix")
+
+    list(matrix=mat, metadata=MD )
+}
+
 #' Parse GMT File
 #'
 #' Parses one or more lists from a Gene Matrix Transposed file
@@ -745,7 +848,7 @@ parse_Text_file <- function (files, header=FALSE, rm.suffix=TRUE,
 #' @return A list structure usable by AnnotatedMatrix
 #'
 #' @importFrom CatMisc .flexFilehandle
-#' 
+#' @importFrom stats setNames
 
 parse_GMT_file <- function (file) {
     fhDat <- CatMisc::.flexFilehandle(file)
@@ -762,7 +865,7 @@ parse_GMT_file <- function (file) {
     }
     close(fhDat$fh)
     matrixFromLists(data, listNames=names, file=file,
-                    meta=list(Description=setNames(descr,names)) )
+                    meta=list(Description=stats::setNames(descr,names)) )
 }
 
 #' RDS is Current

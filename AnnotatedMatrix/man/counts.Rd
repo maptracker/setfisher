@@ -12,7 +12,7 @@
 \item{help}{Default FALSE. If TRUE, show this help and perform no
 other actions.}
 
-\item{...}{Passed to \link{matObj} (for example, \code{raw})}
+\item{\dots}{Passed to \link{matObj} (for example, \code{raw})}
 }
 \value{
 A named vector of integers, which will be as long as the

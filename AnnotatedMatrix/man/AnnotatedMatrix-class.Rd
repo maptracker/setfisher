@@ -64,10 +64,11 @@ filters that have been applied}
 
 \item{\code{rowChanges}}{Named character vector of any row names that
 needed changing. Values are the original name, names are the
-names after processing with make.names() (if valid = TRUE) or
-make.unique() if (valid = FALSE)}
+names after processing with make.unique()}
 
 \item{\code{colChanges}}{As per rowChanges, but for column names}
+
+\item{\code{colDefs}}{list of definitions for metadata columns}
 }}
 
 \section{Methods}{
@@ -76,6 +77,10 @@ make.unique() if (valid = FALSE)}
 \item{\code{appliedFilters(new = NULL, help = FALSE)}}{Get applied filters as a vector of readable/parsable strings}
 
 \item{\code{as.gmt(obj = NULL, transpose = FALSE, file = NULL, help = FALSE, ...)}}{Convert the active matrix into GMT text representation}
+
+\item{\code{as.ijx(file = NULL, sep = "\\t", obj = NULL, help = FALSE)}}{Serialize matrix as IJX row/col/val three-column format}
+
+\item{\code{as.mtx(obj = NULL, file = NULL, help = FALSE, ...)}}{Convert the active matrix into Matrix Market text representation}
 
 \item{\code{autoFilter(recursive = TRUE, verbose = TRUE, help = FALSE)}}{Automatically apply filters defined in the parameters}
 
@@ -101,7 +106,7 @@ make.unique() if (valid = FALSE)}
 
 \item{\code{filterSummary(reason = TRUE, help = FALSE)}}{Human-readable overview of filters and counts of rows/cols removed}
 
-\item{\code{help(color = NULL)}}{Display high-level help about all object methods}
+\item{\code{help(color = NULL, help = FALSE)}}{Display high-level help about all object methods}
 
 \item{\code{initialize(params = NA, paramDefinitions = NA, help = FALSE, ...)}}{Create a new ParamSetI object; Invoked with ParamSetI(...)}
 
@@ -119,6 +124,11 @@ make.unique() if (valid = FALSE)}
 
 \item{\code{matObj(raw = FALSE, transpose = FALSE, help = FALSE)}}{Return the current filtered state of the dgTMatrix sparse matrix}
 
+\item{\code{matrixText(pad = "", useObj = NULL, fallbackVar = NULL, compact = FALSE,
+  color = NULL, help = FALSE)}}{Generate a compact text summary of the object, used by show()}
+
+\item{\code{melt(obj = NULL, file = NULL, named.dims = TRUE, help = FALSE, ...)}}{Represent matrix as data.frame with three rows: Row, Col, Val}
+
 \item{\code{metadata(id = NULL, key = NULL, na.rm = TRUE, drop = TRUE,
   verbose = TRUE, help = FALSE)}}{Recover metadata for specific IDs and/or columns}
 
@@ -129,6 +139,9 @@ make.unique() if (valid = FALSE)}
 \item{\code{populatedCols(obj = NULL, help = FALSE, ...)}}{Determine which columns have at least one non-zero assignment}
 
 \item{\code{populatedRows(obj = NULL, help = FALSE, ...)}}{Determine which rows have at least one non-zero assignment}
+
+\item{\code{product(mat2, dim1 = NULL, dim2 = NULL, valfunc = NULL, levels = NULL,
+  ignore.zero = TRUE, ignore.case = TRUE, help = FALSE)}}{Take a product of this matrix AxB with another BxC to yield AxC}
 
 \item{\code{rCounts(obj = NULL, help = FALSE, ...)}}{Return the counts of non-zero columns for each row}
 

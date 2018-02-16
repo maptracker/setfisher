@@ -43,6 +43,7 @@ and/or keys
 s2e  <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 s2e$metadata(c("LOC9588","LOC7038","LOC3921"))
 s2e$metadata(key="Symbol")
+
 }
 \seealso{
 \link{metadata_keys}, \link{matrixMD}

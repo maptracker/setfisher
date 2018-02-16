@@ -4,14 +4,14 @@ This is a template file that is copied into the `byAuthority`
 directories. This text (above the horizontal rule) will not be copied.
 
 ----
-# AnnotatedMatrix Files - Primary folder
+# AnnotatedMatrix Files - Primary folder for <AUTHORITY>
 
 This folder holds [MatrixMarket][MTX] files that can be read and
 manipulated by the [AnnotatedMatrix][AM] R package. It is organized by
 the data authority - the primary source of the data used to generate
-the files. Each folder on this level is an authority, and each
-subfolder is a release version. Within each subfolder will be one or
-more MatrixMarket files. For example:
+the files, in this case <AUTHORITY>. Each folder on this level is an
+authority, and each subfolder is a release version. Within each
+subfolder will be one or more MatrixMarket files. For example:
 
 ```
 byAuthority/
@@ -32,11 +32,11 @@ byAuthority/
 ```
 
 These files are the 'primary' data files. The `byAuthority` folder
-will have sibling folders that organize the files in different
-directory hierarchies. Those hierarchies will not contain files, but
-rather symlinks pointing back to the 'primary' files in this
-folder. These symlink hierarchies are provided to aid human browsing
-of the matrix files.
+will have 'sibling' folders that organize the files in different
+directory hierarchies, for example `byNamespace`. Those hierarchies
+will not contain files, but rather symlinks pointing back to the
+'primary' files in this folder. These symlink hierarchies are provided
+to aid human browsing of the matrix files.
 
 In addition to the `.mtx` flat files, the directory may also contain
 `.mtx.rds` files. These are serialized R data structures created after

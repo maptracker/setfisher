@@ -23,8 +23,7 @@ internal to the main file
 }
 \examples{
 
-## .makeTempFile() is an internal helper function; Don't use normally!
-lolFile <- AnnotatedMatrix:::.makeTempFile("ListOfLists.inp")
+lolFile <- annotatedMatrixExampleFile("ListOfLists.inp")
 
 sidecarFiles( lolFile )
 
