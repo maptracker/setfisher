@@ -120,10 +120,8 @@ findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
         ## Filter for one or two namespaces
         if (!is.null(ns1) && !is.null(ns2)) {
             ## Testing for two namespaces. ORDER NOT IMPORTANT
-            if (!regexp) {
-                ns1 <- sprintf("^%s$", ns1)
-                ns2 <- sprintf("^%s$", ns2)
-            }
+            ns1 <- .filePattern(ns1, regexp)
+            ns2 <- .filePattern(ns2, regexp)
             df <- df[ (grepl(ns1, df$NS1, ignore.case=ignore.case) &
                        grepl(ns2, df$NS2, ignore.case=ignore.case)) |
                       (grepl(ns1, df$NS2, ignore.case=ignore.case) &
@@ -134,7 +132,7 @@ findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
             ## Testing for just one namespace. Can match to either
             ## rows or columns.
             ns <- ifelse(is.null(ns1), ns2, ns1)
-            if (!regexp) ns <- sprintf("^%s$", ns)
+            ns <- .filePattern(ns, regexp)
             df <- df[ grepl(ns, df$NS1, ignore.case=ignore.case) |
                       grepl(ns, df$NS2, ignore.case=ignore.case) , ]
 
@@ -145,25 +143,25 @@ findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
     if (!is.null(mod)) {
         ## Modifier filtermod
         usedFilt$Modifier <- mod
-        if (!regexp) mod <- sprintf("^%s$", mod)
+        mod <- .filePattern(mod, regexp)
         df <- df[ grepl(mod, df$Modifier, ignore.case=ignore.case), ]
     }
     if (!is.null(type)) {
         ## Type filter
         usedFilt$Type <- type
-        if (!regexp) type <- sprintf("^%s$", type)
+        type <- .filePattern(type, regexp)
         df <- df[ grepl(type, df$Type, ignore.case=ignore.case), ]
     }
     if (!is.null(auth)) {
         ## Authority filter
         usedFilt$Authority <- auth
-        if (!regexp) auth <- sprintf("^%s$", auth)
+        auth <- .filePattern(auth, regexp)
         df <- df[ grepl(auth, df$Authority, ignore.case=ignore.case), ]
     }
     if (!is.null(vers)) {
         ## Version filter
         usedFilt$Version <- vers
-        if (!regexp) vers <- sprintf("^%s$", vers)
+        vers <- .filePattern(vers, regexp)
         df <- df[ grepl(vers, df$Version, ignore.case=ignore.case), ]        
     }
 
@@ -202,6 +200,27 @@ findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
     attr(df, "Directory") <- dir      # Hang the original directory from the df
     attr(df, "CacheTime") <- viaCache # Note if the data were via a cache
     df
+}
+
+#' File Pattern
+#'
+#' Build a query string for findMatrices that includes some wildcards
+#'
+#' @param qry Required, the query string
+#' @param regexp Defaul \code{FALSE}, which will force a match on the
+#'     whole string. A value of TRUE will allow substring matches
+#' 
+#' 
+#' @keywords internal
+
+.filePattern <- function (qry, regexp=FALSE) {
+    ## Treat underscores and spaces the same:
+    qry <- gsub('[_ ]+', '[_ ]+', qry)
+    ## Concatenate multiple values into '(foo|bar|bim|...)' format:
+    if (length(qry) > 1) qry <- sprintf('(%s)', paste0(qry, collapse='|'))
+    ## Match only whole target if requested:
+    if (!regexp) qry <- sprintf("^%s$", qry)
+    qry
 }
 
 #' Take Lowest Thing
