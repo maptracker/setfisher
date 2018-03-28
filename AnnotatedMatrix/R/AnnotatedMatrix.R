@@ -2539,7 +2539,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
             
             desc <- param("description")
             if (CatMisc::is.something(desc))
-                msg <- paste(msg, sprintf("    Desc: %s\n",doCol(desc,"white")),
+                msg <- paste(c(msg, sprintf("    Desc: %s\n",doCol(desc,"white"))),
                              collapse='', sep='')
             
             sd <- param("scoredesc")
