@@ -1377,6 +1377,14 @@ sub map_refseq_objects {
     my @colIds = map { $_->{name} } sort 
     { $a->{order} <=> $b->{order} } values %cmeta;
 
+    ## Tally up factor counts and total non-zero counts
+    my %counts;
+    foreach my $dat (values %rmeta) {
+        my @u   = values %{$dat->{hits}};
+        $nznum += $#u + 1;
+        map { $counts{ $lvls->[$_-1]}++ } @u;
+    }
+
     my $tmp = "$trg.tmp";
     open(MTX, ">$tmp") || &death("Failed to write $ns[1] map", $tmp, $!);
     print MTX &_initial_mtx_block
@@ -1399,13 +1407,6 @@ sub map_refseq_objects {
         TossLevel => "[,][Unknown,SUPPRESSED,NA,WGS] ## Uncertain, deprecated or Whole Genome Sequencing entries",
                              });
 
-    ## Tally up factor counts and total non-zero counts
-    my %counts;
-    foreach my $dat (values %rmeta) {
-        my @u   = values %{$dat->{hits}};
-        $nznum += $#u + 1;
-        map { $counts{ $lvls->[$_-1]}++ } @u;
-    }
 
     print MTX &_factor_map_block
         ( $lvls, $scH, "Review Status",
