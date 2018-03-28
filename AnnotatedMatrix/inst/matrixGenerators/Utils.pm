@@ -927,7 +927,7 @@ sub parse_filename {
         $file = $1;
         $rv{rds} = 1;
     }
-    if ($file =~ /(.+)\.(\S{2-4})$/) {
+    if ($file =~ /(.+)\.(\S{2,4})$/) {
         $file = $1;
         $rv{sfx} = lc($2);
     }
