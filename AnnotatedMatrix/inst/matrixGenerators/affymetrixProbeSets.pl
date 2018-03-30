@@ -449,7 +449,7 @@ sub parse_ivt {
                         my $desc = $taDat->[1] || "";
                         $desc =~ s/\s*\.\s*$//; # don't need '.' at end
                         my $sym = "";
-                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA)/) {
+                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|guide RNA|ribosomal RNA)/) {
                             ## This seems like a standard way symbols
                             ## are encoded in the description, eg
                             ## YY1 transcription factor (YY1), mRNA.
