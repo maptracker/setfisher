@@ -488,7 +488,14 @@ sub parse_ivt {
                         ## followed by a comma and space. So we will
                         ## look for specific locus flags after the
                         ## comma to identify the symbol notation:
-                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|small nuclear RNA|guide RNA|ribosomal RNA|RNase P RNA|partial misc_RNA|telomerase RNA|nuclear gene|rRNA|preRNA)/) {
+                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|small nuclear RNA|guide RNA|ribosomal RNA|RNase P RNA|partial misc_RNA|telomerase RNA|nuclear gene|rRNA|preRNA|miscRNA|partial miscRNA)/) {
+                            $sym = $1;
+                        } elsif ($desc =~ / \(([^\)]+)\) (mRNA, complete cds)/ ||
+                                 $desc =~ / (\S+), isoform [a-z]+$/) {
+                            ## The worm folks do it differently - no
+                            ## comma after parenthetical symbol, or
+                            ## the symbol is not in parentheses when
+                            ## an isoform is described.
                             $sym = $1;
                         }
                         ## Examples of problem notation:
@@ -515,9 +522,13 @@ sub parse_ivt {
             } elsif ($taDat->[2] eq 'ensembl') {
                 ## Ensembl transcript
                 my $rid = $taDat->[0];
-                if ($rid =~ /^(ENS[A-Z]{0,3}T\d+|FBtr\d+)$/) {
+                if ($rid =~ /^(ENS[A-Z]{0,3}T\d+|FBtr\d+)$/ ||
+                    $array =~ /^(Celegans|Yeast_2|YG_S98)$/) {
                     ## Looks like an ok Ensembl RNA ID. Note that
                     ## Drosophila uses atypical 'FBtr' accessions.
+
+                    ## The worm and yeast "accessions" are all over
+                    ## the map, just take them as they are.
                     my $sc   = &_probe_score($taDat->[3], $prbCnt);
                     if ($mtxInfo{EnsemblRNA}) {
                         ## We are building Ensembl RNA matrix
@@ -540,8 +551,12 @@ sub parse_ivt {
                         ## description was not useful for annotating
                         ## the transcripts, but it does seem to
                         ## contain gene accessions. See if we can find one
-                        if ($taDat->[1] =~ /gene:(ENS[A-Z]{0,3}G\d+|FBgn\d+)/) {
-                            ## Note again atypical fly accessions (FBgn)
+                        if ($taDat->[1] =~ /gene:(ENS[A-Z]{0,3}G\d+|FBgn\d+|WBGene\d+)/ ||
+                            $array =~ /^(Yeast_2|YG_S98)$/ && $taDat->[1] =~ /gene:(\S+)/) {
+                            ## Note again atypical fly accessions
+                            ## (FBgn). Worm gene accessions are more
+                            ## structured as WBGene. Yeast are not
+                            ## really standardized at all.
                             my $gid = $1;
                             my $rm = $mtxInfo{EnsemblGene}{rmeta}{$gid} ||= {
                                 ## Build the row metadata hash
