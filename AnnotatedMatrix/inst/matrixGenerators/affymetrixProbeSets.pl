@@ -88,7 +88,6 @@ if ($aReq =~ /(\S+?)(\.cn)?.na(\d+)/) {
 
 $arrayToken ||= $array;
 
-$nsUrl->{AffyProbeSet} = "https://www.affymetrix.com/analysis/netaffx/mappingfullrecord.affx?pk=${array}:%s";
 
 my $naRegister = "http://www.affymetrix.com/site/terms.affx?dest=register&buttons=on";
 
@@ -201,8 +200,10 @@ my $baseUrl = "http://www.affymetrix.com/Auth/analysis/downloads/na" . $vers;
 
 
 if ($arrayToken eq 'GW6') {
+    $nsUrl->{AffyProbeSet} = "https://www.affymetrix.com/analysis/netaffx/mappingfullrecord.affx?pk=${array}:%s";
     &parse_genotyping();
 } else {
+    $nsUrl->{AffyProbeSet} = "https://www.affymetrix.com/analysis/netaffx/fullrecord.affx?pk=${array}:%s";
    &parse_ivt();
 }
 
@@ -294,12 +295,13 @@ sub parse_ivt {
         taCol  => undef, # Transcript annotation; 2D array
         egCol  => undef, # Entrez Gene ID; 1D list
         clCol  => undef, # Chromosome location; 2D array
+        gtCol  => undef, # Gene Title, presumed 1D list
     };
 
     my @colMeta = ();
     my %colDefs = %defColDef;
     
-    my ($idCol, $trgCol, $syCol, $egCol, $taCol, $clCol);
+    my ($idCol, $trgCol, $syCol, $egCol, $taCol, $clCol, $gtCol);
     $info->{checkhead} = sub {
         my $info   = shift;
         my $header = $info->{header};
@@ -318,6 +320,9 @@ sub parse_ivt {
             $syCol = $info->{syCol} = --$syc;
         } else {
             warn "  [-] Note: Could not identify Symbol column\n";
+        }
+        if (my $gtc = $lu{"gene title"}) {
+            $gtCol = $info->{gtCol} = --$gtc;
         }
         if (my $trc = $lu{"target description"}) {
             $trgCol = $info->{trgCol} = --$trc;
@@ -357,6 +362,7 @@ sub parse_ivt {
             }
             next;
         }
+
         ## If here, we are processing the data block in the CSV
         my $stat = $io->parse($_);
         if ($stat != 1) {
@@ -389,11 +395,26 @@ sub parse_ivt {
                 } elsif ($res) {
                     ## Otherwise, use the residual text
                     $desc = $res;
-                }
+               }
             }
         }
         $desc =~ s/\s*\.\s*$//; # Trailing whitespace / period
-
+        ## In some cases, the description is not terribly helpful -
+        ## just an accession number. In these cases, let's take the
+        ## "Gene Title" information if it's available
+        if ($desc =~ /^[a-z0-9_\.]+$/i && defined $gtCol) {
+            my @gt = &_2d_array($row[$gtCol]);
+            if ($gt[0][0]) {
+                $desc .= " ($gt[0][0]";
+                ## More than one? just note how many more to avoid
+                ## spammy descriptions eg (11715189_s_at):
+                ## H3 histone, family 3A / H3 histone, family 3B (H3.3B) / H3 histone, family 3C / microRNA 4738
+                my $xtra = $#gt;
+                $desc .= sprintf(" - plus %d other gene%s", $xtra, $xtra == 1 ? '': 's') if ($xtra);
+                $desc .= ")";
+            }
+        }
+ 
         my $chrCnt = "";
         if (defined $clCol) {
             my @cl =  &_2d_array($row[ $syCol ]);
@@ -449,12 +470,22 @@ sub parse_ivt {
                         my $desc = $taDat->[1] || "";
                         $desc =~ s/\s*\.\s*$//; # don't need '.' at end
                         my $sym = "";
-                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|guide RNA|ribosomal RNA|RNase P RNA)/) {
-                            ## This seems like a standard way symbols
-                            ## are encoded in the description, eg
-                            ## YY1 transcription factor (YY1), mRNA.
+                        ## We're trying to pull out the
+                        ## frequently-embedded RefSeq gene symbol, eg
+                        ## 'YY1' in this description:
+                        ##     YY1 transcription factor (YY1), mRNA.
+                        
+                        ## This is messy because many RNAs have
+                        ## additional parenthetical short strings
+                        ## followed by a comma and space. So we will
+                        ## look for specific locus flags after the
+                        ## comma to identify the symbol notation:
+                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|guide RNA|ribosomal RNA|RNase P RNA|partial misc_RNA)/) {
                             $sym = $1;
                         }
+                        ## Examples of problem notation:
+                        ##   ... sub-family F (GCN20), member 3 (ABCF3), mRNA
+                        ##   ... A (SII), 2 (TCEA2), transcript variant 1, mRNA
                         my $rm = $mtxInfo{RefSeqRNA}{rmeta}{$rid} ||= {
                             ## Build the row metadata hash
                             name        => $rid,
@@ -978,13 +1009,18 @@ sub _probe_score {
 sub _parse_fasta_tags {
     my $val = $_[0] || "";
     my %rv;
-    while ($val =~ /(\/([a-z]+)=(.*?))( \/([a-z]+)=|\s*$)/i) {
+    ## These tags are kinda tough to identify and cleanly pull out,
+    ## particularly when some entries are a combination of /TAG= and
+    ## un-tagged free-form text. We'll find the end of the tag by
+    ## looking for the start of the next tag, or the end of the
+    ## string.
+    while ($val =~ /(\/([a-z_]+)=(.*?))( \/([a-z_]+)=|\s*$)/i) {
         my ($rep, $k, $v) = ($1, $2, $3);
-        $val =~ s/\Q$rep\E//;
+        $val =~ s/\Q$rep\E//; ## Excise the block we just found
         $rv{lc($k)} = $v;
     }
     $val =~ s/\s+$//;
-    $rv{RESIDUAL} = $val if ($val);
+    $rv{RESIDUAL} = $val if ($val); ## What is left over
     # die "$_[0] = ".join(" + ", keys %rv);
     return \%rv;
 }
