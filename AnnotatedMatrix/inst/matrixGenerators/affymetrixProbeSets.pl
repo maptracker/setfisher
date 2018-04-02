@@ -57,7 +57,6 @@ if ($aReq =~ /(\S+?)(\.cn)?.na(\d+)/) {
 } elsif ($aReq =~ /(gw.?6|genomewide.*6)/i) {
     # http://www.affymetrix.com/Auth/analysis/downloads/na34/genotyping/GenomeWideSNP_6.cn.na34.annot.csv.zip
     $array      = "GenomeWideSNP_6";
-    $arrayToken = "GW6";
     $vers ||= 34; # Most recent (Sep 2013) as of March 2018
 } elsif ($aReq =~ /133/) {
     $array = "HG-U133";
@@ -379,14 +378,21 @@ sub parse_ivt {
             $desc = $row[ $trgCol ] || "";
             ## See if we can tidy up the description a bit
             my $ft = &_parse_fasta_tags( $desc );
-            if (my $def = $ft->{def} || $ft->{definition}) {
+            my $def = $ft->{def} || $ft->{definition} || "";
+            if ($def =~ /^\(.+\)$/) {
+                ## Fly definitions are odd parenthetical structures
+                ## that are generally not illuminating. It seems in
+                ## most cases fallback to 'Gene Title' is better.
+                $def = "";
+            }
+            if ($def) {
                 ## If /DEF or /DEFINITION are defined, use that, it
                 ## generally seems to be the most reasonable
                 ## description.
                 $desc = $def;
             } else {
                 my $res = $ft->{RESIDUAL}; # text after tags removed
-                my $ug  = $ft->{ug} || ""; # Unigene text
+                my $ug  = $ft->{ug} || $ft->{ug_title} || ""; # Unigene text
                 my $ugXtra = $ug; $ugXtra =~ s/^[a-z]+.\d+\s*//i;
                 if (length($ugXtra) > 12) {
                     ## Looks like we have at least a modest UniGene
@@ -403,7 +409,7 @@ sub parse_ivt {
         ## just an accession number, or a sterile description of an
         ## EST cluster. In these cases, let's take the "Gene Title"
         ## information if it's available
-        if (($desc =~ /^[a-z0-9_\.]+$/i || $desc =~ /^Cluster Incl. /)
+        if (($desc =~ /^[a-z0-9_:\.\-]+$/i || $desc =~ /^Cluster Incl. /)
             && defined $gtCol) {
             my @gt = &_2d_array($row[$gtCol]);
             if ($gt[0][0]) {
@@ -482,7 +488,7 @@ sub parse_ivt {
                         ## followed by a comma and space. So we will
                         ## look for specific locus flags after the
                         ## comma to identify the symbol notation:
-                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|guide RNA|ribosomal RNA|RNase P RNA|partial misc_RNA)/) {
+                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|small nuclear RNA|guide RNA|ribosomal RNA|RNase P RNA|partial misc_RNA|telomerase RNA|nuclear gene|rRNA|preRNA)/) {
                             $sym = $1;
                         }
                         ## Examples of problem notation:
@@ -509,8 +515,9 @@ sub parse_ivt {
             } elsif ($taDat->[2] eq 'ensembl') {
                 ## Ensembl transcript
                 my $rid = $taDat->[0];
-                if ($rid =~ /^ENS[A-Z]{0,3}T\d+$/) {
-                    ## Looks like an ok Ensembl RNA ID
+                if ($rid =~ /^(ENS[A-Z]{0,3}T\d+|FBtr\d+)$/) {
+                    ## Looks like an ok Ensembl RNA ID. Note that
+                    ## Drosophila uses atypical 'FBtr' accessions.
                     my $sc   = &_probe_score($taDat->[3], $prbCnt);
                     if ($mtxInfo{EnsemblRNA}) {
                         ## We are building Ensembl RNA matrix
@@ -533,7 +540,8 @@ sub parse_ivt {
                         ## description was not useful for annotating
                         ## the transcripts, but it does seem to
                         ## contain gene accessions. See if we can find one
-                        if ($taDat->[1] =~ /gene:(ENS[A-Z]{0,3}G\d+)/) {
+                        if ($taDat->[1] =~ /gene:(ENS[A-Z]{0,3}G\d+|FBgn\d+)/) {
+                            ## Note again atypical fly accessions (FBgn)
                             my $gid = $1;
                             my $rm = $mtxInfo{EnsemblGene}{rmeta}{$gid} ||= {
                                 ## Build the row metadata hash
