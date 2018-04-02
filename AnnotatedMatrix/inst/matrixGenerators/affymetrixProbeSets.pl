@@ -400,18 +400,20 @@ sub parse_ivt {
         }
         $desc =~ s/\s*\.\s*$//; # Trailing whitespace / period
         ## In some cases, the description is not terribly helpful -
-        ## just an accession number. In these cases, let's take the
-        ## "Gene Title" information if it's available
-        if ($desc =~ /^[a-z0-9_\.]+$/i && defined $gtCol) {
+        ## just an accession number, or a sterile description of an
+        ## EST cluster. In these cases, let's take the "Gene Title"
+        ## information if it's available
+        if (($desc =~ /^[a-z0-9_\.]+$/i || $desc =~ /^Cluster Incl. /)
+            && defined $gtCol) {
             my @gt = &_2d_array($row[$gtCol]);
             if ($gt[0][0]) {
-                $desc .= " ($gt[0][0]";
+                my $better = $gt[0][0];
                 ## More than one? just note how many more to avoid
                 ## spammy descriptions eg (11715189_s_at):
                 ## H3 histone, family 3A / H3 histone, family 3B (H3.3B) / H3 histone, family 3C / microRNA 4738
                 my $xtra = $#gt;
-                $desc .= sprintf(" - plus %d other gene%s", $xtra, $xtra == 1 ? '': 's') if ($xtra);
-                $desc .= ")";
+                $better .= sprintf(" - plus %d other gene%s", $xtra, $xtra == 1 ? '': 's') if ($xtra);
+                $desc = "$better ($desc)";
             }
         }
  
