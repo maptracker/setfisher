@@ -35,8 +35,12 @@ my @stndMeta   = qw(Symbol Description);
 my %defColDef = ( Symbol => "Entrez Gene symbol as provided by Affymetrix",
                   Description => "Short descriptive text for a gene or probe" );
 
+my $ensSearch  = 'http://www.ensembl.org/Multi/Search/Results?q=%s';
 my $nsUrl = {
     EntrezGene     => 'https://www.ncbi.nlm.nih.gov/gene/%s', # Integer IDs
+    RefSeqRNA      => 'https://www.ncbi.nlm.nih.gov/nuccore/%s',
+    EnsemblGene    => $ensSearch,
+    EnsemblRNA     => $ensSearch,
 };
 
 
@@ -181,12 +185,18 @@ my $authLong = "$auth ## Purveyor of nucleotide hybridization profiling systems.
 my $versToken = "NA$vers";
 
 ## Stash deduplicated file store - not on all systems
+my $revision = '2';
+my $revNotes = {
+    '1' => "# Original matrix logic",
+    '2' => "# Fixes Row/Col external URL templates",
+};
 my $stashMeta = {
-    Authority  => $auth,
-    'Version'  => $vers,
-    MatrixType => "Map",
-    FileType   => "AnnotatedMatrix",
-    Format     => "MatrixMarket",
+    Authority      => $auth,
+    'Version'      => $vers,
+    MatrixType     => "Map",
+    Revision       => $revision,
+    FileType       => "AnnotatedMatrix",
+    Format         => "MatrixMarket",
 };
 
 
@@ -198,7 +208,7 @@ my $stashMeta = {
 my $baseUrl = "http://www.affymetrix.com/Auth/analysis/downloads/na" . $vers;
 
 
-if ($arrayToken eq 'GW6') {
+if ($arrayToken eq 'GenomeWideSNP_6') {
     $nsUrl->{AffyProbeSet} = "https://www.affymetrix.com/analysis/netaffx/mappingfullrecord.affx?pk=${array}:%s";
     &parse_genotyping();
 } else {
@@ -363,12 +373,7 @@ sub parse_ivt {
         }
 
         ## If here, we are processing the data block in the CSV
-        my $stat = $io->parse($_);
-        if ($stat != 1) {
-            warn "Failed to parse row: $_\n";
-            next;
-        }
-        my @row = $io->fields();
+        my @row = &_parse_csv_row( $io, $_, $info );
         my $id = $row[ $idCol ];
         next unless ($id);
 
@@ -488,7 +493,7 @@ sub parse_ivt {
                         ## followed by a comma and space. So we will
                         ## look for specific locus flags after the
                         ## comma to identify the symbol notation:
-                        if ($desc =~ / \(([^\)]+)\), (transcript|mRNA|non-coding|long non-coding|misc_RNA|ncRNA|microRNA|antisense RNA|partial mRNA|small nucleolar RNA|small nuclear RNA|guide RNA|ribosomal RNA|RNase P RNA|partial misc_RNA|telomerase RNA|nuclear gene|rRNA|preRNA|miscRNA|partial miscRNA)/) {
+                        if ($desc =~ / \(([^\)]+)\), (partial )?(transcript|non-coding|mRNA|long non-coding|misc_?RNA|ncRNA|microRNA|antisense RNA|small nucleolar RNA|small nuclear RNA|guide RNA|ribosomal RNA|RNase P RNA|telomerase RNA|nuclear gene|rRNA|preRNA)/) {
                             $sym = $1;
                         } elsif ($desc =~ / \(([^\)]+)\) (mRNA, complete cds)/ ||
                                  $desc =~ / (\S+), isoform [a-z]+$/) {
@@ -721,12 +726,7 @@ sub parse_genotyping {
                 next;
             }
             ## If here, we are processing the data block in the CSV
-            my $stat = $io->parse($_);
-            if ($stat != 1) {
-                warn "Failed to parse row: $_\n";
-                next;
-            }
-            my @row = $io->fields();
+            my @row = &_parse_csv_row( $io, $_, $info );
             my $id = $row[ $idCol ];
             next unless ($id);
             ## Columns will be probes / feature - there are about a
@@ -868,6 +868,9 @@ sub _process_data {
         ColUrl    => $nsUrl->{$ns2}, 
         Authority => $authLong });
 
+    print $mtx &_default_parameter("Revision", $revision,
+                                   $revNotes->{$revision || ""});
+    
     print $mtx &_citation_MTX();
     print $mtx &_species_MTX( $info->{tags}{'genome-species'} );
     &{$filtCB}( $mtx, \%counts );
@@ -1048,4 +1051,28 @@ sub _parse_fasta_tags {
     $rv{RESIDUAL} = $val if ($val); ## What is left over
     # die "$_[0] = ".join(" + ", keys %rv);
     return \%rv;
+}
+
+sub _parse_csv_row {
+    my ($io, $line, $info) = @_;
+    my $stat = $io->parse($line);
+    my @row;
+    if ($stat == 1) {
+        @row = $io->fields();
+    } else {
+        warn "Failed to parse row [$stat]; Self-parsed as:\n";
+        ## Seeing errors with HT_MG-430_PM.na35.annot.csv.zip:
+        ## 1436716_PM_at 1437729_PM_at 1438203_PM_at 1439043_PM_at
+        ## 1456491_PM_at. I expected dangling quotes but could not
+        ## find any.  Parse on my own:
+        while ($line =~ /^("([^"]*)",?)/) {
+            my ($rep, $val) = ($1, $2);
+            $line =~ s/^\Q$rep\E//;
+            push @row, $val;
+        }
+        ## Sanity check:
+        print join("", map { sprintf("  %2d %s : %s\n", $_+1, $info->{header}[$_], substr($row[$_] || "", 0, 80)) } (0..$#row));
+        ## The structure looks fine for all five probesets...  ???
+    }
+    return @row;
 }
