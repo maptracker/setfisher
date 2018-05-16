@@ -7,6 +7,8 @@ use File::Listing 'parse_dir';
 use IO::Uncompress::Gunzip;
 use Net::FTP;
 use LWP::UserAgent;
+use Archive::Tar;
+use JSON;
 
 our ($defaultArgs, $defTmp, $ua);
 my $codeDir     = dirname($0);
@@ -693,7 +695,7 @@ sub _default_parameter {
     }
     my $rv = sprintf("%%%% DEFAULT %s %s", $key, $val);
     if ($com) {
-        if ($com =~ /^#\s*(.+?)/) {
+        if ($com =~ /^#\s*(.+?)\s*$/) {
             ## Comment directly associated with the value
             $rv .= " ## $1";
         } else {
@@ -1047,6 +1049,88 @@ sub subparam {
     return \%rv;
 }
 
+
+sub extract_taxa_info {
+    ## Used to deconvolute user species request into a formal
+    ## species. In particular, we'll need the taxid (eg 9606 for
+    ## human) to extract relevant subsets of information from Entrez,
+    ## and we'll need the common name for matrix file naming.
+    my $req = shift;
+    return { error => "-species is not specified" }  unless ($req);
+    my $srcFile = "$tmpDir/names.dmp";
+    if (&source_needs_recovery($srcFile)) {
+        my $tgz = &fetch_url("ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz");
+        my $tar = Archive::Tar->new($tgz);
+        $tar->extract_file("names.dmp", $srcFile);
+        die join("\n  ", "Failed to extract taxa names",
+                 $srcFile, "") unless (-s $srcFile);
+        &msg("Extracted Taxonomy names", $srcFile);
+    }
+    ## With orthologues a fair number of taxa will need to be
+    ## parsed. Set up caches of parsed information to allow faster
+    ## re-dumping
+    my $cDir    = "$tmpDir/taxInfo"; &mkpath([$cDir]);
+    my $cFile   = "$cDir/$req.json";
+    unless (-s $cFile) {
+        open(TAX, "<$srcFile") || die 
+            join("\n", "Failed to parse taxonomy file", $srcFile, $!, "");
+        my $obj = { taxid => 0 };
+
+        while (<TAX>) {
+            my ($txid, $name, $uniq, $cls) = split(/\s*\|\s*/);
+            if ($txid != $obj->{taxid}) {
+                ## New name block
+                if ($obj->{found}) {
+                    ## Got what we came for
+                    close TAX;
+                    last;
+                }
+                $obj = { taxid => $txid };
+                $obj->{found} = "tax_id" if ($req eq $txid);
+            }
+            push @{$obj->{$cls}}, $name;
+            $obj->{found} = $cls if (lc($req) eq lc($name));
+        }
+        close TAX;
+        $obj->{error} = "-species '$req' could not be found in $srcFile"
+            unless ($obj->{found});
+        open(JF, ">$cFile") || die 
+            "Failed to write taxa cache file\n  $cFile\n  $!\n  ";
+        print JF encode_json($obj);
+        close JF;
+    }
+    open(JF, "<$cFile") || die 
+        "Failed to read taxa cache file\n  $cFile\n  $!\n  ";
+    my $jtxt = "";
+    while (<JF>) { $jtxt .= $_ }
+    close JF;
+    return decode_json($jtxt);
+}
+
+sub species_id_for_tax {
+    my $td = shift;
+    ## Fallback is the taxonomy id prefixed with 'taxa'. We hopefully
+    ## will never need this (they should all have a scientific name,
+    ## right?)
+    my $rv = "taxa".$td->{taxid};
+    if (my $gcn = $td->{'genbank common name'}) { 
+        $rv = $gcn->[0];
+        ## dog -> Dog
+        substr($rv, 0, 1, uc( substr($rv, 0, 1) ));
+    } elsif (my $sn = $td->{'scientific name'}) { 
+        $rv = $sn->[0];
+    }
+    return $rv;
+}
+
+sub species_scientific_name {
+    my $td = shift;
+    if (my $sn = $td->{'scientific name'}) { 
+        return $sn->[0];
+    } else {
+        return "Unknownium unknowius";
+    }
+}
 
 1;
 
