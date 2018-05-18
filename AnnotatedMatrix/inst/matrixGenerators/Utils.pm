@@ -1132,5 +1132,103 @@ sub species_scientific_name {
     }
 }
 
+sub generic_matrix_framework {
+    ## Use a structure of information to build a "typical" MTX file
+    my $struct = shift;
+    my $trg    = $struct->{file};  # Full MTX file path
+    my $fbits  = $struct->{fbits}; # "bits" that make up the file name
+    my $fmeta  = $struct->{fmeta}; # File-level metadata
+    
+    my ($auth, $mod, $nsi, $nsj, $type) = 
+        map { $fbits->{$_} } qw(auth mod ns1 ns2 type);
+    &msg("Writing $mod $nsi-$nsj matrix file, defined by $auth");
+
+    ## Hash linking Row *names* to column *indices*:
+    my $rowLink  = $struct->{rowlinks};
+    my @rowIds   = sort keys %{$rowLink};
+    my $rnum     = $#rowIds + 1;
+    ## Hash associating Col names to Col indices:
+    my $colOrder = $struct->{colOrder};
+    ## Indices are held in the {order} key of each hash entry:
+    my @colIds   = sort { $colOrder->{$a}{order} 
+                          <=> $colOrder->{$b}{order} } keys %{$colOrder};
+    my $cnum     = $#colIds + 1;
+    my $nznum    = $struct->{nznum}; # number of non-zero cells
+
+    my $tmp = "$trg.tmp";
+    open(MTX, ">$tmp") || 
+        &death("Failed to write $auth $nsi-$nsj $type", $tmp, $!);
+
+    ## Initial header block
+    print MTX &_initial_mtx_block
+        ($type, $rnum, $cnum, $nznum, "$auth $mod $nsi-to-$nsj Ontology",
+         "$mod $nsi $nsj ontology, as assigned by $auth",
+         $struct->{scdesc}, $nsi, $nsj);
+
+    ## Dimension names, plus URL templates for each dimension
+    my $nsu = $struct->{nsurl} || {};
+    print MTX &_dim_block({
+        %{$fmeta},
+        RowDim    => $nsi,
+        RowUrl    => $nsu->{$nsi},
+        ColDim    => $nsj,
+        ColUrl    => $nsu->{$nsj}, 
+        Authority => $struct->{authL},
+                          });
+
+    ## Data source citation
+    if (my $citeCB = $struct->{citeCB}) {
+        print MTX &{$citeCB}();
+    }
+
+    ## Matrix format revision
+    if (my $rev = $struct->{revision}) {
+        ## Should be an array with
+        ## [0] Revision number
+        ## [1] Note/description of the revision
+        print MTX &_default_parameter("Revision", $rev->[0], $rev->[1]);
+    }
+
+    ## Species scientific name
+    if (my $taxDat = $struct->{taxdat}) {
+        print MTX &_species_MTX( $taxDat->{'scientific name'} );
+    }
+
+    ## Matrix auto-filter directives
+    if (my $filt = $struct->{filter}) {
+        print MTX $filt;
+    }
+
+    ## Factor levels and level-count summary
+    if (my $cnt = $struct->{count}) {
+        print MTX $cnt;
+    }
+
+    ## Row/Column metadata definitions
+    if (my $cd = $struct->{rcdef}) {
+        print MTX &_rowcol_meta_comment_block( $cd );
+    }
+    
+    ## Row IDs plus metadata
+    print MTX &_generic_meta_block(\@rowIds, 'Row',
+                                   $struct->{rmeta}, $struct->{rmcol});
+    print MTX "% $bar\n";
+
+    ## Column IDs plus metadata
+    print MTX &_generic_meta_block(\@colIds, 'Col',
+                                   $struct->{cmeta}, $struct->{cmcol});
+
+    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
+    for my $i (0..$#rowIds) {
+        while (my ($j, $sc) = each %{$rowLink->{$rowIds[$i]}}) {
+            printf(MTX "%d %d %d\n", $i+1, $j, $sc);
+        }
+    }
+    close MTX;
+    rename($tmp, $trg);
+    &msg("Generated $nsj $type", $trg);
+    &post_process( %{$fbits}, meta => $fmeta );
+}
+
 1;
 

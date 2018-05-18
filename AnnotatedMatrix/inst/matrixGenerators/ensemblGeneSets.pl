@@ -10,9 +10,10 @@ our $defaultArgs = {
     dir       => ".",
 };
 
-my $revision = '0';
+my $revision = '1';
 my $revNotes = {
     '0' => "# Beta code, still under development",
+    '1' => "# Fix protein description",
 };
 
 ## XREF DBs to take "as is"
@@ -46,6 +47,7 @@ my $ignorePrimaryTag = {
     source          => 1,
     exon            => 1,
     misc_feature    => 1, # Appears to just be contig footprints?
+    STS             => 1,
 };
 
 ## Secondary tags that we are ignoring
@@ -65,7 +67,7 @@ require Utils;
 require GoMetadata;
 
 our ($args, $outDir, $clobber, $tmpDir, $maxAbst, $bar);
-my (%tasks, $geneData, $ftpDir);
+my (%tasks, $geneData, $ftpDir, $globalMeta);
 
 my $taxDat     = &extract_taxa_info( $args->{species} || $args->{taxa} );
 my $specID     = $args->{name} || &species_id_for_tax( $taxDat );
@@ -161,6 +163,30 @@ my %defColDef = ( Symbol => "Official Ensembl Gene symbol, if available, otherwi
 &go_hierarchy("Closure");
 &go_ontology();
 
+sub basic_links {
+    ## Gene <-> RNA, RNA <-> Protein
+    my %fbitCommon = (type => "Map",  mod  => $specID,
+                      ## ns1  => $nsi,   ns2  => $nsj,
+                      auth => $auth,  vers => $versToken,  
+                      dir => "$auth/$versToken");
+    my $structs = {
+        G2R => {
+            
+        },
+        R2P => {
+        },
+    };
+    my $data = &gene_data();
+    foreach my $gdat (values %{$data}) {
+        my $gid = $gdat->{acc};
+        my $gv  = $gdat->{v};
+        foreach my $tdat (values %{$gdat->{rna}}) {
+            foreach my $pdat (values %{$tdat->{prot}}) {
+            }
+        }
+    }
+}
+
 sub go_ontology {
     
     my $data = &gene_data();
@@ -214,12 +240,14 @@ sub go_ontology {
 
 sub gene_data {
     return $geneData if ($geneData);
+    $globalMeta = {};
     my $tsv = &gene_file();
     &msg("Reading Gene metadata file", $tsv);
     $geneData = {};
     open(TSV, "<$tsv") || die "Failed to read Gene TSV file:\n  $tsv\n  $!";
     my $head = <TSV>;
     my ($lastGdat, $lastTdat, %counts);
+    my $gb = $manifest->{build}[0] || "Unk";
     while (<TSV>) {
         s/[\n\r]+$//;
         my @row = split("\t");
@@ -227,13 +255,25 @@ sub gene_data {
         my $dat;
         if ($gid) {
             ## Gene row
+            my $loc = "";
+            if ($coord) {
+                my ($chr, $s, $e, $str) = split(',', $coord);
+                $loc = sprintf("%s.%s:%d..%d[%s]", $chr, $gb, $s, $e,
+                               $str < 0 ? '-1' : '+1');
+            }
             $dat = $lastGdat = $geneData->{$gid} = {
                 acc   => $gid,
                 sym   => $sym,
                 desc  => $desc,
-                coord => [ $coord ? () : split(',', $coord) ],
+                coord => $loc,
                 rna   => {},
                 link  => {},
+            };
+            $globalMeta->{$gid} = {
+                Symbol       => $dat->{sym},
+                Description => $dat->{desc},
+                Version     => $vers,
+                Location    => $loc,
             };
             $counts{Gene}++;
         } elsif ($tid) {
@@ -245,6 +285,11 @@ sub gene_data {
                 prot  => {},
                 link  => {},
             };
+            $globalMeta->{$tid} = {
+                Symbol      => $dat->{sym},
+                Description => $dat->{desc},
+                Version     => $vers,
+            };
             $counts{RNA}++;
         } elsif ($pid) {
             ## Protein row
@@ -253,6 +298,11 @@ sub gene_data {
                 sym   => $sym  || $lastTdat->{sym},
                 desc  => $desc || $lastTdat->{desc},
                 link  => {},
+            };
+            $globalMeta->{$pid} = {
+                Symbol      => $dat->{sym},
+                Description => $dat->{desc},
+                Version     => $vers,
             };
             $counts{Protein}++;
         } else {
@@ -297,14 +347,14 @@ sub gene_file {
             if (/^FT   (.+)[\n\r]+$/) {
                 my $ft = $1;
                 my $tagTxt = "";
-                if ($ft =~ /^([a-z]\S+)\s+(.+)/) {
+                if ($ft =~ /^([a-z]\S+)\s+(.+)/i) {
                     ## New feature. Process old one, reset:
                     $feat = &_process_feat($feat, $data, $1, $2);
-                } elsif ($ft =~ /^\s+\/([a-z_]+)="(.+)/) {
+                } elsif ($ft =~ /^\s+\/([a-z_]+)="(.+)/i) {
                     ## New tag with quoted content
                     $tag = &_process_tag($tag, $feat, $1);
                     $tagTxt = $2;
-                } elsif ($ft =~ /^\s+\/([a-z_]+)=(.+)/) {
+                } elsif ($ft =~ /^\s+\/([a-z_]+)=(.+)/i) {
                     ## New tag with unquoted content. I sure hope
                     ## these are single lines...
                     $tag = &_process_tag({tag => $1, txt => [$2]}, $feat);
@@ -329,6 +379,7 @@ sub gene_file {
         }
         &_process_feat($feat, $data);
         close $fh;
+        ## warn "DEBUG!!"; last;
     }
     my @gids = sort keys %{$data->{genes}};
     &msg("  Done parsing EMBL files: ".scalar(@gids)." genes");
@@ -345,9 +396,13 @@ sub gene_file {
             my $tdat = $gdat->{rna}{$rid};
             my @pids = sort keys %{$tdat->{prot} || {}};
             map { $pidH{$_} = 1 } @pids;
-            my @rrow = ("","","", $rid, "", 
-                        &_unique_val($tdat->{desc}, "Desc for $rid"),
+            my $rdesc =  &_unique_val($tdat->{desc}, "Desc for $rid") || "";
+            my @rrow = ("","","", $rid, "", $rdesc,
                         $tdat->{v}, &_link_vals($tdat));
+            #if ($rdesc =~ /transcript_id/) {
+            #    die Dumper($tdat);
+            #}
+            
             ## RNA Metadata
             push @rpRows, \@rrow;
             &msg("[?] Multiple proteins for $rid: ".
@@ -418,6 +473,8 @@ sub _process_feat {
         tags  => {},
     };
     if (my $fn = $feat->{ptag}) {
+        ## This feature has some accumulated information that needs
+        ## processing
         my (%desc, $sym);
         my $gCor = [ $data->{nowChr} ];
         my %tags = %{$feat->{tags} || {}};
@@ -452,6 +509,7 @@ sub _process_feat {
                     push @tids, $1;
                 }
             }
+            map { delete $tags{$_} } qw(note);
         } elsif (!$ignorePrimaryTag->{$fn} && !$tasks{UnkPriTag}{$fn}++) {
             &msg("Primary tag '$fn' does not have logic assigned to it");
         }
@@ -517,6 +575,7 @@ sub _process_feat {
                         link => {},
                     };
                     $tdat->{desc} ||= $desc{rna};
+                    ## WEIRD. WHERE ARE THESE COMING FROM?? die "$tid = $desc{rna}" if ($desc{rna} && $desc{rna} =~ /^transcript_id/);
                     if ($tv) {
                         ## Note the RNA version, sanity check:
                         if ($tdat->{v} && $tv != $tdat->{v}) {

@@ -15,7 +15,11 @@ our ($bar, $args);
 $args->{rellevels} ||= $defRel;
 $args->{eclevels}  ||= $defEC;
 
-     
+my $revision = '1';
+my $revNotes = {
+    '1' => "# Initial GO parser",
+};
+ 
 ## Stash deduplicated file store - not on all systems
 my $stashMeta = {
     Authority  => "GeneOntology",
@@ -58,14 +62,34 @@ sub make_go_matrix {
         $expand{$kid} = [ $kid, keys %{$pars} ];
     }
 
+    my $struct = {
+        file  => $trg,   # Path of MTX file
+        fbits => $fbits, # "bits" that make up the file name
+        fmeta => $fmeta, # File-level metadata
+        nznum => 0,      # Number non-zero cells
+        authL => $authL, # "Long" authority name, for matrix metadata
+        rmeta => $objMeta, # metadata for row IDs
+        rmcol => $objMcol, # metadata columns to include for rows
+        cmeta => $goMeta,
+        cmcol => \@stndGoMeta,
+        nsurl => {%{$goUrl}, %{$nsUrl}}, # URL templates for namespaces
+        scdesc => "Scores are factors representing the evidence code for the assignment",
+        rcdef => {
+            %{$objMdef}, %defGoDef,
+            Description => "Descriptive text (either for Entrez ID or GO term)",
+        },
+        revision => [$revision, $revNotes->{$revision || ""}],
+    };
 
-    my (%objAssignments, %ontOrder); ## Was %genes and %ontMeta
-    my ($nznum, $nont) = (0,0);
+    my $rowLink  = $struct->{rowlinks} = {};
+    my $colOrder = $struct->{colOrder} = {};
+    my $nont     = 0;
+    
     warn "     ... structuring GO links through transitive closure ...\n";
     my @objIds = sort keys %{$links};
     foreach my $oId (@objIds) {
         my @goEc = @{$links->{$oId}};
-        my $targ = $objAssignments{$oId} = {};
+        my $targ = $rowLink->{$oId} = {};
         for (my $i = 0; $i < $#goEc; $i += 2) {
             my ($kid, $ec) = ($goEc[$i], $goEc[$i+1]);
             my @allGo = @{$expand{$kid} || []};
@@ -85,7 +109,7 @@ sub make_go_matrix {
             }
             
             foreach my $gid (@allGo) {
-                my $gm = $ontOrder{$gid} ||= {
+                my $gm = $colOrder->{$gid} ||= {
                     ## Just to track order of GO column indices
                     order => ++$nont,
                 };
@@ -93,7 +117,7 @@ sub make_go_matrix {
                 # Capture orderID/score pairs
                 if (!$targ->{$gnum}) {
                     ## First time we've seen this GO term for this object
-                    $nznum++;
+                    $struct->{nznum}++;
                     ## Just set the score as-is
                     $targ->{$gnum} = $sc;
                 } elsif ($targ->{$gnum} < $sc) {
@@ -106,75 +130,27 @@ sub make_go_matrix {
             }
         }
     }
-    
-    warn "     ... writing matrix market file ...\n";
-    my @ontIds = sort { $ontOrder{$a}{order} 
-                        <=> $ontOrder{$b}{order} } keys %ontOrder;
-    my ($rnum, $cnum) = ($#objIds + 1, $#ontIds + 1);
-    my $tmp = "$trg.tmp";
-    open(MTX, ">$tmp") || &death("Failed to write GO ontology", $tmp, $!);
 
-    my ($auth, $mod, $nsi, $nsj, $type) = 
-        map { $fbits->{$_} } qw(auth mod ns1 ns2 type);
-
-    print MTX &_initial_mtx_block
-        ("Ontology", $rnum, $cnum, $nznum, "$auth $mod $nsi-to-$nsj Ontology",
-         "$mod $nsi $nsj ontology, as assigned by $auth",
-         "Scores are factors representing the evidence code for the assignment",
-         $nsi, $nsj);
-
-    my %nsu =( %{$goUrl}, %{$nsUrl} );
-
-    print MTX &_dim_block({
-        %{$fmeta},
-        RowDim    => $nsi,
-        RowUrl    => $nsu{$nsi},
-        ColDim    => $nsj,
-        ColUrl    => $nsu{$nsj}, 
-        Authority => $authL });
-
-    print MTX &{$citeCB}() if ($citeCB);
-    print MTX &_species_MTX( $taxDat->{'scientific name'} ) if ($taxDat);
-
-    print MTX &_filter_block({
+    $struct->{filter} = &_filter_block({
         AutoFilterComment => "NOTE: The standard automatic filters for this matrix are designed with enrichment analysis in mind. If you are using this matrix to recover GO terms for genes (or vice versa), you should \$reset() the matrix, and optionally re-apply only the evidence code based filters.",
         MinColCount => "7 ## Terms with few genes assigned to them struggle to reach statistical significance",
         MaxColCount => "10% ## Terms covering a large fraction of the genome are rarely informative. Note this will exclude many parent terms",
         MinRowCount => "2 ## Genes with few terms assigned to them will not bring much insight to the analysis",
         TossLevel => "[,][ND,IC,P] ## ND=No Data, IC=Inferred by Curator, P is an ancient evidence code"
-                             });
+                                       });
 
     my @counts;
-    foreach my $h (values %objAssignments) {
+    foreach my $h (values %{$rowLink}) {
         my @u   = values %{$h};
         map { $counts[$_-1]++ } @u;
     }
-    print MTX &_factor_map_block
+    $struct->{count} = &_factor_map_block
         ( $lvls, $scH, "Evidence Codes",
           ["Lower factor values generally represent lower confidence evidence",
            "http://geneontology.org/page/guide-go-evidence-codes"],
           {map { $lvls->[$_] => $counts[$_] || 0 } (0..$#{$lvls}) });
 
-    print MTX &_rowcol_meta_comment_block( {%{$objMdef}, %defGoDef, Description => "Descriptive text (either for Entrez ID or GO term)"});
-
-    ## Row metadata
-    print MTX &_generic_meta_block(\@objIds, 'Row', $objMeta, $objMcol);
-    print MTX "% $bar\n";
-
-    ## Column metadata
-    print MTX &_generic_meta_block(\@ontIds, 'Col', $goMeta, \@stndGoMeta);
-
-    print MTX &_triple_header_block( $rnum, $cnum, $nznum );
-    for my $i (0..$#objIds) {
-        while (my ($j, $sc) = each %{$objAssignments{$objIds[$i]}}) {
-            printf(MTX "%d %d %d\n", $i+1, $j, $sc);
-        }
-    }
-    close MTX;
-    rename($tmp, $trg);
-    &msg("Generated $nsj $type", $trg);
-    &post_process( %{$fbits}, meta => $fmeta );
-    return $trg;
+    return &generic_matrix_framework( $struct );
 }
 
 sub make_go_metadata_file {
