@@ -2,6 +2,102 @@
 ## Package-scoped environment to hold items shared across objects
 .myPkgEnv <- new.env(parent=emptyenv())
 assign(".matrixCache", list(), envir=.myPkgEnv)
+## Persistant options internal to annotated matrix
+assign(".amParams", list(), envir=.myPkgEnv)
+
+
+#' Annotated Matrix Parameter
+#'
+#' Get/Set a parameter associated with your AnnotatedMatrix session
+#'
+#' @details
+#'
+#' Manages values that you will likely want to be constant during an
+#' analysis, but you may wish to customize between analyses, or
+#' between users or organizations.
+#'
+#' If a requested key is NULL, the function will also check if an R
+#' option is set for that key. For example, if you request 'dir', the
+#' option 'annotatedmatrixdir' will be checked if the parameter is
+#' NULL.
+#'
+#' @section Recognized Keys:
+#'
+#' \itemize{
+#'
+#'   \item \code{dir} - A default directory where matrix files are stored
+#'   \item \code{ensemblhost} - Default Ensmebl host domain to use
+#' }
+#'
+#' @param key Required, a character vector of keys to recover. Keys
+#'     are case-insensitive, though the names on the returned values
+#'     will honor the capitalization of the passed `key` parameter.
+#' @param value Optional new value to be assigned to the keys
+#' @param default Default \code{NULL}. If the parameter is NULL, and
+#'     the corresponding R option is also NULL, this value will be
+#'     substitued instead
+#' @param as.list Default \code{NULL}. If \code{TRUE}, the return
+#'     value will be a named list. \code{FALSE} will return the
+#'     unlist()ed values (which may be odd if the parameters have
+#'     mixed data types). The default of NULL will return a list if
+#'     two or more keys were requested, otherwise the single value
+#'
+#' @return If as.list=TRUE, a named list. If as.list=FALSE, a single
+#'     value if a single key was requested, otherwise an unlist()ed
+#'     vector.
+#'
+#' @importFrom crayon bgYellow
+#'
+#' @export
+
+annotatedMatrixParameter <- function (key, value=NULL, default=NULL,
+                                      as.list=NULL) {
+    if (!is.character(key)) stop(crayon::bgYellow(
+        "[!] key should be a character, not ", storage.mode(key)))
+
+    lcKey  <- tolower(key)
+    params <- get(".amParams", envir=.myPkgEnv)
+    if (!is.null(value)) {
+        ## User is setting a new value for this key
+        for (k in lcKey) {
+            params[[ k ]] <- value
+        }
+        assign(".amParams", params, envir=.myPkgEnv)
+    }
+    rv <- list()
+    for (k in key) {
+        v <- params[[ tolower(k) ]]
+        if (is.null(v)) {
+            ## If we can't find a value set for this key, fallback to
+            ## check options() to see if it has been set there, with
+            ## an "annotatedmatrix" prefix:
+            v <- getOption(paste0("annotatedmatrix",tolower(k) ))
+            ## Final fallback to the default value
+            if (is.null(v)) v <- default
+        }
+        rv[[ k ]] <- v
+    }
+    nkeys <- length(key)
+    ## When as.list is not set, it will be TRUE if more than one key
+    ## was requested:
+    if (is.null(as.list)) as.list <- nkeys > 1
+    ## Just return list structure if requested:
+    if (as.list) return(rv)
+    ## Otherwise, decide if we should use unlist or pluck out a single value:
+    if (nkeys == 1) {
+        k  <- key[1]
+        rv <- rv[[ k ]]
+        if (is.vector(rv)) {
+            ## Return named
+            stats::setNames(rv, k)
+        } else {
+            ## Naming might be weird, return it 'raw'
+            rv
+        }
+    } else {
+        unlist(rv)
+    }
+}
 
 #' Find Matrices
 #'
@@ -66,12 +162,14 @@ assign(".matrixCache", list(), envir=.myPkgEnv)
 #'   \item Path - The path to the matrix file, relative to \code{dir}
 #'   \item Modified - The file modification time
 #' }
+#'
+#' @seealso \link{annotatedMatrixParameter}
 #' 
 #' @importFrom CatMisc is.something
 #' @export
 
 findMatrices <- function(ns1=NULL, ns2=NULL, mod=NULL, type=NULL, auth=NULL,
-                         vers=NULL, dir=getOption("annotatedmatrixdir"),
+                         vers=NULL, dir=annotatedMatrixParameter("dir"),
                          recursive=TRUE, ignore.case=TRUE, most.recent=TRUE,
                          regexp=FALSE, clear.cache=FALSE) {
     if (!CatMisc::is.something(dir)) {
@@ -729,4 +827,155 @@ normalizePercent <- function (x, denom=as.numeric(NA)) {
     ## this is normal and don't want to bother user with them:
     suppressWarnings( ifelse( is.na(isPerc), as.numeric(x),
                              as.numeric(isPerc) * denom / 100) )
+}
+
+#' Current BioMart Version
+#'
+#' Report the current 'live' version of BioMart
+#'
+#' @details
+#'
+#' Gets available Marts and looks for the one named
+#' "Ensembl Genes ##", returning the actual value of '##' as the
+#' version.
+#'
+#' @return \code{NA} if there is a problem, otherwise a single integer
+#'     value representing the version, with a name representing the
+#'     name of the Mart.
+#'
+#' @param host Will be passed to biomaRt, defaults to the
+#'     \link{annotatedMatrixParameter} "ensemblhost", falling back to
+#'     www.ensembl.org.
+#' @param \dots Passed to \code{listMarts}. In particular, `host` may
+#'     be useful to access a preferred Ensembl server.
+#'
+#' @importFrom biomaRt listMarts
+#' @importFrom CatMisc parenRegExp
+#' @importFrom stats setNames
+#' @importFrom crayon bgYellow
+#'
+#' @export
+
+biomartVersion <- function (host=annotatedMatrixParameter('ensemblhost', default="www.ensembl.org"), ...) {
+    mList     <- biomaRt::listMarts(host=host, ...)
+    ## Find the Ensembl Gene version by grepping it out:
+    geneVers  <- CatMisc::parenRegExp("Ensembl Genes (\\d+)", mList$version)
+    isEnsGene <- !is.na(geneVers)
+    rv        <- as.integer(geneVers[isEnsGene])
+    ## Should have found only one thing: Throw error if not and return NA
+    if (sum(isEnsGene) == 0) {
+        message(crayon::bgYellow("Failed to find BioMart Ensembl Gene version"))
+        return(NA)
+    } else if (sum(isEnsGene) != 1) {
+        message(crayon::bgYellow("WEIRD: Multiple BioMart Ensembl Gene versionsions found: ", paste(rv, collapse=', ')))
+        return(NA)
+    }
+    ## Return the version, with mart name as its name
+    ##  (should be "ENSEMBL_MART_ENSEMBL")
+    stats::setNames(rv, mList$biomart[isEnsGene])
+}
+
+#' Current BioMart Genome Versions
+#'
+#' Return a vector of genome versions in the current version of BioMart
+#'
+#' @details
+#'
+#' Recovers the genomic versions used in BioMart, keyed by dataset
+#' name associated with each.
+#'
+#' @param \dots Passed to \link{biomartVersion}
+#'
+#' @return A vector of genome build tokens (eg "") with dataset names
+#'     as vector names
+#'
+#' @seealso \link{biomartVersion}
+#' 
+#' @importFrom biomaRt useMart listDatasets
+#' @importFrom stats setNames
+#' 
+#' @export
+
+biomartGenomeVersions <- function (...) {
+    vers <- biomartVersion(...)
+    if (is.na(vers)) return(NA)
+    mart <- biomaRt::useMart( names(vers) )
+    x <- biomaRt::listDatasets(mart)
+    stats::setNames(x$version, x$dataset)
+}
+
+#' BioMart Common Names
+#'
+#' Dataset-to-Common-Name lookup, providing "human friendly" species names
+#'
+#' @details
+#'
+#' Recovers the species common names used in BioMart, keyed by dataset
+#' name associated with each.
+#'
+#' @param \dots Passed to \link{biomartVersion}
+#'
+#' @return A vector of species common names (eg "Crab-eating macaque")
+#'     with dataset names as vector names
+#'
+#' @importFrom CatMisc parenRegExp
+#' @importFrom biomaRt useMart listDatasets
+#' @importFrom stats setNames
+#' 
+#' @export
+
+biomartCommonNames <- function (...) {
+    vers <- biomartVersion(...)
+    if (is.na(vers)) return(NA)
+    mart <- biomaRt::useMart( names(vers) )
+    x <- biomaRt::listDatasets(mart)
+
+    ## Parsing eg "Rat genes (Rnor_6.0)"
+    ## Defensively anticipating unusual whitespace around what we want
+    cNames <- CatMisc::parenRegExp(' *(^.+?) +genes', x$description)
+
+    ## I also want to normalize these names with forms that are used
+    ## by NCBI taxonomy common names. Maintining this as a block of
+    ## text for easier editting and extension.
+    
+    ens2ncbiMap <- "
+# Ensembl                # Genbank Common name
+Rat                      : Norway rat
+Fugu                     : Torafugu
+Damara mole rat          : Damara mole-rat
+Flycatcher               : Collared flycatcher
+Kangaroo rat             : Ord's kangaroo rat
+Damara mole rat          : Damara mole-rat
+Pika                     : American pika
+Gorilla                  : Western gorilla
+C.savignyi               : Pacific transparent sea squirt
+Shrew                    : European shrew
+Platyfish                : Southern platyfish
+Fruitfly                 : Fruit fly
+Lesser hedgehog tenrec   : Small Madagascar hedgehog
+Cow                      : Cattle
+C.intestinalis           : Vase tunicate
+Hyrax                    : Cape rock hyrax
+Bushbaby                 : Bush baby
+Squirrel                 : Thirteen-lined ground squirrel
+Cat                      : Domestic cat
+Gibbon                   : Northern white-cheeked gibbon
+Naked mole-rat male      : Naked mole-rat
+Tarsier                  : Philippine tarsier
+Panda                    : Giant panda
+Anole lizard             : Green anole
+Tree Shrew               : Chinese tree shrew
+Chinese softshell turtle : Chinese soft-shelled turtle
+Wallaby                  : Tammar wallaby
+Guinea Pig               : Domestic guinea pig
+Microbat                 : Little brown bat
+Coquerels sifaka         : Coquerel's sifaka
+"
+    for (line in unlist(strsplit(ens2ncbiMap, "\n"))) {
+        e2n <- CatMisc::parenRegExp('(.+?)\\s+:\\s+(.+?)\\s*$', line)
+        ens <- e2n[1]
+        if (is.na(ens) || !is.element(ens, cNames)) next
+        cNames[ which(ens == cNames) ] <- e2n[2]
+    }
+    stats::setNames(cNames, x$dataset)
 }

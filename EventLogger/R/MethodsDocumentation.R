@@ -62,7 +62,7 @@ NULL
 #' 
 #' @return A data.table
 #'
-#' @seealso \link{message}
+#' @seealso \link{message}, \link{showLog}
 #'
 #' @examples
 #' 

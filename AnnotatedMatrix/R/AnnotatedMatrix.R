@@ -148,6 +148,7 @@ ScoreDesc   [character] Describes what the matrix values (scores) represent
 Source      [character] Primary source, presumably a URL
 Authority   [character] The name of the authority responsible for the data
 Version     [character] Version number/text assigned to the underlying data
+Revision    [character] Version for parsing code used to generate matrix files
 
 RowDim      [character] Name for the row dimension
 ColDim      [character] Name for the column dimension

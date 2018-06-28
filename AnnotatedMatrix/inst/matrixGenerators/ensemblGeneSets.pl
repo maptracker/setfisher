@@ -67,7 +67,7 @@ require Utils;
 require GoMetadata;
 
 our ($args, $outDir, $clobber, $tmpDir, $maxAbst, $bar);
-my (%tasks, $geneData, $ftpDir, $globalMeta);
+my (%tasks, $geneData, $ftpDir, $globalMeta, $dbVers, $schema);
 
 my $taxDat     = &extract_taxa_info( $args->{species} || $args->{taxa} );
 my $specID     = $args->{name} || &species_id_for_tax( $taxDat );
@@ -94,11 +94,9 @@ my $stashMeta = {
     'Version'  => $vers,
     MatrixType => "Map",
     FileType   => "AnnotatedMatrix",
-    Format     => "MatrixMarket",
+    'Format'   => "MatrixMarket",
 };
 
-## Identify and download EMBL files:
-my $manifest = &fetch_all_files();
 
 if ($taxDat->{error} || $args->{h} || $args->{help}) {
     warn "
@@ -135,12 +133,27 @@ Optional Arguments:
      -name A name to use for the files. By default this will be the
            Ensembl species name.
 
+     -embl Use EMBL flat files rather than MySQL database files as a
+           source of information. The EMBL files have a much lower
+           information content (eg no alternative symbols).
 
 ";
     warn "\n[!!] Failed to fulfill your request:\n     $taxDat->{error}\n\n"
         if ($taxDat->{error});
     exit;
 }
+
+my $doEmbl = $args->{embl};
+my ($manifest);
+
+if ($doEmbl) {
+    ## Identify and download EMBL files:
+    $manifest = &fetch_all_files();
+} else {
+    &get_schema();
+}
+
+die "Testing";
 
 my $ensSearch  = 'http://www.ensembl.org/Multi/Search/Results?q=%s';
 my $nsUrl = {
@@ -699,7 +712,116 @@ sub _process_tag {
     };
 }
 
+sub get_schema {
+    return $schema if ($schema);
+    my $file = &make_schema_file();
+    $schema = {};
+    open(FILE, "<$file") || die "Failed to read Schema\n  $file\n  $!";
+    while(<FILE>) {
+        s/[\n\r]+$//;
+        my ($tab, $cols, $types) = split(/\t/);
+        if (my $dup = $schema{$tab}) {
+            my $chk = join(',', @{$dup});
+            &err("Multiple schema for $tab:", $cols, $dup)
+                unless ($dup eq $cols);
+        } else {
+            $schema->{$tab} = [ split(',', $cols) ];
+        }
+    }
+    return $schema;
+}
+
+sub make_schema_file {
+    ## Parse information directly from MySQL dump files
+    return undef if ($taxDat->{error});
+    ## In addition to the release number, there is also a sub-version
+    ## associated with the files. We need to determine what that is.
+    my $mysqlDir = sprintf("pub/release-%d/mysql", $vers);
+    my $basePath = sprintf("%s/%s_core_%d_", $mysqlDir, $ftpSpec, $vers);
+    my $ftp      = &_ftp();
+    my $ls       = $ftp->ls($mysqlDir);
+                           
+    foreach my $path (@{$ls}) {
+        if ($path =~ /^\Q$basePath\E(\d+)$/) {
+            if ($dbVers) {
+                my $othVers = $1;
+                &err("Multiple database versions found for $ftpSpec core:",
+                     $dbVers, $othVers);
+                $dbVers = $othVers if ($othVers > $dbVers);
+            } else {
+                $dbVers = $1;
+            }
+        }
+    }
+    unless ($dbVers) {
+        &err("Failed to identify 'core' MySql files for $ftpSpec Version $vers",
+             "I scanned the following folder:",
+             "");
+        die;
+    }
+    $ftpDir = $basePath . $dbVers . "/";
+    &msg("[+] Release $vers, Database Version $dbVers");
+
+    my $file = &local_file("Schema-$ftpSpec-$vers-$dbVers.tsv");
+    unless (&output_needs_creation($file)) {
+        &msg("Using existing Schema file:", $file) unless ($tasks{MakeSchema}++) ;
+        return $file;
+    }
+    &msg("Creating Schema file for $specID $versToken (DB version $dbVers)");
+
+    ## RegExp parsing the CREATE TABLE specifications to get column
+    ## headers for each table.
+    my $sfName = sprintf("%s_core_%d_%d.sql.gz", $ftpSpec, $vers, $dbVers);
+    my $schemaFile = &fetch_url($ftpDir . $sfName);
+    my $tmp    = "$file.tmp";
+    my $tabDat = {};
+    open(OUT, ">$tmp") || die "Failed to write schema\n  $tmp\n  $!";
+    print OUT join("\t", "Table", "Columns", "Types")."\n";
+    open(IN, "<$schemaFile") || 
+        die "Failed to read schema\n  $schemaFile\n  $!";
+    while (<IN>) {
+        s/[\n\r]+$//;
+        if (/CREATE TABLE `(.+?)`/) {
+            $tabDat = &_write_schema_table( OUT, $tabDat, $1 );
+        } elsif (/^\s+`(.+?)` ([^ ,]+)/) {
+            push @{$tabDat->{col}}, $1;
+            push @{$tabDat->{typ}}, $2;
+        }
+    }
+    close IN;
+    &_write_schema_table( OUT, $tabDat );
+    close OUT;
+    rename($tmp, $file);
+    &msg("Schema file written to $file");
+    return $file;
+}
+
+sub _write_schema_table {
+    my ($fh, $dat, $newtab) = @_;
+    if (my $tab = $dat->{table}) {
+        print $fh join("\t", $tab, join(',', @{$dat->{col}}),
+                       join(',', @{$dat->{typ}}))."\n";
+    }
+    return { table => $newtab };
+}
+
+sub foo_delete_me {
+    foreach my $file (qw(gene external_db external_synonym gene_attrib identity_xref object_xref ontology_xref protein_feature simple_feature supporting_feature transcript translation transcript_attrib translation_attrib xref)) {
+        &_fetch_ens_file( $file );
+    }
+}
+
+sub _fetch_ens_file {
+    my $base = shift;
+    ## We will include the database version in the file name, in case
+    ## it gets updated.
+    return &fetch_url(sprintf("%s%s.txt.gz", $ftpDir, $base),
+                      sprintf("%s-%d.txt.gz", $base, $dbVers));
+}
+
 sub fetch_all_files {
+    ## Use EMBL files as information source. Unfortunately, these flat
+    ## files have highly simplified data associated with them.
     return undef if ($taxDat->{error});
     ## Ensembl breaks up EMBL files by chromosome.
     $ftpDir = sprintf("pub/release-%d/embl/%s/", $vers, $ftpSpec);

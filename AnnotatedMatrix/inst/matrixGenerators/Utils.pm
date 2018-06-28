@@ -32,7 +32,7 @@ our $maxAbst  = 150;
 our $outDir   = $args->{dir} || "";
 $outDir =~ s/\/+$//;
 
-&mkpath([$tmpDir]) if ($tmpDir);
+&mkpath([$tmpDir], 0 , 0777) if ($tmpDir);
 
 # die Dumper($args);
 
@@ -113,7 +113,7 @@ sub stack_trace {
     }
     my $text = "";
     foreach my $dat (@history) {
-        $text .= sprintf("    [%5d] %s\n", @{$dat});
+        $text .= sprintf("    [%5d] %s\n", $dat->[0], $dat->[1]);
     }
     return $text || ""; # '-No stack trace-';
 }
@@ -810,7 +810,7 @@ sub primary_folder {
     }
     unless ($tasks{"PrimaryFolder-$dir"}++) {
         ## Make sure folder exists, add README
-        &mkpath([$dir]);
+        &mkpath([$dir], 0, 0777);
         &copy_template_file($tFile, "$dir/README.md", {
             AUTHORITY => $auth,
                             });
@@ -833,7 +833,7 @@ sub symlinked_paths {
     my $nsDir = sprintf('%s/byNamespace', $outDir );
     unless ($tasks{Symlinks}++) {
         # Set up the namespace folder
-         &mkpath([$nsDir]);
+         &mkpath([$nsDir], 0, 0777);
          &copy_template_file("byNamespaceReadme.md", "$nsDir/README.md");
     }
 
@@ -843,7 +843,7 @@ sub symlinked_paths {
         next unless ($nsa);
         my $nd = "$nsDir/". &_safe_file_fragment($nsa);
         unless ($tasks{"NS-$nsa"}++) {
-            &mkpath([$nd]);
+            &mkpath([$nd], 0, 0777);
             &copy_template_file("byNamespaceLvl1Readme.md", 
                                 "$nd/README.md", $param);
         }
@@ -852,7 +852,7 @@ sub symlinked_paths {
         next unless ($nsb);
         $nd = "$nd/". &_safe_file_fragment($nsb);
         unless ($tasks{"NS-$nsa-$nsb"}++) {
-            &mkpath([$nd]);
+            &mkpath([$nd], 0, 0777);
             &copy_template_file("byNamespaceLvl2Readme.md", 
                                 "$nd/README.md", $param);
         }
@@ -1069,7 +1069,7 @@ sub extract_taxa_info {
     ## With orthologues a fair number of taxa will need to be
     ## parsed. Set up caches of parsed information to allow faster
     ## re-dumping
-    my $cDir    = "$tmpDir/taxInfo"; &mkpath([$cDir]);
+    my $cDir    = "$tmpDir/taxInfo"; &mkpath([$cDir], 0, 0777);
     my $cFile   = "$cDir/$req.json";
     unless (-s $cFile) {
         open(TAX, "<$srcFile") || die 

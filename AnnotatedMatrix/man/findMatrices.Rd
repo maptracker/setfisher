@@ -5,7 +5,7 @@
 \title{Find Matrices}
 \usage{
 findMatrices(ns1 = NULL, ns2 = NULL, mod = NULL, type = NULL,
-  auth = NULL, vers = NULL, dir = getOption("annotatedmatrixdir"),
+  auth = NULL, vers = NULL, dir = annotatedMatrixParameter("dir"),
   recursive = TRUE, ignore.case = TRUE, most.recent = TRUE,
   regexp = FALSE, clear.cache = FALSE)
 }
@@ -83,4 +83,7 @@ The expected file format will be one of:
 ... keeping in mind that the relative order of NS1 and NS2 is
 irrelevant, and noting that some matricies will not have a modifier
 (MOD). It will be expected that the suffix be lower case.
+}
+\seealso{
+\link{annotatedMatrixParameter}
 }

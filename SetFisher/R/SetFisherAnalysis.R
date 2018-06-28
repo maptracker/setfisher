@@ -56,8 +56,6 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #'     ultimately be considered a full count.
 #' @field pseudoRound This is a pseudo-count based off of roundUp. It
 #'     is added to values before they are round()ed.
-#' @field filterLog data.frame storing filtering events that transpire
-#'     during the pruning of matrices prior to analysis.
 #' @field ontoNames Vector of all valid ontology terms following
 #'     filtering
 #' @field ontoSize Total number of Ontology terms surviving filtering
@@ -130,7 +128,6 @@ SetFisherAnalysis <-
                     ## pseudoRound is just (roundUp - 1) / roundUp
                     pseudoRound    = "numeric",
                     log            = "SetFisherLogger",
-                    filterLog      = "data.table",
                     ## qualities of the analysis or world as a whole:
                     ontoSize       = "integer", # Num of ontology terms
                     okInput        = "character", # 'legal' input IDs
@@ -167,6 +164,10 @@ SetFisherAnalysis$methods(
             "SetFisherAnalysis must define 'query' when created", fatal=TRUE)
         if (!is.def(ontology)) log$err(
             "SetFisherAnalysis must define 'ontology' when created", fatal=TRUE)
+
+
+
+        
         .self$.setParamDefs("
 Name         [character] Optional name for the analysis
 minMapMatch  [numeric] Minimum score required to keep a map matrix assignment
@@ -271,7 +272,9 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         }
         dateMessage(paste("Applying filters to matrices - ",
                           colorize(param("name"), "white")))
-        filterLog <<- data.table(id = character(), key = "id")
+
+        stop("HACKING CODE HERE - moving to AnnotatedMatrix")
+        
         ## Set queryUse to a boolean matrix
         queryUse <<- queryObj$matrixRaw != 0
         .shrinkQueryMatrix("absent in user-defined Query World")
@@ -1812,20 +1815,6 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         ## If we have modified the DF, return it
         if (changes > 0) return(res)
         NULL # Otherwise use NULL to prevent gratiuitous DF replication
-    },
-
-    showParameters = function () {
-        objName <- .self$.selfVarName("myAnalysis")
-        fmt <- sprintf("%s$param('%s', %s) : %%s\n", colorize(objName, "white"),
-                       colorize("%s", "purple"), colorize("%s", "red"))
-        lines <- character()
-        for (i in seq_len(nrow(paramDef))) {
-            k <- paramDef[i,"key"]
-            v <- param(k)
-            if (is.character(v)) v <- sprintf("'%s'", v)
-            lines <- c(lines, sprintf(fmt, k , v, paramDef[i, "description"]))
-        }
-        cat(paste(lines, collapse=""))        
     },
 
     usage = function() {

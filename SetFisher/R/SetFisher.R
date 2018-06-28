@@ -85,7 +85,9 @@ SetFisher$methods(
         if (is.character(x)) {
             ## File path
             rv <- matrixCache[[ x ]]
-            if (is.null(rv)) rv <- matrixCache[[ x ]] <<-
+            if (is.null(rv)) {
+                matrixCache[[ x ]] <<- rv <- AnnotatedMatrix(file=x)
+             }
                 SetFisherMatrix( file = x, setfisher = .self, ... )
         } else if (inherits(x, "SetFisherMatrix")) {
             ## Already a matrix object

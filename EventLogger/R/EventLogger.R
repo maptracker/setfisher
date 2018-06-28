@@ -277,9 +277,13 @@ Create a new object using EventLogger():
             } else {
                 ## We want to report the time used for each step
                 HMS <- difftime(HMS[ 2:nl ], HMS[ 1:(nl-1) ], units="secs")
-                ## The first time has no delta, add an empty string
-                HMS <- c(strrep(" ",pad),
-                         unlist(lapply(HMS, tidyTime, pad = pad)) )
+                ## The times are deltas, so one line will not have a
+                ## time associated with it. This seems to "line up"
+                ## best if the non-stamped event is the last one,
+                ## presuming that messages are "emitted" at the start
+                ## of an event, rather than the end.
+                HMS <- c(unlist(lapply(HMS, tidyTime, pad = pad)),
+                         strrep(" ",pad) )
             }
         } else {
             HMS <- colorize(format(HMS, "%H:%M:%S"), "yellow")
