@@ -407,13 +407,13 @@ sub _initial_mtx_block {
 
 sub _dim_block {
     ## Parsed comment block with descriptive elements for the 
-    my $tags = shift || {};
+    my ($tags, $tagCom) = (shift || {}, shift || {});
     my $rv  = "";;
     my $rnm = $tags->{RowDim} || "";
     my $cnm = $tags->{ColDim} || "";
-    $rv .= &_default_parameter( "RowDim", $rnm, "Rows are ${rnm}s" );
+    $rv .= &_default_parameter( "RowDim", $rnm, "Rows are ${rnm} ids" );
     $rv .= &_default_parameter( "RowUrl", $tags->{RowUrl});
-    $rv .= &_default_parameter( "ColDim", $cnm, "Columns are ${cnm}s" );
+    $rv .= &_default_parameter( "ColDim", $cnm, "Columns are ${cnm} ids" );
     $rv .= &_default_parameter( "ColUrl", $tags->{ColUrl});
     $rv .= &_default_parameter( "CellDim", $tags->{CellDim},
                                 "Cells are themselves distinct objects!" );
@@ -421,7 +421,10 @@ sub _dim_block {
     $rv .= &_default_parameter( "Source", $tags->{Source},
                                 "Data source(s):", " // ");
     $rv .= &_default_parameter( "Authority", $tags->{Authority});
-    $rv .= &_default_parameter( "Version", $tags->{Version});
+    $rv .= &_default_parameter( "Version", $tags->{Version}, 
+                                $tagCom->{Version});
+    $rv .= &_default_parameter( "Revision", $tags->{Revision}, 
+                                $tagCom->{Revision});
     $rv .= "%\n" if ($rv);
     return $rv;
 }
