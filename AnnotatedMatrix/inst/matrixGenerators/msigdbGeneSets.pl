@@ -24,11 +24,6 @@ my $today = sprintf("%04d-%02d-%02d", $year+1900, $mon+1, $day);
 
 
 my $xml     = $args->{xml};
-my $fileReq = $args->{file};
-my $pmdb    = $args->{pubmeddb};
-my $email   = $args->{email};
-my $analyze = $args->{analyze};
-my $keepxml = $args->{keepxml};
 
 if ($args->{h} || $args->{help} || !$xml ) {
     warn "
@@ -148,7 +143,40 @@ my $subCatNames = {
 my $saxData = { };
 
 &parseXML();
+
+&generateMatrices();
+
 print Dumper($saxData->{subCat}); die;
+
+sub generateMatrices {
+    foreach my $catSpec (sort keys %{$saxData->{sets}}) {
+        my $cH    = $data->{sets}{$catSpec};
+        &generateMatrix( $cH );
+    }
+}
+
+sub generateMatrix {
+    my $cH = shift;
+        my %fbits = (type => $type,  mod  => $specID,
+                     ns1  => $nsi,   ns2  => $nsj,
+                     auth => $auth,  vers => $versToken,  
+                     dir => "$auth/$versToken");
+        
+        my $meta = {
+            MatrixType => $fbits{type},
+            Modifier   => $fbits{mod},
+            Source     => $ftpDir,
+            Namespace  => [$nsi, $nsj],
+        };
+        my $fmeta = { %{$stashMeta}, %{$meta} };
+        my $trg   = &primary_path(%fbits);
+        unless (&output_needs_creation($trg)) {
+            &msg("Keeping existing $nsj file:", $trg);
+            &post_process( %fbits, meta => $fmeta );
+            next;
+        }
+        &msg("Structuring GeneOntology for $nsi");
+}
 
 
 sub parseXML {
