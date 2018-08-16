@@ -15,53 +15,67 @@
 #'
 #' @importFrom dynamictable dynamictable
 #' @importFrom methods setRefClass new
+#' @importFrom CatMisc methodHelp
+#'
+#' @import ParamSetI
 #'
 #' @export SetFisher
 #' @exportClass SetFisher
-#' 
-#' @include SetFisherParamI.R
-#' @include SetFisherLogger.R
-#' @include SetFisherLoggerI.R
-#'
 
 SetFisher <-
     setRefClass("SetFisher",
                 fields = list(
-                    log         = "SetFisherLogger",
                     defQryObj   = "ANY", ## SetFisherMatrix
                     defMapObj   = "ANY", ## Will cause recursion if set, though
                     defQryWorld = "ANY", ## Default world of IDs
-                    lastTop     = "data.frame", # last topResults()
                     matrixCache = "list",
+                    lastTop     = "data.frame", # last topResults()
                     anaCache    = "list"
                     ),
-                contains = c("SetFisherParamI", "SetFisherLoggerI")
+                contains = c("ParamSetI")
                 )
 
 
 SetFisher$methods(
     
     ## https://stackoverflow.com/a/13518804
-    initialize = function(..., query = NULL, 
-        log = SetFisherLogger(), matrixCache = list() ) {
-        callSuper(..., log = log, matrixCache = matrixCache )
+    initialize = function(..., params=NA, matrixCache=list(), help=FALSE ) {
+        "Create a new SetFisher object; Invoke with SetFisher(...)"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+        callSuper(matrixCache=matrixCache, params=params, paramDefinitions="
+", ...)
     },
 
-    defaultQuery = function ( x = NULL, ... ) {
-        ## Optionally default query matrix
+    defaultQuery = function (x=NULL, help=FALSE, ... ) {
+        "Set/Get an optional default query matrix"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
         if (!is.null(x)) {
-            invisible(defQryObj <<- matrix( x, ... ))
-        } else if (is.empty.field(defQryObj)) {
+            invisible(defQryObj <<- annotatedMatrix( x, ... ))
+        } else if (CatMisc::is.empty.field(defQryObj)) {
             NULL
         } else {
             defQryObj
         }
     },
 
-    defaultMap = function ( x = NULL, ... ) {
-        ## Optionally default query matrix
+    defaultMap = function (x=NULL, help=FALSE, ... ) {
+        "Set/Get an optional default map matrix"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
         if (!is.null(x)) {
-            invisible(defMapObj <<- matrix( x, ... ))
+            invisible(defMapObj <<- annotatedMatrix( x, ... ))
         } else if (is.empty.field(defMapObj)) {
             NULL
         } else {
@@ -69,8 +83,14 @@ SetFisher$methods(
         }
     },
 
-    defaultQueryWorld = function ( x = NULL, ... ) {
-        ## Optionally default query matrix
+    defaultQueryWorld = function ( x=NULL, help=FALSE ) {
+        "Set/Get an optional default query world"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
         if (!is.null(x)) {
             invisible(defQryWorld <<- x)
         } else if (is.empty.field(defQryWorld)) {
@@ -80,20 +100,30 @@ SetFisher$methods(
         }
     },
 
-    matrix = function ( x = NA, ... ) {
-        rv <- NULL
-        if (is.character(x)) {
-            ## File path
-            rv <- matrixCache[[ x ]]
-            if (is.null(rv)) {
-                matrixCache[[ x ]] <<- rv <- AnnotatedMatrix(file=x)
-             }
-                SetFisherMatrix( file = x, setfisher = .self, ... )
-        } else if (inherits(x, "SetFisherMatrix")) {
-            ## Already a matrix object
-            rv <- x
+    annotatedMatrix = function ( x=NA, help=FALSE, ... ) {
+        "Recover an AnnotatedMatrix, from the internal cache if available"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
         }
-        rv
+
+        if (is.character(x)) {
+            ## Presumably a file path
+            if (is.null(matrixCache[[ x ]])) {
+                ## Not yet in the cache
+                matrixCache[[ x ]] <<- AnnotatedMatrix(file=x, ...)
+            } else {
+                ## Already cached
+                matrixCache[[ x ]]
+            }
+        } else if (inherits(x, "AnnotatedMatrix")) {
+            ## Already a matrix object
+            x
+        } else {
+            err("Failed to recover matrix - not sure what to do with request of type ", storage.mode(x))
+            NULL
+        }
     },
 
     analysis = function ( ontology = NULL, query = NULL, idmap = NULL,
@@ -130,12 +160,12 @@ SetFisher$methods(
             ## If a unique name match was found, return it
             if (length(nameMatch) == 1) return(anaCache[[nameMatch]])
         }
-        qObj <- .self$matrix(if (is.null(query)) {defaultQuery()} else {query})
+        qObj <- .self$annotatedMatrix(if (is.null(query)) {defaultQuery()} else {query})
         if (!is.def(qObj)) err("SetFisherAnalysis objects must define 'query' when created", fatal = TRUE)
-        oObj <- .self$matrix( ontology )
+        oObj <- .self$annotatedMatrix( ontology )
         if (!is.def(oObj)) err("SetFisherAnalysis objects must define 'ontology' when created", fatal = TRUE)
         mObj <- if (is.def(idmap)) {idmap} else {defaultMap()}
-        mObj <- if (is.def(mObj))  {.self$matrix(mObj)} else { NA }
+        mObj <- if (is.def(mObj))  {.self$annotatedMatrix(mObj)} else { NA }
         qWld <- if (is.def(queryworld)) {queryworld} else {defaultQueryWorld()}
         
         ## The analysis is the unique combination of the three
@@ -312,9 +342,9 @@ SetFisher$methods(
         }
 
         ## Set some default values
-        params <- list()
+        dtParams <- list()
         ## Default column names
-        params[[ 'coltitle' ]] <- list(
+        dtParams[[ 'coltitle' ]] <- list(
             term = "The ontology term being tested for enrichment",
             listName = "The name of your submitted list of IDs",
             logPV = "-log10(adjusted hypergeometric p-value), with negative values indicating UNDER-enrichment",
@@ -336,22 +366,22 @@ SetFisher$methods(
         foldOpts <- list(binVals   = 10 ^ seq(-1,1, length.out=15),
                          highstyle = "color: yellow; background-color: red",
                          lowstyle  = "color: yellow; background-color: blue")
-        params[[ 'gradient' ]] <- list(logPV = pvOpts, RawLogPV = pvOpts,
+        dtParams[[ 'gradient' ]] <- list(logPV = pvOpts, RawLogPV = pvOpts,
                                        "i/N" = perOpts, "n/W" = perOpts,
                                        Enrich = foldOpts)
-        params[[ 'truncate' ]] <- list('*' = 50 )
-        params[[ 'factor' ]]   <- list(Ontology = list(r=255, textFilter=TRUE),
+        dtParams[[ 'truncate' ]] <- list('*' = 50 )
+        dtParams[[ 'factor' ]]   <- list(Ontology = list(r=255, textFilter=TRUE),
                                        listName = list(g=255, textFilter=TRUE))
         ## Colorize term column by the ontology it comes from:
-        params[[ 'byFactor' ]] <- list(term = 'Ontology' )
-        params[[ 'hide' ]]     <- list(Ontology = TRUE,
+        dtParams[[ 'byFactor' ]] <- list(term = 'Ontology' )
+        dtParams[[ 'hide' ]]     <- list(Ontology = TRUE,
                                        'listName Description' = TRUE,
                                        'term Description' = FALSE)
-        params[[ 'title'    ]] <- list(listName = 'listName Description',
+        dtParams[[ 'title'    ]] <- list(listName = 'listName Description',
                                        term = 'Ontology')
-        params[[ 'spacemap' ]] <- list(Ontology = '_', term = '_' )
-        params[[ 'percent'  ]] <- list("i/N" = TRUE, "n/W" = TRUE)
-        params[[ 'fold'     ]] <- list("Enrich" = TRUE)
+        dtParams[[ 'spacemap' ]] <- list(Ontology = '_', term = '_' )
+        dtParams[[ 'percent'  ]] <- list("i/N" = TRUE, "n/W" = TRUE)
+        dtParams[[ 'fold'     ]] <- list("Enrich" = TRUE)
 
         ## Add in basic statstics (marble count) columns:
         cnames <- colnames(res)
@@ -373,7 +403,7 @@ SetFisher$methods(
         }
         dynamictable( res, file=file, header=caption, show.attr=show.attr,
                      cols=cols, footer=footer, style=style, favicon=favicon,
-                     params=params, ...)
+                     params=dtParams, ...)
      },
 
     
