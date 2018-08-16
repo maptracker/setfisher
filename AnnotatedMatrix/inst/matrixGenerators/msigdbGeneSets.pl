@@ -16,11 +16,12 @@ require Utils;
 our ($args, $clobber, $ftp, $tmpDir, $maxAbst, $bar);
 my (%doneStuff);
 
-my $revision = '1';
 my $revNotes = {
     '0' => "# Beta code, still under development",
     '1' => "# Functional matrices being generated",
+    '2' => "# Handling non-UTF8 characters in XML data",
 };
+my ($revision) = sort { $b <=> $a } keys %{$revNotes};
 
 use XML::Parser::PerlSAX;
 # print Dumper($args); die;
@@ -267,25 +268,40 @@ sub generateMatrix {
     ## Just include populated metadata for the columns. Some
     ## collections (eg C1.Positional) have sparser annotation than
     ## others.
-    my @usedColMeta;
-    foreach my $scm (@stndColMeta) {
-        for my $c (0..$#cids) {
-            if ($cm{$cids[$c]}{$scm}) {
-                push @usedColMeta, $scm;
-                last;
+
+    my @metaSource = (\@stndRowMeta, \@stndColMeta);
+    my @metaValues = (\%rm,          \%cm);
+    my @idValues   = (\@rids,        \@cids);
+    my @usedMeta   = ([],            []);
+    for my $i (0..1) {
+        ## Inspect both rows and columns
+        foreach my $sm (@{$metaSource[$i]}) {
+            ## For each standard meta name...
+            my $idArr  = $idValues[$i];
+            my $mvHash = $metaValues[$i];
+            for my $j (0..$#{$idArr}) {
+                ## Cycle through the IDs
+                if ($mvHash->{$idArr->[$j]}{$sm}) {
+                    ## If we find an ID that has the meta value
+                    ## assigned, note that we will be keeping it (and
+                    ## stop scanning IDs)
+                    push @{$usedMeta[$i]}, $sm;
+                    last;
+                }
             }
         }
     }
 
+    ## Descriptions for each metadata column
     my $usedColDef = { map {$_ => $defColDef->{$_} } 
-                       (@stndRowMeta, @usedColMeta) };
-
+                       (@{$usedMeta[0]}, @{$usedMeta[1]}) };
     print FH &_rowcol_meta_comment_block( $usedColDef );
+    
     ## Row metadata
-    print FH &_generic_meta_block(\@rids, 'Row', \%rm, \@stndRowMeta);
+    print FH &_generic_meta_block(\@rids, 'Row', \%rm, $usedMeta[0]);
     print FH "% $bar\n";
 
-    print FH &_generic_meta_block(\@cids, 'Col', \%cm, \@usedColMeta);
+    print FH &_generic_meta_block(\@cids, 'Col', \%cm, $usedMeta[1]);
     print FH "% $bar\n";
     
     ## Make the Row-Col connections. All scores are '1'
@@ -340,6 +356,7 @@ attributes.
 package MSigDBHandler;
 
 use Data::Dumper;
+use Encode qw(encode);
 
 sub new {
     my $proto = shift;
@@ -377,6 +394,13 @@ sub process_set {
     my $node = shift;
     my $data = $self->{data};
     my %attr = %{$node->{Attributes}};
+    while (my ($k, $v) = each %attr) {
+        ## C6_Oncogenic TGFB_UP.V1_DN / _UP has a "wide" non-UTF8
+        ## character at the end of the author list. This makes R's
+        ## grep Very Unhappy. Mask out non-UTF8 characters
+        $attr{$k} = encode('UTF-8', $v, Encode::FB_CROAK);
+        ##   https://stackoverflow.com/a/14509489
+    }
     my $cat  = $attr{CATEGORY_CODE} || 'UNK';
     my $spec = $attr{ORGANISM} || "SPECIES NOT SET";
     if ($cat eq 'ARCHIVED') {
