@@ -6,9 +6,13 @@ typicalEnsSuffix <- '_gene_ensembl'
 #' Generates an Ensembl AnnotatedMatrix file
 #'
 #' @param dataset Default \code{NULL}, which will recover all
-#'     available datasets from BioMart. Can alternatively be a vector of one or more datasets. The '
+#'     available datasets from BioMart. Can alternatively be a vector
+#'     of one or more datasets.
+#' @param \dots Passed on to BioMart functions
 #'
 #' @details
+#'
+#' WORK IN PROGRESS
 #'
 #' @export
 

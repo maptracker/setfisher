@@ -395,26 +395,25 @@ uniqueNames <- function(names = character(), rpt = NULL,
                          valid = FALSE, verbose=TRUE ) {
     ## Normalize names for rows/columns, and also record (and
     ## optionally report) any differences
-    goodNames <- NULL
-    if (valid) {
+    goodNames <- if (valid) {
         ## Also make the names valid
-        goodNames <- make.names( names, unique = TRUE )
+        make.names( names, unique=TRUE )
     } else {
-        goodNames <- make.unique( names )
+        make.unique( names )
     }
     changes   <- NULL
     if (!identical(names, goodNames)) {
         ## Some changes were made. Note them as a (good)named subset
         diff    <- goodNames != names
         changes <- stats::setNames(names[diff], goodNames[diff])
-        if (!is.null(rpt) && verbose) {
+        numChng <- length(changes)
+        if (!is.null(rpt) && verbose && numChng != 0) {
             ## Note the changes to STDERR
-            num <- sum(diff)
-            msg <- crayon::bgCyan(paste(num,rpt,"required alteration"))
-            if (num <= 20) msg <- c(msg, vapply(seq_len(length(changes)),
+            msg <- crayon::bgCyan(paste(numChng, rpt, "required alteration"))
+            if (numChng <= 20) msg <- c(msg, vapply(seq_len(numChng),
                    function (i) {
                        sprintf("  '%s' -> '%s'",changes[i],
-                               names(changes)[i])
+                               base::names(changes)[i])
                    }, ""))
             message(msg, collapse = "\n")
         }
@@ -978,4 +977,41 @@ Coquerels sifaka         : Coquerel's sifaka
         cNames[ which(ens == cNames) ] <- e2n[2]
     }
     stats::setNames(cNames, x$dataset)
+}
+
+#' Generate MTX RDS
+#'
+#' Little tool function to pre-calculate RDS files from MTX
+#'
+#' @details
+#'
+#' Matrix generation scripts will make a collection of 'raw' (text)
+#' MTX files. When these files are passed to AnnotatedMatrix, they
+#' will be parsed to extract the sparse matrix, and to process the
+#' various annotations. Since this takes time, the end result will be
+#' cached as a serialized RDS object with the same file path plus
+#' '.rds'.
+#'
+#' This function merely takes a folder path as input, finds all .mtx
+#' files under it, and loads them in AnnotatedMatrix to pre-generate
+#' the RDS files. In some circumstances this may increase the
+#' satisfaction of particularly impatient colleagues.
+#'
+#' @param path Required, the path to the folder to inspect
+#' @param recursive Default \code{TRUE}, which will cause subfolders
+#'     to also be processed
+#'
+#' @return A character vector of file paths that were processed
+#'
+#' @export
+
+generateMtxRds <- function (path, recursive=TRUE) {
+    files <- list.files(path, pattern='\\.mtx$', ignore.case=TRUE,
+                        recursive=recursive)
+    for (file in files) {
+        message("Pre-parsing ", file)
+        fullPath <- file.path(path, file)
+        tmp <- AnnotatedMatrix(fullPath)
+    }
+    invisible(files)
 }

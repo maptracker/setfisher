@@ -6,9 +6,16 @@
 \usage{
 makeEnsemblMatrix(dataset = NULL, ...)
 }
+\arguments{
+\item{dataset}{Default \code{NULL}, which will recover all
+available datasets from BioMart. Can alternatively be a vector
+of one or more datasets.}
+
+\item{\dots}{Passed on to BioMart functions}
+}
 \description{
 Generates an Ensembl AnnotatedMatrix file
 }
 \details{
-
+WORK IN PROGRESS
 }
