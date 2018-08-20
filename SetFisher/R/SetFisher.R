@@ -118,7 +118,8 @@ SetFisher$methods(
                 matrixCache[[ x ]]
             }
         } else if (inherits(x, "AnnotatedMatrix")) {
-            ## Already a matrix object
+            ## Already a matrix object, just return it as-is.
+            ## There isn't really a good anchor to
             x
         } else {
             err("Failed to recover matrix - not sure what to do with request of type ", storage.mode(x))
@@ -126,11 +127,18 @@ SetFisher$methods(
         }
     },
 
-    analysis = function ( ontology = NULL, query = NULL, idmap = NULL,
-        name = NULL, queryworld = NULL, ... ) {
+    analysis = function (ontology, query=NULL, idmap=NULL,
+        name=NULL, queryworld=NULL, help=FALSE, ... ) {
+        "Create a SetFisher analysis object or recover one already created"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
         numStored <- length(anaCache)
         if (is.numeric(ontology) && ontology > 0 &&
-            base::all.equal(ontology, floor(ontology))) {
+            all.equal(ontology, floor(ontology))) {
             ## If the first argument is an integer number, presume
             ## that an already loaded analysis is being requested by
             ## index.
@@ -160,13 +168,16 @@ SetFisher$methods(
             ## If a unique name match was found, return it
             if (length(nameMatch) == 1) return(anaCache[[nameMatch]])
         }
-        qObj <- .self$annotatedMatrix(if (is.null(query)) {defaultQuery()} else {query})
-        if (!is.def(qObj)) err("SetFisherAnalysis objects must define 'query' when created", fatal = TRUE)
-        oObj <- .self$annotatedMatrix( ontology )
-        if (!is.def(oObj)) err("SetFisherAnalysis objects must define 'ontology' when created", fatal = TRUE)
-        mObj <- if (is.def(idmap)) {idmap} else {defaultMap()}
-        mObj <- if (is.def(mObj))  {.self$annotatedMatrix(mObj)} else { NA }
-        qWld <- if (is.def(queryworld)) {queryworld} else {defaultQueryWorld()}
+        qObj <- annotatedMatrix(if (is.null(query)) {
+                                    defaultQuery() } else { query })
+        if (!CatMisc::is.def(qObj)) err("SetFisherAnalysis objects must define 'query' when created", fatal = TRUE)
+        oObj <- annotatedMatrix( ontology )
+        if (!CatMisc::is.def(oObj)) err("SetFisherAnalysis objects must define 'ontology' when created", fatal = TRUE)
+        mObj <- if (CatMisc::is.def(idmap)) {idmap} else {defaultMap()}
+        mObj <- if (CatMisc::is.def(mObj))  {
+                    annotatedMatrix(mObj) } else { NA }
+        qWld <- if (CatMisc::is.def(queryworld)) {
+                    queryworld } else { defaultQueryWorld() }
         
         ## The analysis is the unique combination of the three
         ## matrices. Build a key based on the file paths representing
@@ -174,12 +185,12 @@ SetFisher$methods(
         ## can not load multiple analyses from the same files but with
         ## different parameters.
         anaKey <- paste(oObj$file, qObj$file,
-                        if (is.def(mObj)) { mObj$file } else {'NA'},
+                        if (CatMisc::is.def(mObj)) { mObj$file } else {'NA'},
                         collapse = " + ")
         if (is.null(anaCache[[ anaKey ]])) {
             if (is.null(name)) {
                 oname <- oObj$param("name")
-                if (is.def(oname)) {
+                if (CatMisc::is.def(oname)) {
                     name <- sprintf("%s Analysis", oname)
                 } else {
                     name <- sprintf("Analysis #%d", anaNum)
@@ -194,24 +205,37 @@ SetFisher$methods(
         anaCache[[ anaKey ]]
     },
 
-    analysesFromDirectory = function(dir, query = NULL, idmap = NULL,
-        pattern=NULL, skip=NULL, ...) {
-        files <- list.files(dir, pattern = pattern, full.names=TRUE, ...)
-        rv <- list()
-        l <- 0
+    analysesFromDirectory = function(dir, query=NULL, idmap=NULL,
+                                     pattern=NULL, skip=NULL, help=FALSE, ...) {
+        "Make a SetFisherAnalysis object for each ontology in a directory"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
+        files <- list.files(dir, pattern=pattern, full.names=TRUE, ...)
+        rv    <- list()
+        l     <- 0
         for (f in files) {
             ## If a skip pattern was provided, skip any matching file names
             if (!is.null(skip) && any(grepl(skip, f))) next
             l <- l + 1
             rv[[ l ]] <- NA
-            a <- analysis(query = query, ontology = f, idmap = idmap,
-                          ...)
+            a <- analysis(query=query, ontology=f, idmap=idmap, ...)
             rv[[ l ]] <- a
         }
         rv
     },
 
-    processAll = function ( ... ) {
+    processAll = function ( help=FALSE, ... ) {
+        "Filter, process, adjust and report all analyses held by SetFisher"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
         for (ana in anaCache) {
             try({
                 ana$filter( )
@@ -222,20 +246,14 @@ SetFisher$methods(
         topResults( ... )
     },
 
-    analysisNames = function (trim.names = TRUE, ...) {
-        ## Named vector of analysis names. If trimming is requested,
-        ## then commonly shared text at the start and end of each name
-        ## is removed.
-        
-        ## Designed to turn this:
-        ##    Human Entrez GeneOntology Analysis
-        ##    Human Entrez MSigDB - Oncogenic Signatures Analysis
-        ##    Human Entrez WikiPathways Analysis
-        ## ... into something a bit less awkward:
-        ##    GeneOntology
-        ##    MSigDB - Oncogenic Signatures
-        ##    WikiPathways
-        
+    analysisNames = function (trim.names=TRUE, help=FALSE, ...) {
+        "Takes a set of analysis and shortens their names by removing 'common bits'"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
         oNames <- character()
         for (ana in anaCache) {
             aname   <- ana$param("name")
@@ -259,8 +277,15 @@ SetFisher$methods(
         oNames
     },
 
-    topResults = function (...) {
-        merged  <- data.frame(term = character(), listName = character(),
+    topResults = function ( help=FALSE, ...) {
+        "Generate a data frame summarizing the top results from all analyses"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
+       merged  <- data.frame(term = character(), listName = character(),
                               logPV = numeric())
         
         numOnto <- length(anaCache)
@@ -292,18 +317,26 @@ SetFisher$methods(
                 traceback()
             })
             if (is.null(tr)) {
-            ##    err(paste("Failed to process analysis", aname))
-            ##    traceback()
+                ##    err(paste("Failed to process analysis", aname))
+                ##    traceback()
             }
         }
-        lastTop <<- merged[ order(abs(merged$logPV), decreasing = TRUE), ]
-        attr(lastTop, "run") <<- TRUE
+        lastTop <<- merged[ order(abs(merged$logPV), decreasing=TRUE), ]
+        attr(lastTop, "run") <<- TRUE # Success flag
         lastTop
     },
-    tsvtable = function(res=NA, file=NA, force=FALSE, ...) {
-        if (!is.def(res)) {
+
+    tsvtable = function(res=NA, file=NA, force=FALSE, help=FALSE, ...) {
+        "Convert a top results data frame to a TSV file"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
+        if (!CatMisc::is.def(res)) {
             ## No results provided
-            if (is.something(attr(lastTop, "run"))) {
+            if (CatMisc::is.something(attr(lastTop, "run"))) {
                 res <- lastTop
             } else {
                 if (length(anaCache) == 0) {
@@ -313,20 +346,27 @@ SetFisher$methods(
                 res <- processAll( force=force, ... )
             }
         }
-        if (!is.def(file)) file <- tempfile("SetFisher-", fileext=".txt" )
+        if (!CatMisc::is.def(file)) file <- tempfile("SetFisher-", fileext=".txt" )
         write.table(res, file, quote=FALSE, sep="\t", na="", row.names=FALSE)
         file
     },
+
     htmltable = function (res=NA, file=NA, caption=NULL, show.attr=FALSE,
         cols=c("term","term Description", "listName", "logPV", "RawLogPV",
             "i","N","i/N","n","W","n/W","Enrich"), ontology.stats=TRUE,
         footer=character(), style=character(), force=FALSE,
         favicon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4QIHDyEOlqB2hwAAAAh0RVh0Q29tbWVudAD2zJa/AAAA0ElEQVQ4y6WTvQ3CMBSEv1gIUVCkYg0zQpQJaBiEDbKRM0HECLAGjWNEgZBMKHgRkeXYIE666v3p7uwCYLO9aaABat7ogOZyWp/JoJDhI1AGtR6ockuUXC4jtVJq5BbUiXoN4EF7MB6c0HjQAIvU9uXzjjSGEndA5aFSYlgUD7XqchJHD/pIQx8kE5WoxOUKaIGrsP0mgRAaMIATGj7mDTM002ELDAHtAfYebGTYjkkg14YZmlSMI1xigcs9pL+gJp9nDt23CURNJND6c4y5oRc3enezXu9KOQAAAABJRU5ErkJggg==",
-        ...) {
-        
-        if (!is.def(res)) {
+        help=FALSE, ...) {
+        "Convert a top results data frame to a dynamic HTML table"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+       
+        if (!CatMisc::is.def(res)) {
             ## No results provided
-            if (is.something(attr(lastTop, "run"))) {
+            if (CatMisc::is.something(attr(lastTop, "run"))) {
                 res <- lastTop
             } else {
                 if (length(anaCache) == 0) {
@@ -336,9 +376,9 @@ SetFisher$methods(
                 res <- processAll( force=force, ... )
             }
         }
-        if (!is.def(caption)) {
+        if (!CatMisc::is.def(caption)) {
             caption <- attr(res, "caption")
-            if (!is.def(caption)) caption <- "Unified report for SetFisher"
+            if (!CatMisc::is.def(caption)) caption <- "Unified report for SetFisher"
         }
 
         ## Set some default values
@@ -399,35 +439,41 @@ SetFisher$methods(
             }
         }
         if (ontology.stats) {
+            ## WHAT IN THE WORLD WAS I PLANNING HERE?
             
+            ## I think these were to be new columns reflecting somehow
+            ## on the ontologies? I need to find my notes...
         }
         dynamictable( res, file=file, header=caption, show.attr=show.attr,
                      cols=cols, footer=footer, style=style, favicon=favicon,
                      params=dtParams, ...)
-     },
+    },
 
     
     ##     basichtml(sf$lastTop)
+    datatable = function( res=NA, caption=NULL, help=TRUE, ... ) {
+        "Convert a top results data frame to a data.table"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
 
-
-
-    
-    datatable = function( res = NA, caption=NULL, ... ) {
         if (length(anaCache) == 0) {
-            err("Can not generate htmltable() without at least one analysis")
+            err("Can not generate datatable() without at least one analysis")
             return(NULL)
         }
-        if (!is.def(res)) {
+        if (!CatMisc::is.def(res)) {
             ## No results provided
-            if (is.def(lastTop)) {
+            if (CatMisc::is.def(lastTop)) {
                 res <- lastTop
             } else {
                 res <- topResults( ... )
             }
         }
-        if (!is.def(caption)) {
+        if (!CatMisc::is.def(caption)) {
             caption <- attr(res, "caption")
-            if (!is.def(caption)) caption <- "Unified report for SetFisher"
+            if (!CatMisc::is.def(caption)) caption <- "Unified report for SetFisher"
         }
 
         ## Arbitrarily take the first analysis object and use it to
@@ -451,25 +497,34 @@ SetFisher$methods(
            res   <- adjustResults( ... )
            
         }
+        ## STILL WORKING ON IT
+        "Feature not yet implemented"
     },
 
-    show = function ( ) { cat( .showText() ) },
+    show = function ( ) { cat( setFisherText() ) },
 
-    .showText = function ( color=TRUE ) {
+    setFisherText = function ( color=TRUE, help=FALSE ) {
+        "Generate a compact text summary of the object, used by show()"
+        if (help) {
+            print( CatMisc::methodHelp(match.call(), class(.self),
+                                       names(.refClassDef@contains)) )
+            return(NA)
+        }
+
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         objName <- .self$.selfVarName("mySetFisher")
         colObj  <- doCol(objName, "white")
         msg <- doCol(sprintf("%s base-level object\n",
                                 class(.self)[1]), "blue")
-        dQ <- if (is.def(defQryObj)) { defQryObj } else { NA }
-        dM <- if (is.def(defMapObj)) { defMapObj } else { NA }
-        if (is.def(dQ)) {
+        dQ <- if (CatMisc::is.def(defQryObj)) { defQryObj } else { NA }
+        dM <- if (CatMisc::is.def(defMapObj)) { defMapObj } else { NA }
+        if (CatMisc::is.def(dQ)) {
             name <- doCol(dQ$param("name", default = dQ$file), "yellow")
             msg <- sprintf("%s  %s ( %s$defQryObj ):\n   %s\n", msg,
                            doCol("Default Query", "blue"), colObj,
                            name)
         }
-        if (is.def(dM)) {
+        if (CatMisc::is.def(dM)) {
             msg <- sprintf("%s  Default Map: %s (%s$defMapObj)\n", msg,
                            doCol(dM$param("name", default = dM$file), "red"), colObj)
         }
@@ -489,7 +544,7 @@ SetFisher$methods(
                 if (!identical(qObj, dQ)) msg <-
                     sprintf("%s    Query: %s\n", msg, doCol(
                         qObj$param("name", default = "-No name-"), "blue"))
-                if (is.def(ana$mapObj) && !identical(ana$mapObj, dM)) msg <-
+                if (CatMisc::is.def(ana$mapObj) && !identical(ana$mapObj, dM)) msg <-
                     sprintf("%s      Map: %s\n", msg, doCol(
                         ana$mapObj$param("name", default = "-No name-"), "red"))
                 msg <- paste(msg, ana$.ontologySummaryText(pad = "  ", color=color))
@@ -512,7 +567,28 @@ SetFisher$methods(
 .strReverse <- function(x) sapply(lapply(strsplit(x, NULL), rev),
                                   paste, collapse="")
 
-.sharedSubstring <- function (x, left.side = TRUE) {
+#' Shared Substring
+#'
+#' Find a common substring on the left or right of a set of strings
+#' 
+#' @name dotSharedSubstring
+#'
+#' @details
+#'
+#' Will identify characters common to all provided strings on either
+#' the left or right side. Used for trimming away names to produce
+#' more compact reports.
+#'
+#' @param x Required, a character vector of strings
+#' @param left.side Default \code{TRUE}, which will process the left
+#'     side of the strings. If FALSE it will ... wait for it
+#'     ... process the \strong{RIGHT} side of the string.
+#'
+#' @return A string representing the common part of all strings.
+#'
+#' @keywords internal
+
+.sharedSubstring <- function (x, left.side=TRUE) {
     ## Lightly adapted from Bioconductor source code for lcPrefix:
     ## https://github.com/Bioconductor-mirror/Biobase/blob/master/R/strings.R
     ##    License: Artistic-2.0
