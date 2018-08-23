@@ -56,6 +56,9 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' @field matrixMD data.table holding metadata associated with the
 #'     matrix
 #' @field lvlVal Character array of level names for factor matrices
+#' @field modState Numeric value tracking modifications. Allows
+#'     external code to determine if the object has been modified
+#'     since it was last seen.
 #' @field filterLog data.frame storing filtering events that transpire
 #'     during the pruning of matrices prior to analysis.
 #' @field setFilters Human- and machine-readable character vector of
@@ -118,6 +121,7 @@ AnnotatedMatrix <-
                     filterLog  = "data.table",
                     setFilters = "character",
                     lvlVal     = "character",
+                    modState   = "numeric",
 
                     ## If row or column names need to be remapped:
                     rowChanges = "character",
@@ -174,7 +178,8 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 ", ...)
         if (!CatMisc::is.def(file))
             err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
-        fromRDS <<- FALSE
+        fromRDS  <<- FALSE
+        modState <<- 0
         if (inherits(file, "dgTMatrix")) {
             ## The file path is actually a sparse matrix. We are
             ## building an object from scratch.
@@ -222,6 +227,11 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             dimnames(rv) <- smid
         }
         rv
+    },
+
+    .gotModified = function(increment=1) {
+        "Internal function to update the modification state of the object"
+        modState <<- modState + increment
     },
 
     rNames = function(new=NULL, raw=FALSE, nonzero=FALSE, reason=NA,
@@ -282,6 +292,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             ## No new rows, just a reshuffle and/or removal of existing names
             matrixUse <<- obj[ new, , drop=FALSE ]
         }
+        .gotModified()
         .addAppliedFilter("ROWORDER", new, reason)
         ## Just return the provided value back to the user
         new
@@ -342,6 +353,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             ## No new columns, just a reshuffle and/or removal of existing names
             matrixUse <<- obj[ , new, drop=FALSE ]
         }
+        .gotModified()
         .addAppliedFilter("COLORDER", new, reason)
         ## Just return the provided value back to the user
         new
@@ -356,6 +368,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         filterLog  <<- data.table::data.table(
             id   = character(), metric = character(),
             type = character(), reason = character(), key = "id")
+        .gotModified()
         invisible(NA)
     },
 
@@ -550,6 +563,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         }
         if (rv[1] != 0) {
             matrixUse <<- obj
+            .gotModified()
             if (filterEmpty) {
                 ## Strip empty rows and columns
                 if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
@@ -640,6 +654,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 
         if (rv[1] != 0) {
             matrixUse <<- obj
+            .gotModified()
             if (filterEmpty) {
                 ## Strip empty rows and columns
                 metric <- paste("IDs", chk, idtxt)
@@ -739,6 +754,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         
         if (rv[1] != 0) {
             matrixUse <<- obj
+            .gotModified()
             if (filterEmpty) {
                 if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
                 removeEmpty(ttxt)
@@ -849,6 +865,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             ijz <- .detailZeroedRowCol( obj, fail, ttxt, reason )
             rv  <- rv + c(numZ, ijz)
             matrixUse <<- obj
+            .gotModified()
             if (filterEmpty) {
                 if (CatMisc::is.something(reason)) ttxt <- paste(ttxt, reason)
                 removeEmpty(ttxt)
@@ -1020,6 +1037,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 
         if (rv[1] != 0) {
             matrixUse <<- obj
+            .gotModified()
             if (filterEmpty) {
                 ## Strip empty rows and columns
                 if (CatMisc::is.something(reason)) metric <- paste(metric,reason)
@@ -1373,7 +1391,10 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ## populatedRows() returns a named logical vector. Take names
         ## from there
         toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) matrixUse <<- obj[ !isEmpty, , drop=FALSE]
+        if (length(toss) != 0) {
+            matrixUse <<- obj[ !isEmpty, , drop=FALSE]
+            .gotModified()
+        }
         .addAppliedFilter( "REMOVE_EMPTY", "Rows", reason)
         invisible(toss)
     },
@@ -1402,7 +1423,10 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ## populatedCols() returns a named logical vector. Take
         ## names from there
         toss    <- names(isEmpty)[ isEmpty ]
-        if (length(toss) != 0) matrixUse <<- obj[ , !isEmpty, drop=FALSE]
+        if (length(toss) != 0) {
+            matrixUse <<- obj[ , !isEmpty, drop=FALSE]
+            .gotModified()
+        }
         .addAppliedFilter( "REMOVE_EMPTY", "Cols", reason)
         invisible(toss)
     },
@@ -2080,7 +2104,10 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                      collapse=sep)
         ## If this is the first time seeing a hybrid value, add it to the
         ## factor levels:
-        if (!is.element(lvl, lvlVal)) lvlVal <<- c(lvlVal, lvl)
+        if (!is.element(lvl, lvlVal)) {
+            lvlVal <<- c(lvlVal, lvl)
+            .gotModified()
+        }
         ## Return the index:
         which(lvl == lvlVal)
     },

@@ -272,6 +272,48 @@ NULL
 #' s2e$lvlVal
 NULL
 
+#' Modification State
+#'
+#' Internal AnnotatedMatrix field tracking modification events
+#'
+#' @name modState
+#'
+#' @details
+#'
+#' The "raw" matrix (\link{matrixRaw}) will always stay
+#' unaltered. However some operations, primarily filters, will change
+#' the "used" matrix (\link{matrixUse}). It may be of value for
+#' external code to recognize when an AnnotatedMatrix has undergone
+#' such an alteration. The \code{$modState} field is designed to allow
+#' that; If the value held by external code differs from what the
+#' matrix reports, then the matrix has since undergone an operation
+#' that will (almost certainly) have changed it (in some unspecified
+#' way).
+#'
+#' \preformatted{
+#' ## THIS FIELD SHOULD NOT BE MODIFIED BY THE USER OR OTHER CODE
+#' ## DOING SO COULD LEAD TO CONFUSION / CRASHES
+#' }
+#' 
+#' @return A numeric value that is increased with each modification
+#'
+#' @seealso \link{matrixUse}
+#'
+#' @examples
+#'
+#' s2e <- AnnotatedMatrix( annotatedMatrixExampleFile() )
+#' s2e$modState # The initial state. Autofilters may have incremented this.
+#' 
+#' s2e$cNames()
+#' s2e$modState # no change, we just looked at some info
+#'
+#' s2e$filterByFactorLevel("Official")
+#' s2e$modState # We altered the matrix
+#'
+#' s2e$reset()
+#' s2e$modState # Again, altered the matrix
+NULL
+
 #' Changed Row and Column Names
 #'
 #' Internal AnnotatedMatrix fields tracking row and column names that

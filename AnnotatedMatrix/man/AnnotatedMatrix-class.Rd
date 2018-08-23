@@ -56,6 +56,10 @@ matrix}
 
 \item{\code{lvlVal}}{Character array of level names for factor matrices}
 
+\item{\code{modState}}{Numeric value tracking modifications. Allows
+external code to determine if the object has been modified
+since it was last seen.}
+
 \item{\code{filterLog}}{data.frame storing filtering events that transpire
 during the pruning of matrices prior to analysis.}
 
