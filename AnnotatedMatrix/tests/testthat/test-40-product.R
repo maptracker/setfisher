@@ -2,6 +2,49 @@ library("AnnotatedMatrix")
 
 message("Testing: $product()")
 
+test_that("Identifying shared dimensions", {
+    ## A Pair of toy matrices with overlap
+    mach <- AnnotatedMatrix( annotatedMatrixExampleFile("Machines.gmt") )
+    comp <- AnnotatedMatrix( annotatedMatrixExampleFile("Components.gmt") )
+
+    sd    <- mach$sharedDimensions(comp)
+    expSd <- stats::setNames(c(2L, 1L), c("Lft","Rgt"))
+    
+    expect_identical(sd, expSd, info="Basic shared dimension calculation")
+    
+    sd   <- mach$sharedDimensions(comp, dim2=1)
+    expect_identical(sd, expSd, info="Manual specification with numeric 1")
+    
+    sd   <- mach$sharedDimensions(comp, dim1=2)
+    expect_identical(sd, expSd, info="Manual specification with numeric 2")
+    
+    sd   <- mach$sharedDimensions(comp, dim2='1')
+    expect_identical(sd, expSd, info="Manual specification with '1'")
+    
+    sd   <- mach$sharedDimensions(comp, dim1='2')
+    expect_identical(sd, expSd, info="Manual specification with '2'")
+    
+    sd   <- mach$sharedDimensions(comp, dim2='row')
+    expect_identical(sd, expSd, info="Manual specification with 'row'")
+    
+    sd   <- mach$sharedDimensions(comp, dim1='col')
+    expect_identical(sd, expSd, info="Manual specification with 'col'")
+
+    ## Check that we can silence verbosity:
+    expect_silent(sd <- mach$sharedDimensions(comp, dim1='row', warn=FALSE))
+    
+    expect_identical(sd, stats::setNames(as.integer(c(NA, NA)), c("Lft","Rgt")),
+                     info="Default failure is NA dimensions")
+
+    expect_message(sd <- mach$sharedDimensions(comp, dim1='row', fail.na=FALSE),
+                   "Matrices do not appear to have a shared dimension",
+                   info="Verify that warning is shown by default")
+
+    expect_true(sd[1] > 0,
+                info="If fail.na is FALSE, should still get dimension")
+    
+})
+
 test_that("Product of two matrices", {
     ## A Pair of toy matrices with overlap
     mach <- AnnotatedMatrix( annotatedMatrixExampleFile("Machines.gmt") )

@@ -1008,6 +1008,76 @@ NULL
 #' @importFrom stats setNames
 NULL
 
+#' Shared Dimensions
+#'
+#' Find the most likely shared dimensions between two matrices
+#'
+#' @name sharedDimensions
+#' @method sharedDimensions AnnotatedMatrix
+#'
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$sharedDimensions( help=TRUE )
+#'
+#' myObject$sharedDimensions(mat2, dim1=NULL, dim2=NULL, warn=TRUE)
+#' }
+#'
+#' Given two matrices (the object calling this method plus a second
+#' one passed to the method), which dimensions on each of the two have
+#' "the most overlap". That is, pick a dimension from the "left"
+#' matrix and a dimension from the "right" matrix that appear to be of
+#' "the same things", based on identifier overlap.
+#'
+#' Implemented to support \link{product}, but may have utility
+#' elsewhere.
+#'
+#' @param mat2 Required, an AnnotatedMatrix object that corresponds to
+#'     the "right" matrix (again, the matrix object that is being used
+#'     to call \code{sharedDimensions} is arbitrarily treated as the
+#'     "left" matrix)
+#' @param dim1 Default \code{NULL}, an optional explicitly set "left"
+#'     dimension. Can be numeric values 1 or 2 (row or column) or text
+#'     values "1" or "2", or text values "row" or "col".
+#' @param dim2 Default \code{NULL}, the same as \code{dim1}, but for
+#'     the "right" matrix.
+#' @param ignore.case Default \code{TRUE}, which will consider overlap
+#'     of names irrespective of case.
+#' @param warn Default \code{TRUE}, which will emit a warning messge
+#'     if no overlap was found
+#' @param fail.na Default \code{TRUE}, which will set both dimensions
+#'     to \code{NA} if no overlap was found
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A named integer vector of length 2, each value being either
+#'     \code{1L} (row dimension) or \code{2L} (column dimension), the
+#'     first value being for the "left" matrix, the second for the
+#'     "right" matrix.
+#'
+#' @seealso \link{product}
+#'
+#' @importFrom stats setNames
+#' @importFrom CatMisc is.something
+#' 
+#' @examples
+#'
+#' mach <- AnnotatedMatrix( annotatedMatrixExampleFile("Machines.ijx") )
+#' comp <- AnnotatedMatrix( annotatedMatrixExampleFile("Components.ijx") )
+#'
+#' ## Which dimensions appear to be the best overlap?
+#' mach$sharedDimensions(comp)
+#'
+#' ## You can explicitly define one or both dimensions:
+#' mach$sharedDimensions(comp, dim2='row')
+#'
+#' ## A warning will be emitted if no overlap is found (either because
+#' ## none exists, or you've constrained one or both dimensions to a
+#' ## non-overlap)
+#' mach$sharedDimensions(comp, dim1='row')
+NULL
+
 #' Matrix Product
 #'
 #' Chain two matrices together based on a common dimension
@@ -1044,11 +1114,13 @@ NULL
 #'
 #' @param mat2 Required, the second ('right') annotated matrix object
 #' @param dim1 Default \code{NULL}, the shared dimension on the left
-#'     matrix. If NULL, will automatically pick the one with maximal
-#'     overlap. Tie-breaking logic is not implemented. Otherwise can
-#'     be either '1'/'row', or '2'/'col'
+#'     matrix, processed by \link{sharedDimensions}.
 #' @param dim2 Default \code{NULL}. Like \code{dim1}, but for the
 #'     second (right) matrix.
+#' @param ignore.case Default \code{TRUE}, which will intersect the
+#'     matrices without regard to case.
+#' @param warn Default \code{TRUE}, passed to \link{sharedDimensions}
+#' @param fail.na Default \code{TRUE}, passed to \link{sharedDimensions}
 #' @param valfunc Default \code{NULL}, which will default to
 #'     'maxright' AND chide you to explicitly pick a value. See the
 #'     'Value Function' section for more information.
@@ -1063,8 +1135,6 @@ NULL
 #'     of zero for any left/right pair if all values on either side
 #'     are only zero. In these situations \code{valfunc} will be
 #'     ignored.
-#' @param ignore.case Default \code{TRUE}, which will intersect the
-#'     matrices without regard to case.
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'

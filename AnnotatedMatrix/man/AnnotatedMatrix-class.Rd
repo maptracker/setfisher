@@ -140,8 +140,9 @@ names after processing with make.unique()}
 
 \item{\code{populatedRows(obj = NULL, help = FALSE, ...)}}{Determine which rows have at least one non-zero assignment}
 
-\item{\code{product(mat2, dim1 = NULL, dim2 = NULL, valfunc = NULL, levels = NULL,
-  ignore.zero = TRUE, ignore.case = TRUE, help = FALSE)}}{Take a product of this matrix AxB with another BxC to yield AxC}
+\item{\code{product(mat2, dim1 = NULL, dim2 = NULL, warn = TRUE, fail.na = TRUE,
+  ignore.case = TRUE, valfunc = NULL, levels = NULL, ignore.zero = TRUE,
+  help = FALSE)}}{Take a product of this matrix AxB with another BxC to yield AxC}
 
 \item{\code{rCounts(obj = NULL, help = FALSE, ...)}}{Return the counts of non-zero columns for each row}
 
@@ -155,6 +156,9 @@ names after processing with make.unique()}
 
 \item{\code{rNames(new = NULL, raw = FALSE, nonzero = FALSE, reason = NA,
   help = FALSE)}}{Get/set rownames for the matrix}
+
+\item{\code{sharedDimensions(mat2, dim1 = NULL, dim2 = NULL, ignore.case = TRUE,
+  warn = TRUE, fail.na = TRUE, help = FALSE)}}{Get the most likely common dimension between this matrix and another}
 
 \item{\code{show(...)}}{A wrapper for showLog}
 }}

@@ -7,12 +7,17 @@
 \item{mat2}{Required, the second ('right') annotated matrix object}
 
 \item{dim1}{Default \code{NULL}, the shared dimension on the left
-matrix. If NULL, will automatically pick the one with maximal
-overlap. Tie-breaking logic is not implemented. Otherwise can
-be either '1'/'row', or '2'/'col'}
+matrix, processed by \link{sharedDimensions}.}
 
 \item{dim2}{Default \code{NULL}. Like \code{dim1}, but for the
 second (right) matrix.}
+
+\item{ignore.case}{Default \code{TRUE}, which will intersect the
+matrices without regard to case.}
+
+\item{warn}{Default \code{TRUE}, passed to \link{sharedDimensions}}
+
+\item{fail.na}{Default \code{TRUE}, passed to \link{sharedDimensions}}
 
 \item{valfunc}{Default \code{NULL}, which will default to
 'maxright' AND chide you to explicitly pick a value. See the
@@ -30,9 +35,6 @@ appropriate integer output)}
 of zero for any left/right pair if all values on either side
 are only zero. In these situations \code{valfunc} will be
 ignored.}
-
-\item{ignore.case}{Default \code{TRUE}, which will intersect the
-matrices without regard to case.}
 
 \item{help}{Default FALSE. If TRUE, show this help and perform no
 other actions.}

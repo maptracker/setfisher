@@ -1029,20 +1029,22 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         invisible(stats::setNames(rv, .filterNames))
     },
 
-    product = function(mat2, dim1=NULL, dim2=NULL, valfunc=NULL,
-                       levels=NULL,
-                       ignore.zero=TRUE, ignore.case=TRUE, help=FALSE) {
-        "Take a product of this matrix AxB with another BxC to yield AxC"
+    sharedDimensions = function(mat2, dim1=NULL, dim2=NULL, ignore.case=TRUE, 
+                                warn=TRUE, fail.na=TRUE, help=FALSE) {
+        "Get the most likely common dimension between this matrix and another"
         if (help) return(CatMisc::methodHelp(match.call(), class(.self),
                                              names(.refClassDef@contains)))
+
         ## Get the underlying sparse Matrix objects:
         obj    <- matObj()
         obj2   <- mat2$matObj()
 
-        ## Determine what dimensions we are going to merge on
-        dimReq   <- list( l=dim1, r=dim2 )
+        ## When things go wrong
+        unhappyRv <- stats::setNames(as.integer(c(NA, NA)), c("Lft","Rgt"))
+
+        dimReq   <- list( l=dim1, r=dim2 ) # Explicit requests by user
         dimCheck <- list( l=integer(), r=integer() )
-        for (side in names(dimCheck)) {
+        for (side in c('l','r')) {
             req <- dimReq[[ side ]]
             if (!CatMisc::is.something(req)) {
                 ## No user input, check both
@@ -1053,12 +1055,12 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                     message("Dimension request (dim1/dim2) must be a single value for $product() ", prefix="[ERROR]", color='red')
                     return(NA)
                 } else if (grepl('(1|row)', req, ignore.case=TRUE)) {
-                    dimCheck[[ side ]] <= 1L
-                } else if (grepl('(1|row)', req, ignore.case=TRUE)) {
-                    dimCheck[[ side ]] <= 2L
+                    dimCheck[[ side ]] <- 1L
+                } else if (grepl('(2|col)', req, ignore.case=TRUE)) {
+                    dimCheck[[ side ]] <- 2L
                 } else {
                     message(sprintf("Unrecognized dimension '%s' for $product(); Should be one of 1/row or 2/col ", req), prefix="[ERROR]", color='red')
-                    return(NA)
+                    return(unhappyRv)
                 }
             }
         }
@@ -1072,7 +1074,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
             if (ignore.case) lftNms <- tolower(lftNms)
             for (rgtDim in dimCheck$r) {
                 ## Cycle through right dimension
-                rgtNms <- if (rgtDim == 1) { mat2$rNames() } else { mat2$cNames() }
+                rgtNms <- if (rgtDim == 1) {mat2$rNames()} else {mat2$cNames()}
                 if (ignore.case) rgtNms <- tolower(rgtNms)
                 ## Calculate intersection as string overlap in names
                 overlap <- base::intersect(lftNms, rgtNms)
@@ -1084,8 +1086,42 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         chkMat <- matrix(chkMat, ncol=3, byrow=TRUE,
                          dimnames=list(c(), c("Lft","Rgt","Count")))
         ord  <- base::order(chkMat[,"Count"], decreasing=TRUE)
-        ldim <- chkMat[ord[1], "Lft"]
-        rdim <- chkMat[ord[1], "Rgt"]
+        ## Return the dimension of (left, right) matrices that appears
+        ## to have the highest overlap
+        rv <- c(chkMat[ord[1], "Lft"], chkMat[ord[1], "Rgt"])
+        if (chkMat[ord[1], "Count"] == 0) {
+            ## The "best" is no overlap.
+            if (warn) {
+                ## Warn if requested (default)
+                n1 <- param("name")
+                if (!CatMisc::is.something(n1)) n1 <- file
+                n2 <- mat2$param("name")
+                if (!CatMisc::is.something(n2)) n2 <- mat2$file
+                
+                message(c("Matrices do not appear to have a shared dimension: ",
+                          n1, " -vs- ", n2), prefix="[NOTE]", color='yellow')
+            }
+            ## If requested, set the dimensions to NA
+            if (fail.na) rv <- unhappyRv
+        }
+        rv
+    },
+
+    product = function(mat2, dim1=NULL, dim2=NULL, warn=TRUE, fail.na=TRUE,
+                       ignore.case=TRUE, valfunc=NULL, levels=NULL,
+                       ignore.zero=TRUE, help=FALSE) {
+        "Take a product of this matrix AxB with another BxC to yield AxC"
+        if (help) return(CatMisc::methodHelp(match.call(), class(.self),
+                                             names(.refClassDef@contains)))
+
+        ## Get the underlying sparse Matrix objects:
+        obj    <- matObj()
+        obj2   <- mat2$matObj()
+
+        ## Determine what dimensions we are going to merge on
+        shared <- sharedDimensions(mat2, dim1, dim2, ignore.case, warn, fail.na)
+        ldim   <- shared[1]
+        rdim   <- shared[2]
 
         ## Gather relevant metadata from the left and right matrices
         ## that will be attached to the new product matrix.
@@ -1120,6 +1156,10 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         ## What are the shared names between the two matrices?
         lnames <- if (ldim == 1) { rNames() } else { cNames() }
         rnames <- if (rdim == 1) { mat2$rNames() } else { mat2$cNames() }
+        if (ignore.case) {
+            lnames <- tolower(lnames)
+            rnames <- tolower(rnames)
+        }
         common <- base::intersect(lnames, rnames)
         clen   <- length(common)
 
