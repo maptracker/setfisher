@@ -15,6 +15,10 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #'     query namespace. Will default to all unique rows in the mapping
 #'     matrix, or all unique rows in the query matrix if no mapping
 #'     matrix is present.
+#' @field activeQueries Character vector of normalized IDs
+#'     representing the world. Will either be taken from
+#'     \code{queryWorld}, or dynamically calculated from filtered /
+#'     intersected matrices.
 #' @field ontoObj AnnotatedMatrix representing the mapping of IDs
 #'     (from the mapping matrix if present, otherwise from the query
 #'     matrix) to ontology terms
@@ -22,10 +26,6 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #'     matrix to those used by the Ontology matrix
 #' @field mapWeights Weight matrix used to accomodate multiple voting
 #'     from the Query namespace to the Ontology namespace
-#' @field queryUse Boolean matrix associating queries with
-#'     lists. Intended to allow threshold filters to be applied to
-#'     ranked input lists, or to allow queryWorld to restrict Query ID
-#'     set
 #' @field mapUse Boolean matrix indicating allowed mappings from the
 #'     Query ID namespace to the Ontology ID namespace. Computed after
 #'     applying minMapMatch to the raw Mapping matrix, and eliminating
@@ -100,12 +100,13 @@ SetFisherAnalysis <-
                     setfisher     = "SetFisher",
                     queryObj      = "AnnotatedMatrix",
                     queryWorld    = "character",
+                    activeQueries = "character",
+
                     ontoObj       = "AnnotatedMatrix",
-                    mapObj        = "ANY", # dgTMatrix
-                    mapWeights    = "dgCMatrix", # dgTMatrix??
+                    mapObj        = "ANY", # AnnotatedMatrix
+                    mapWeights    = "dgTMatrix",
                     modState      = "numeric",
 
-                    queryUse      = "ANY", # dgTMatrix
                     mapUse        = "ANY", # dgTMatrix
                     ontoUse       = "ANY", # dgTMatrix
                     
@@ -253,54 +254,110 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             }
         }
 
-        ## Set up some callbacks to streamline input/output requests.
+### Set up some callbacks to streamline input/output requests. The
+### matrices will have an inherent "input to output", "left to right"
+### polarity that will be defined by the "namespace" overlap
+### determined above. The package will be operating presuming queries
+### "entering" ("input") from the Query matrix, and enrichment results
+### "exiting" ("output") from the Ontology matrix, possibly transiting
+### through a Mapping matrix. We are not enforcing that input needs to
+### be rows (or columns) so the little functions below transparently
+### wrap the choice or row or column after the above alignment has
+### occurred.
 
         ## "Null" functions that just return a single typed-NA when
         ## the dimension could not be determined:
         nullChrFunc <- function(...) as.character(NA)
         nullIntFunc <- function(...) as.integer(NA)
+        nullLogFunc <- function(...) as.logical(NA)
+        
         ## q = query, m = map, o = ontology
         ## i = input, o = output
-        ## n = names, c = counts
+        ## n = names, c = counts, p = populated
         inOutFunc  <<- list(qin=nullChrFunc,
                             qon=nullChrFunc,
                             qic=nullIntFunc,
                             qoc=nullIntFunc,
+                            qip=nullLogFunc,
+                            qop=nullLogFunc,
                             
                             min=nullChrFunc,
                             mon=nullChrFunc,
                             mic=nullIntFunc,
                             moc=nullIntFunc,
+                            mip=nullLogFunc,
+                            mop=nullLogFunc,
                             
                             oin=nullChrFunc,
                             oon=nullChrFunc,
                             oic=nullIntFunc,
-                            ooc=nullIntFunc)
+                            ooc=nullIntFunc,
+                            oip=nullLogFunc,
+                            oop=nullLogFunc)
+        
         if (!is.na(outputDim[1])) {
             ## We can make some callbacks for the query matrix
             if (outputDim[1] == 1L) {
                 ## Output is represented by rows
-                inOutFunc$qin <<- function(...) qryObj$cNames(...)
-                inOutFunc$qon <<- function(...) qryObj$rNames(...)
-                inOutFunc$qic <<- function(...) qryObj$cNames(...)
-                inOutFunc$qoc <<- function(...) qryObj$rNames(...)
+                inOutFunc$qin <<- function(...) queryObj$cNames(...)
+                inOutFunc$qon <<- function(...) queryObj$rNames(...)
+                inOutFunc$qic <<- function(...) queryObj$cCounts(...)
+                inOutFunc$qoc <<- function(...) queryObj$rCounts(...)
+                inOutFunc$qip <<- function(...) queryObj$populatedColumns(...)
+                inOutFunc$qop <<- function(...) queryObj$populatedRows(...)
             } else {
                 ## Output is represented by columns
-                inOutFunc$qin <<- function(...) qryObj$rNames(...)
-                inOutFunc$qon <<- function(...) qryObj$cNames(...)
-                inOutFunc$qic <<- function(...) qryObj$rNames(...)
-                inOutFunc$qoc <<- function(...) qryObj$cNames(...)
+                inOutFunc$qin <<- function(...) queryObj$rNames(...)
+                inOutFunc$qon <<- function(...) queryObj$cNames(...)
+                inOutFunc$qic <<- function(...) queryObj$rCounts(...)
+                inOutFunc$qoc <<- function(...) queryObj$cCounts(...)
+                inOutFunc$qip <<- function(...) queryObj$populatedRows(...)
+                inOutFunc$qop <<- function(...) queryObj$populatedColumns(...)
+            }
+        }
+
+        if (!is.na(outputDim[2])) {
+            ## We can make some callbacks for the mapping matrix
+            if (outputDim[2] == 1L) {
+                ## Output is represented by rows
+                inOutFunc$min <<- function(...) mapObj$cNames(...)
+                inOutFunc$mon <<- function(...) mapObj$rNames(...)
+                inOutFunc$mic <<- function(...) mapObj$cCounts(...)
+                inOutFunc$moc <<- function(...) mapObj$rCounts(...)
+                inOutFunc$mip <<- function(...) mapObj$populatedColumns(...)
+                inOutFunc$mop <<- function(...) mapObj$populatedRows(...)
+            } else {
+                ## Output is represented by columns
+                inOutFunc$min <<- function(...) mapObj$rNames(...)
+                inOutFunc$mon <<- function(...) mapObj$cNames(...)
+                inOutFunc$mic <<- function(...) mapObj$rCounts(...)
+                inOutFunc$moc <<- function(...) mapObj$cCounts(...)
+                inOutFunc$mip <<- function(...) mapObj$populatedRows(...)
+                inOutFunc$mop <<- function(...) mapObj$populatedColumns(...)
             }
         }
 
 
-
-
-        
-#### WORK HERE - map, ontology inOutFunc's
-
-
-        
+        if (!is.na(outputDim[3])) {
+            ## We can make some callbacks for the ontology matrix
+            if (outputDim[3] == 1L) {
+                ## Output is represented by rows
+                inOutFunc$oin <<- function(...) onotObj$cNames(...)
+                inOutFunc$oon <<- function(...) onotObj$rNames(...)
+                inOutFunc$oic <<- function(...) onotObj$cCounts(...)
+                inOutFunc$ooc <<- function(...) onotObj$rCounts(...)
+                inOutFunc$oip <<- function(...) onotObj$populatedColumns(...)
+                inOutFunc$oop <<- function(...) onotObj$populatedRows(...)
+            } else {
+                ## Output is represented by columns
+                inOutFunc$oin <<- function(...) onotObj$rNames(...)
+                inOutFunc$oon <<- function(...) onotObj$cNames(...)
+                inOutFunc$oic <<- function(...) onotObj$rCounts(...)
+                inOutFunc$ooc <<- function(...) onotObj$cCounts(...)
+                inOutFunc$oip <<- function(...) onotObj$populatedRows(...)
+                inOutFunc$oop <<- function(...) onotObj$populatedColumns(...)
+            }
+        }
         
         outputDim
     },
@@ -332,9 +389,143 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
     },
 
     weightMatrix = function () {
-        ## Is there a better way to check that a field is not initialized?
-        if (is.empty.field(mapWeights)) filter()
+        "Mutliple-voting weight matrix for mapping matrices, otherwise identity matrix"
+        
+        .updateDerivedStructures()
         mapWeights
+    },
+
+    .updateDerivedStructures = function () {
+        "Update structures generated from Query, Ontology and optionally Mapping matrix if any of those have changed"
+        
+        ## Do we have a mapping matrix?
+        hasMap <- CatMisc::is.def(mapObj)
+        ## Don't do anything if the underlying matrices are unchanged
+        ## since the last request.
+        if (hasMap) {
+            ## We have three matrices: Query, Mapping, Ontology
+            if (modState[1] == queryObj$modState &&
+                modState[2] == mapObj$modState &&
+                modState[3] == ontoObj$modState) return(FALSE)
+        } else {
+            ## No mapping matrix, just Query and Ontology
+            if (modState[1] == queryObj$modState &&
+                modState[3] == ontoObj$modState) return(FALSE)
+        }
+        
+### We need to generate the mapping weights. The rows of this matrix
+### will be "output" IDs from the Query. The columns will be "input"
+### IDs for the Ontology. Both dimensions will be interpreted as
+### precisely defining the "worlds" of their relative namespaces.
+
+        qwDef <- CatMisc::is.def(queryWorld)
+        if (qwDef) {
+            ## If the query world has been defined by the user, we
+            ## will ALWAYS accept that as setting the world of IDs.
+            activeQueries <<- .standardizeId(queryWorld)
+        }
+        if (!hasMap) {
+            ## No Mapping makes it easy. We just need an identity
+            ## matrix representing the world. What world are we using?
+            if (!qwDef) {
+                ## In the absence of both a user-defined query world
+                ## and a mapping matrix, we will presume that the
+                ## ontology is defining the query world. Take the
+                ## "input" names from the ontology:
+                activeQueries <<- .standardizeId( inOutFunc$oin() )
+            }
+            ## Hand build a simple identity matrix:
+            mwLen <- length(activeQueries)
+            ijInd <- seq_len(mwLen)
+            mapWeights <<- Matrix::sparseMatrix(i=ijInd, j=ijInd, x=1,
+                                   giveCsparse=FALSE,
+                                   dimnames=list(queryID=activeQueries,
+                                                 ontoID=activeQueries))
+        } else {
+            ## A mapping matrix exists, to convert Query IDs to
+            ## Ontology IDs. This is where the main value of
+            ## `mapWeights` exists, to numerically manage counting
+            ## from one namespace to the other.
+
+            ## What input names are represented in the mapping matrix?
+            mids <- .standardizeId( inOutFunc$min() )
+            if (!qwDef) {
+                ## When a user-defined query world has not been
+                ## provided but a mapping matrix has, we will presume
+                ## that the mapping matrix is defining the world of
+                ## known/utilized query IDs in the "input" dimension:
+                activeQueries <<- .standardizeId( mids )
+            }
+            ## Now begin building a boolean matrix representing the
+            ## "valid" in->out / row->col conversions the Mapping
+            ## matrix is defining.
+
+            mm <- mapObj$matObj() != 0 # Converts to lgTMatrix
+            unusedMapRows <- setdiff(mids, activeQueries)
+            if (length(unusedMapRows) > 0) {
+                ## There are mapping input IDs that are not
+                ## represented in our query world. Remove them from
+                ## the weight matrix
+                discard <- match(unusedMapRows, mids)
+                mm <- mm[ -discard, ,  drop=FALSE ]
+            }
+
+            ## Remove any output IDs (Ontology IDs) that have no
+            ## counterparts in the input (colsums are zero).
+            populatedColumns <- Matrix::colSums(mm) > 0
+            mm <- mm[ , populatedColumns, drop=FALSE]
+            ## The columns now represent the Ontology world that is
+            ## defined/supported by the Query world.
+
+            ## The matrix at this point represents valid paths from
+            ## in->out. We now also need to apply weights. These are
+            ## simply fractional counts based on the 'multiplicity' of
+            ## each row.
+
+            rs <- rowSums(mm)
+            rowWeights <- 1 / rs
+            ## To aid in the matrix math, we'll just make a diagonal
+            ## matrix of these weights:
+            weightDiag <- Matrix::.sparseDiagonal(length(rowWeights),
+                                                  rowWeights)
+            ## Replace dimension names so they carry through crossprod:
+            dimnames(weightDiag) <- list(queryID=rownames(mm),
+                                         queryID=rownames(mm))
+
+            mm <- Matrix::crossprod(weightDiag, mm)
+            
+            ## Finally, we need to add in any activeQueries that are
+            ## not represented. They will have rowsums of zero:
+            extraQueries <- setdiff(activeQueries, rownames(mm))
+            if (length(extraQueries) > 0) {
+                nc  <- ncol(mm) # Number of columns in matrix
+                nr  <- length(extraQueries) # Number of new rows
+                add <- Matrix::sparseMatrix(i=integer(), j=integer(),
+                                            x=numeric(),
+                                            dims=c(nr, nc),
+                                            dimnames=list(queryID=extraQueries,
+                                                          ontoID=colnames(mm)))
+                ## Stitch the empty rows onto the end of of our matrix
+                mm <- rbind2(mm, add)
+            }
+            ## Normalize the matrix to dgTMatrix, if it's not already.
+            mapWeights <<- as(mm, "dgTMatrix")
+        }
+
+
+        
+### TODO : clear out ontoUse and mapUse. Other cruft, too
+### TODO : Trim ontology matrix?
+### TODO : calculate ontoSize, ontoNames, ontoCount, worldSize, idCount
+### TODO : do we need all the above in the new paradigm?
+
+        
+        
+        ## Update our modified state to reflect 'now'
+        modState <<- c(queryObj$modState,
+                       ifelse(hasMap, mapObj$modState, as.integer(NA)),
+                       ontoObj$modState )
+        TRUE # An update occurred.
     },
 
     processAll = function ( force = FALSE, ... ) {
@@ -1102,7 +1293,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         
         msg <- paste(c(msg, doCol("<#> Query Matrix\n", "blue"),
                            queryObj$.showText(
-                               pad = objPad, useObj = queryUse,
+                               pad = objPad,
                                compact = compactChild, color=color,
                                fallbackVar = paste(objName,'queryObj',sep='$'))))
         if (CatMisc::is.def(mapObj)) {
