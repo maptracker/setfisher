@@ -102,6 +102,8 @@ SetFisherAnalysis <-
                     queryWorld    = "character",
                     activeQueries = "character",
 
+                    discardedIDs  = "list",
+
                     ontoObj       = "AnnotatedMatrix",
                     mapObj        = "ANY", # AnnotatedMatrix
                     mapWeights    = "dgTMatrix",
@@ -196,6 +198,12 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             ## An optional mapping matrix has been provided
             mapObj      <<- idmap
         }
+        ## Initialize structure to hold IDs that fall out due to
+        ## failure to map, restricted worlds, or lack of information:
+        nec <- stats::setNames(character(), character()) # Empty named char vec
+        discardedIDs <<- list(queryID=nec,
+                              ontologyID=nec,
+                              ontologyTerm=nec )
         .alignMatrices()
         ## Ontology-level filters
         param("maxSetPerc", c(maxSetPerc, ontology$param("maxSetPerc")))
@@ -395,6 +403,16 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         mapWeights
     },
 
+    .noteDiscarded = function (idtype, ids, reason) {
+        "Track the reason some IDs are 'discarded' from the analysis"
+        alreadyDiscarded <- names(discardedIDs[[ idtype ]])
+        newlyDiscarded   <- setdiff(ids, names(alreadyDiscarded))
+        nnd <- length(newlyDiscarded)
+        if (nnd != 0)  discardedID[[ idtype ]] <<-
+                           c(discardedIDs[[ idtype ]],
+                             stats::setNames(rep(reason, nnd), newlyDiscarded))
+    },
+
     .updateDerivedStructures = function () {
         "Update structures generated from Query, Ontology and optionally Mapping matrix if any of those have changed"
         
@@ -423,6 +441,9 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             ## If the query world has been defined by the user, we
             ## will ALWAYS accept that as setting the world of IDs.
             activeQueries <<- .standardizeId(queryWorld)
+            ## This could result in some "dead end" inputs from the
+            ## query (map input rows that connect to zero output
+            ## columns). That's ok.
         }
         if (!hasMap) {
             ## No Mapping makes it easy. We just need an identity
@@ -448,32 +469,41 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             ## from one namespace to the other.
 
             ## What input names are represented in the mapping matrix?
-            mids <- .standardizeId( inOutFunc$min() )
+            qids <- .standardizeId( inOutFunc$min() )
             if (!qwDef) {
                 ## When a user-defined query world has not been
                 ## provided but a mapping matrix has, we will presume
                 ## that the mapping matrix is defining the world of
                 ## known/utilized query IDs in the "input" dimension:
-                activeQueries <<- .standardizeId( mids )
+                activeQueries <<- .standardizeId( qids )
             }
             ## Now begin building a boolean matrix representing the
             ## "valid" in->out / row->col conversions the Mapping
             ## matrix is defining.
 
-            mm <- mapObj$matObj() != 0 # Converts to lgTMatrix
-            unusedMapRows <- setdiff(mids, activeQueries)
+            mm <- mapObj$matObj() != 0 # Converts to logical lgTMatrix
+            unusedMapRows <- setdiff(qids, activeQueries)
             if (length(unusedMapRows) > 0) {
                 ## There are mapping input IDs that are not
                 ## represented in our query world. Remove them from
-                ## the weight matrix
-                discard <- match(unusedMapRows, mids)
+                ## the weight matrix using matched row indices:
+                discard <- match(unusedMapRows, qids)
                 mm <- mm[ -discard, ,  drop=FALSE ]
+                ## Make note of discarded IDs lost from mapping matrix
+                .noteDiscarded('queryID', unusedMapRows,
+                    "ID in mapping matrix, but not in active queries")
             }
 
             ## Remove any output IDs (Ontology IDs) that have no
             ## counterparts in the input (colsums are zero).
             populatedColumns <- Matrix::colSums(mm) > 0
-            mm <- mm[ , populatedColumns, drop=FALSE]
+            if (sum(populatedColumns) != 0) {
+                ## At least one removal
+                discard <- colnames(mm)[ !populatedColumns ]
+                .noteDiscarded('ontologyID', discard,
+                               "Output ID in mapping matrix with no paths from Input IDs")
+                mm <- mm[ , populatedColumns, drop=FALSE]
+            }
             ## The columns now represent the Ontology world that is
             ## defined/supported by the Query world.
 
@@ -482,8 +512,8 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             ## simply fractional counts based on the 'multiplicity' of
             ## each row.
 
-            rs <- rowSums(mm)
-            rowWeights <- 1 / rs
+            rs <- Matrix::rowSums(mm)
+            rowWeights <- ifelse(rs == 0, 0, 1 / rs)
             ## To aid in the matrix math, we'll just make a diagonal
             ## matrix of these weights:
             weightDiag <- Matrix::.sparseDiagonal(length(rowWeights),
@@ -506,17 +536,101 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
                                             dimnames=list(queryID=extraQueries,
                                                           ontoID=colnames(mm)))
                 ## Stitch the empty rows onto the end of of our matrix
-                mm <- rbind2(mm, add)
+                mm <- Matrix::rbind2(mm, add)
             }
             ## Normalize the matrix to dgTMatrix, if it's not already.
             mapWeights <<- as(mm, "dgTMatrix")
         }
 
+        ## mapWeights matrix is normalized so rows are "input" (from
+        ## query matrix) and columns are "output" (to ontology
+        ## matrix). The row and column names have been normalized with
+        ## .standardizeId()
+
+        oids <- colnames(mapWeights) # vector of output/ontology names
+
+        ## Make simplified boolean ontology matrix to use for
+        ## calculations. Begin by logical-izing it:
+        om <- ontoObj$matrixRaw != 0
+
+        if (outputDim[3] == 1L) {
+            ## Transpose the ontology matrix has input in rows, output
+            ## in columns:
+            om <- Matrix::t( om )
+        }
+        ## Standardize rownames
+        oids2 <- rownames(om) <- .standardizeId(rownames(om))
+
+        ## Only keep rows that are present in the mapping matrix:
+        unusedOntoRows <- setdiff(oids2, oids)
+        if (length(unusedOntoRows) != 0) {
+            ## There are some object IDs defined in the ontology that
+            ## we "do not have access to" - they are not represented
+            ## in the mapping matrix. Remove them, make a note.
+            discard <- match(unusedOntoRows, oids2)
+            om <- om[ -discard, ,  drop=FALSE ]
+            ## Make note of discarded IDs lost from mapping matrix
+            .noteDiscarded('ontologyID', unusedOntoRows,
+                           "ID in ontology matrix with no entry in mapping matrix")
+        }
+        ## Pad out to have the same dimensions as the mapping matrix,
+        ## if needed - add in any mapping output IDs that are not in
+        ## the simplified ontology matrix:
+        extraOntoIds <- setdiff(oids, rownames(om))
+        if (length(extraOntoIds > 0) {
+            nc  <- ncol(om) # Number of columns in matrix
+            nr  <- length(extraOntoIds) # Number of new rows
+            add <- Matrix::sparseMatrix(i=integer(), j=integer(),
+                                        x=logical(),
+                                        dims=c(nr, nc),
+                                        dimnames=list(queryID=extraOntoIds,
+                                                      ontoID=colnames(om)))
+            ## Stitch the empty rows onto the end of of our matrix
+            om <- Matrix::rbind2(om, add)
+        }
+        ## Now fully align/order the ontology matrix rows with the
+        ## mapping matrix columns:
+        om <- om[ oids, ,  drop=FALSE ]
+
+
+        
+### WORK HERE: Prune out the columns (ontology terms) that will never
+### get at least one count via generousRound().
+
+### Finish om with  ontoUse <<- om   . Make sure RefClass field is correct.
+
+
+        
+
+### We can now derive some basic counts from the weight matrix:
+
+        ## idCount - The fractional count of the output/ontology ID
+        ## space, a numeric value between zero and one:
+        idCount <<- pmin( Matrix::colSums(mapWeights), 1 )
+
+        ## worldSize - An integer sum of the maximum number of
+        ## ontology IDs representable by this mapping matrix. This is
+        ## the "world", or "m + n", the full count of IDs that can be
+        ## selected.
+        worldSize <<- generousRound( sum( idCount ) )
+
+        ## ontoCount - Rounded integer vector of genes assigned to
+        ## each ontology
+
+        
+
+        ## ontoNames - Vector of names for all surviving ontology
+        ## terms after filters and maps are put in place
+        
+        ## ontoSize - The integer count of vector names.
+        
+
+        
 
         
 ### TODO : clear out ontoUse and mapUse. Other cruft, too
 ### TODO : Trim ontology matrix?
-### TODO : calculate ontoSize, ontoNames, ontoCount, worldSize, idCount
+### TODO : calculate ontoSize, ontoNames, ontoCount
 ### TODO : do we need all the above in the new paradigm?
 
         
@@ -875,16 +989,16 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
                 mids   <- commonID
             }
             mrn       <- rownames(mapUse)
-            okInput   <<- setNames( .standardizeId(mrn), mrn )
+            okInput   <<- stats::setNames( .standardizeId(mrn), mrn )
             ## Numeric vector with the fractional mapped count for each gene
             ## that survived trimming
-            idCount <<- setNames( pmin( colSums(mapWeights), 1 ), mids)
+            idCount <<- stats::setNames( pmin( colSums(mapWeights), 1 ), mids)
         } else {
             ## Without a map matrix then the surviving ontology
             ## defines the acceptable IDs
-            okInput <<- setNames( oids, orn )
+            okInput <<- stats::setNames( oids, orn )
             ## Set idCounts as "1" (pass-through)
-            idCount <<- setNames(rep(1, length(okInput)), okInput)
+            idCount <<- stats::setNames(rep(1, length(okInput)), okInput)
         }
         ## After fractional summing, what is the total number of genes (n+m)?
         worldSize <<- generousRound( sum( idCount ) )
@@ -1585,7 +1699,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         if (vlen == 0) {
             ## If there are no valid IDs, return a vector of all zeros
             ## (nothing significant):
-            rv <- setNames(rep(0, length(ontoNames)), ontoNames)
+            rv <- stats::setNames(rep(0, length(ontoNames)), ontoNames)
             ## Attributes will be needed later:
             attr(rv,"N") <- 0 # List length (count of selected target IDs)
             attr(rv,"W") <- WS      # Size of world (total target IDs)
@@ -1607,7 +1721,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             vim  <- wm[vInd, , drop = FALSE]
             if (length(vim) == 0 || !CatMisc::is.def(nrow(vim))) {
                 bogusList <<- l
-                rv <- setNames(rep(0, length(ontoNames)), ontoNames)
+                rv <- stats::setNames(rep(0, length(ontoNames)), ontoNames)
                 ## Attributes will be needed later:
                 attr(rv,"N") <- 0 # List length (count of selected target IDs)
                 attr(rv,"W") <- WS      # Size of world (total target IDs)
@@ -1725,7 +1839,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
                              x = col[ scoreFilt(col) ],
                              )))
             }
-            lol <- setNames(extracted, colnames(lol))
+            lol <- stats::setNames(extracted, colnames(lol))
         } else if (inherits(lol, "list")) {
             ## This is already what we want
         } else if (is.vector(lol)) {
