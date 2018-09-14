@@ -436,6 +436,8 @@ uniqueNames <- function(names = character(), rpt = NULL,
 #'     recover from inst/
 #' @param list Default \code{FALSE}. If TRUE, then list all available
 #'     example files
+#' @param pkg Default "AnnotatedMatrix", the R package to inspect
+#'     for the requested file.
 #'
 #' @return The path to the file requested, unless list is TRUE, which
 #'     will return a listing of all files in \code{extdata/}
@@ -446,13 +448,14 @@ uniqueNames <- function(names = character(), rpt = NULL,
 #' 
 #' @export
 
-annotatedMatrixExampleFile <- function (file="Symbol-To-Gene.mtx", list=FALSE) {
+annotatedMatrixExampleFile <- function (file="Symbol-To-Gene.mtx", list=FALSE,
+                                        pkg="AnnotatedMatrix") {
     if (list) {
-        srcDir <- file.path(inst.path.package("AnnotatedMatrix"), "extdata")
+        srcDir <- file.path(inst.path.package(pkg), "extdata")
         rv     <- list.files(srcDir)
         rv[ !grepl('~$', rv) ]
     } else {
-        .makeTempFile(file)
+        .makeTempFile(name=file, pkg=pkg)
     }
 }
 

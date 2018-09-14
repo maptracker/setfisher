@@ -1048,14 +1048,14 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     },
 
     sharedDimensions = function(mat2, dim1=NULL, dim2=NULL, ignore.case=TRUE, 
-                                warn=TRUE, fail.na=TRUE, help=FALSE) {
+                                raw=FALSE, warn=TRUE, fail.na=TRUE, help=FALSE) {
         "Get the most likely common dimension between this matrix and another"
         if (help) return(CatMisc::methodHelp(match.call(), class(.self),
                                              names(.refClassDef@contains)))
 
         ## Get the underlying sparse Matrix objects:
-        obj    <- matObj()
-        obj2   <- mat2$matObj()
+        obj    <- matObj(raw=raw)
+        obj2   <- mat2$matObj(raw=raw)
 
         ## When things go wrong
         unhappyRv <- stats::setNames(as.integer(c(NA, NA)), c("Lft","Rgt"))

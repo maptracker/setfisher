@@ -4,7 +4,8 @@
 \alias{annotatedMatrixExampleFile}
 \title{Annotated Matrix Example File}
 \usage{
-annotatedMatrixExampleFile(file = "Symbol-To-Gene.mtx", list = FALSE)
+annotatedMatrixExampleFile(file = "Symbol-To-Gene.mtx", list = FALSE,
+  pkg = "AnnotatedMatrix")
 }
 \arguments{
 \item{file}{Default \code{"Symbol-To-Gene.mtx"}. The file to
@@ -12,6 +13,9 @@ recover from inst/}
 
 \item{list}{Default \code{FALSE}. If TRUE, then list all available
 example files}
+
+\item{pkg}{Default "AnnotatedMatrix", the R package to inspect
+for the requested file.}
 }
 \value{
 The path to the file requested, unless list is TRUE, which

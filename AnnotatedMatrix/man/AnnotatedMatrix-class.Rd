@@ -162,7 +162,7 @@ names after processing with make.unique()}
   help = FALSE)}}{Get/set rownames for the matrix}
 
 \item{\code{sharedDimensions(mat2, dim1 = NULL, dim2 = NULL, ignore.case = TRUE,
-  warn = TRUE, fail.na = TRUE, help = FALSE)}}{Get the most likely common dimension between this matrix and another}
+  raw = FALSE, warn = TRUE, fail.na = TRUE, help = FALSE)}}{Get the most likely common dimension between this matrix and another}
 
 \item{\code{show(...)}}{A wrapper for showLog}
 }}

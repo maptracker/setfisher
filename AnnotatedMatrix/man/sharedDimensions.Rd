@@ -19,6 +19,10 @@ the "right" matrix.}
 \item{ignore.case}{Default \code{TRUE}, which will consider overlap
 of names irrespective of case.}
 
+\item{raw}{Default \code{FALSE}, which will inspect the filtered
+matrices for overlap. Passing a \code{TRUE} value will use the
+raw (unfiltered) matrices.}
+
 \item{warn}{Default \code{TRUE}, which will emit a warning messge
 if no overlap was found}
 
@@ -42,7 +46,8 @@ Find the most likely shared dimensions between two matrices
 ## Method Usage:
 myObject$sharedDimensions( help=TRUE )
 
-myObject$sharedDimensions(mat2, dim1=NULL, dim2=NULL, warn=TRUE)
+myObject$sharedDimensions(mat2, dim1=NULL, dim2=NULL, ignore.case=TRUE, 
+                          raw=FALSE, warn=TRUE, fail.na=TRUE)
 }
 
 Given two matrices (the object calling this method plus a second

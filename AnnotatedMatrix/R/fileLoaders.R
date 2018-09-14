@@ -857,6 +857,9 @@ parse_GMT_file <- function (file) {
     data  <- list()
     lnum  <- 0
     while (length(line <- readLines(fhDat$fh, n = 1, warn = FALSE)) > 0) {
+        ## The standard does not mention comments, but I'm going to
+        ## skip any line with a leading number sign:
+        if (grepl('^#', line)) next
         row   <- unlist(strsplit(line, "\t"))
         names <- c(names, row[1])
         descr <- c(descr, row[2])
