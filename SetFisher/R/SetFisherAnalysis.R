@@ -25,22 +25,13 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #' @field mapObj Optional AnnotatedMatrix mapping IDs in the Query
 #'     matrix to those used by the Ontology matrix
 #' @field mapWeights Weight matrix used to accomodate multiple voting
-#'     from the Query namespace to the Ontology namespace
-#' @field mapUse Boolean matrix indicating allowed mappings from the
-#'     Query ID namespace to the Ontology ID namespace. Computed after
-#'     applying minMapMatch to the raw Mapping matrix, and eliminating
-#'     rows (query input) and columns (ontology output) that lack
-#'     entries. Recursive elimination is also currently applied to
-#'     remove target IDs that have 'too small' fractional
-#'     represenation - this behavior may be removed.
+#'     from the Query namespace to the Ontology namespace. Taken from
+#'     the filtered (non-raw) Mapping Matrix if defined, or as a
+#'     simple identity matrix from the Query Matrix if not.
 #' @field ontoUse Boolean matrix indicating allowed associations
 #'     between IDs (either input IDs, or mapped IDs if a Mapping
-#'     matrix is used) and ontology terms. The matrix is filtered
-#'     using minOntoMatch (filters original raw matrix based on matrix
-#'     score), minOntoSize (minimum number of assigned terms required
-#'     to keep an ID), minSetSize (minimum number of IDs required to
-#'     keep a term) and maxSetSize (maximum number of IDs allowed for
-#'     a term to be kept)
+#'     matrix is used) and ontology terms. The matrix is filtered to
+#'     align with mapWeights.
 #' @field resultRaw 3D array holding raw p-values from phyper()
 #'     calculations, as well as i and n values for each calculation.
 #' @field resultAdj p.adjust() processed values from resultRaw
@@ -109,7 +100,7 @@ SetFisherAnalysis <-
                     mapWeights    = "dgTMatrix",
                     modState      = "numeric",
 
-                    mapUse        = "ANY", # dgTMatrix
+                    ## DELETE mapUse        = "ANY", # dgTMatrix
                     ontoUse       = "ANY", # dgTMatrix
                     
                     resultRaw     = "array", # [list x ontology x HGD]
@@ -385,10 +376,6 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         ## AnnotatedMatrix object
         if (is.empty.field(mapObj)) { NA } else { mapObj }
     },
-    mapMatrix = function (raw = FALSE) { # Matrix
-        if (!raw && CatMisc::is.def(mapUse)) return( mapUse )
-        mapObj$matrix(raw = raw)
-    },
 
     onto       = function (   ) ontoObj,  # AnnotatedMatrix object
     ontoMatrix = function (raw = FALSE) { # Matrix
@@ -398,9 +385,20 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
 
     weightMatrix = function () {
         "Mutliple-voting weight matrix for mapping matrices, otherwise identity matrix"
-        
+        ## This is really just the mapWeights sparse matrix with the
+        ## added special sauce of checking to see if the underlying
+        ## source matrices have been altered, and if so updating
+        ## $mapWeights.
         .updateDerivedStructures()
         mapWeights
+    },
+
+    queryToOntology = function () {
+        "A weight matrix directly from query IDs to ontology terms"
+        ## As with weightMatrix above, this simply returns the
+        ## $queryOnto field, but only after updating it if needed.
+        .updateDerivedStructures()
+        queryOnto
     },
 
     .noteDiscarded = function (idtype, ids, reason) {
@@ -408,7 +406,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         alreadyDiscarded <- names(discardedIDs[[ idtype ]])
         newlyDiscarded   <- setdiff(ids, names(alreadyDiscarded))
         nnd <- length(newlyDiscarded)
-        if (nnd != 0)  discardedID[[ idtype ]] <<-
+        if (nnd != 0)  discardedIDs[[ idtype ]] <<-
                            c(discardedIDs[[ idtype ]],
                              stats::setNames(rep(reason, nnd), newlyDiscarded))
     },
@@ -580,6 +578,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         if (length(extraOntoIds > 0) {
             nc  <- ncol(om) # Number of columns in matrix
             nr  <- length(extraOntoIds) # Number of new rows
+            ## Will be lgCMatrix
             add <- Matrix::sparseMatrix(i=integer(), j=integer(),
                                         x=logical(),
                                         dims=c(nr, nc),
@@ -589,57 +588,79 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             om <- Matrix::rbind2(om, add)
         }
         ## Now fully align/order the ontology matrix rows with the
-        ## mapping matrix columns:
-        om <- om[ oids, ,  drop=FALSE ]
+        ## mapping matrix columns, and store this as the $ontoUse
+        ## field. Also standardize to lgTMatrix
+        ontoUse <<- as(om[ oids, ,  drop=FALSE ], "lgTMatrix")
 
+### Going to start counting some things. Here are the variables we're
+### interested in tallying
+        
+        ## N = The size of your selected list
+        ## i = The count of IDs in your list for an ontology term
+        ## n = The total number of IDs held by that ontology term
+        ## W = The total number of IDs in the world (aka 'm + n')
 
         
-### WORK HERE: Prune out the columns (ontology terms) that will never
-### get at least one count via generousRound().
+        ## Let's make a full product of the Mapping Matrix and the
+        ## Ontology Matrix. This will allow us to directly convert
+        ## query IDs to counts within an ontology term (i)
+        queryOnto <<- Matrix::crossprod(mapWeights, ontoUse)
 
-### Finish om with  ontoUse <<- om   . Make sure RefClass field is correct.
+        ## We can use that matrix to now calculate the total number of
+        ## IDs assigned to each ontology term (in the Ontology ID
+        ## namespace). We will use generousRound() to integerize these
+        ## counts:
+        ontoCount <<- generousRound( Matrix::colSums( queryOnto ) )
 
-
+        ## Are there any ontology terms that end up having *no* IDs
+        ## assigned to them?
+        noHits <- ontoCount == 0
+        if (any(noHits)) {
+            ## Ah. At least one ontology is unsupported. There's
+            ## really no reason to keep these in the analysis, they
+            ## will only serve to slightly penalize p-values when
+            ## multiple testing correction takes place. Let's remove
+            ## them:
+            lostIDs    <- names(ontoCount)[ noHits ]
+            ontoCount <<- ontoCount[ !noHits ]
+            queryOnto <<- queryOnto[ , !noHits, drop=FALSE ]
+            .noteDiscarded('ontologyTerm', lostIDs,
+                           "Ontology terms lacking any IDs assigned to them")
+        }
+        ## Standardize queryOnto
+        queryOnto  <<- as(queryOnto, "dgTMatrix")
+ 
+        ## Make some simple structures:
+        ontoNames <<- colNames( ontoCount ) # All surviving ontology terms
+        ontoSize  <<- length(ontoNames)     # Number of surviving terms
         
-
-### We can now derive some basic counts from the weight matrix:
-
         ## idCount - The fractional count of the output/ontology ID
-        ## space, a numeric value between zero and one:
+        ## space, a numeric value between zero and one. These values
+        ## represent the maximal count an ontology ID can obtain. The
+        ## sum of all of them is worldSize, below, which represents
+        ## the maximal count the entire world can obtain.
         idCount <<- pmin( Matrix::colSums(mapWeights), 1 )
 
         ## worldSize - An integer sum of the maximum number of
         ## ontology IDs representable by this mapping matrix. This is
-        ## the "world", or "m + n", the full count of IDs that can be
-        ## selected.
+        ## the "world", or "W", the full count of IDs that can be
+        ## selected. Note that some IDs might only contribute a
+        ## fractional count - this is intentional! The final value
+        ## here will be rounded to an integer.
         worldSize <<- generousRound( sum( idCount ) )
-
-        ## ontoCount - Rounded integer vector of genes assigned to
-        ## each ontology
-
-        
-
-        ## ontoNames - Vector of names for all surviving ontology
-        ## terms after filters and maps are put in place
-        
-        ## ontoSize - The integer count of vector names.
-        
-
-        
-
-        
-### TODO : clear out ontoUse and mapUse. Other cruft, too
-### TODO : Trim ontology matrix?
-### TODO : calculate ontoSize, ontoNames, ontoCount
-### TODO : do we need all the above in the new paradigm?
-
-        
         
         ## Update our modified state to reflect 'now'
         modState <<- c(queryObj$modState,
                        ifelse(hasMap, mapObj$modState, as.integer(NA)),
                        ontoObj$modState )
         TRUE # An update occurred.
+        
+### TODO : update fields. It's getting messy with additions and removals
+### TODO : I feel like I'm leaving a field out ... 
+### NEXT : Start tieing this into HGD calculations
+### TODO : Strip out un-needed methods
+### TODO : TESTS
+        
     },
 
     processAll = function ( force = FALSE, ... ) {

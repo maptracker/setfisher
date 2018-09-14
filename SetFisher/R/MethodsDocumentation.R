@@ -751,3 +751,126 @@ NULL
 #'
 NULL
 
+## ============ FIELDS - SetFisherAnalysis =============
+
+#' Map Weights Matrix
+#'
+#' Internal SetFisherAnalysis field, a fractional map from query to ontology IDs
+#'
+#' @name mapWeights
+#'
+#' @details
+#'
+#' This field generally should not be used directly. Instead, using
+#' the \link{weightMatrix} method will return this value after
+#' checking if it needs to be recalculated.
+#' 
+#' TODO - Extend documentation!!!
+#' 
+NULL
+
+#' Query to Ontology Matrix
+#'
+#' Internal SetFisherAnalysis field, a direct query-to-ontology weighted matrix
+#'
+#' @name queryOnto
+#'
+#' @details
+#'
+#' This field generally should not be used directly. Instead, using
+#' the \link{} method will return this value after
+#' checking if it needs to be recalculated.
+#' 
+#' TODO - Extend documentation!!!
+#' 
+NULL
+
+#' Discarded IDs List
+#'
+#' Internal SetFisherAnalysis field holding query, mapping and ontology IDs that are discarded / ignored / suppressed
+#'
+#' @name discardedIDs
+#'
+#' @details
+#'
+#' This field notes any identifiers from the Query, Mapping or
+#' Ontology matrices that are no longer "available" in the
+#' analysis. It is populated by the \link{.noteDiscarded} method,
+#' which is called exclusively by \link{.updateDerivedStructures}
+#'
+#' Identifiers that were previously filtered out using AnnotatedMatrix
+#' filter methods will not be included here.
+#' 
+#' TODO - Extend documentation!!!
+#' 
+NULL
+
+## ============ METHODS - SetFisherAnalysis =============
+
+#' Generate Weight Matrix
+#'
+#' Generate the map mapWeights matrix if needed, and then return it
+#'
+#' @name weightMatrix
+#'
+#' @details
+#'
+#' This method will return the \link{mapWeights} matrix if needed, and
+#' then return it.
+#' 
+#' TODO - Extend documentation!!!
+#' 
+NULL
+
+#' Generate Query To Ontology
+#'
+#' Generate weighted query-to-ontology matrix if needed, then return it
+#'
+#' @name queryToOntology
+#'
+#' @details
+#'
+#' This method will return the \link{queryOnto} matrix if needed, and
+#' then return it.
+#' 
+#' TODO - Extend documentation!!!
+#' 
+NULL
+
+#' Record Discarded IDs
+#'
+#' Internal method that notes IDs discarded during structure processing
+#'
+#' @name dotNoteDiscarded
+#' @aliases .noteDiscarded
+#'
+#' @details
+#'
+#' This method will return the \link{queryOnto} matrix if needed, and
+#' then return it.
+#' 
+#' TODO - Extend documentation!!!
+#'
+#' @keywords internal
+NULL
+
+#' Update Derived Structures
+#'
+#' Internal method that generates derivative matrices and vectors
+#'
+#' @name dotUpdateDerivedStructures
+#' @aliases .updateDerivedStructures
+#'
+#' @details
+#'
+#' The two or three matrices used by a SetFisherAnalysis object are
+#' pre-processed into a set of derived structures that will be used to
+#' perform hypergeometric calculations. This method will create these
+#' structures if they do not yet exist, or if changes have been made
+#' to the primary matrices (generally by filtering).
+#' 
+#' TODO - Extend documentation!!!
+#'
+#' @keywords internal
+NULL
+
