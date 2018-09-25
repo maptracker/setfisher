@@ -1,0 +1,94 @@
+%%MatrixMarket matrix coordinate real general
+% Separator ' :: '
+%
+%% This is a silly matrix used for running tests, and for basic
+%% demonstrations that can be manually checked due to the small sizes
+%% of the dimensions involved. This matrix is intended to be used as a
+%% "Mapping Matrix" in the SetFisher package.
+%
+%% DEFAULT Name Villain ID Lookup Table
+%% DEFAULT Description Map between popular Villain names and the formal Villain ID (VID) accession(s) that are associated with them
+%% DEFAULT ScoreDesc Confidence value between zero and one
+%
+% Rows are Villain Names
+%% DEFAULT RowDim Villain Name
+% Columns are Villain IDs
+%% DEFAULT ColDim VID
+%
+% - - - - - - - - - - - - - - - - - - - - 
+%
+% ColumnDescription "Description" What we know about this particular Villain
+%
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+%-------------------------------------------
+% Row Name :: Description
+%
+% Considering the three sample/example matrices:
+%   Row 'Habeus Scalar' will have no corresponding entry in the Query Matrix
+%   Row 'megaSAM' will not have an entry in the Ontology Matrix
+%   Row 'queRty' will have no entry in either Query or Ontology Matrices
+%
+% 1 Table4Two :: Preaches the Way of the Tab in a remote monestary
+% 2 Dead Space :: Space-hating zealot, believed to moonlight as a UIX designer
+% 3 No More Space :: Radicalized due to a bad experience with spaces in college
+% 4 Put It On My Tab :: Thought to be a high-stakes international gambler
+% 5 Mad Tab :: Escaped from a Javascript asylum
+% 6 1337 :: Either an elite assassain or a third grade prodigy with a love for dolphins. Please approach with caution
+% 7 Habeus Scalar :: Ex-military Turtle programmer
+% 8 Hacker Man :: Either a UseNET veteran or a disgruntled shaved-ice device driver expert
+% 9 YOLO :: The department believes that criminals that can't be bothered to pick a more creative name are likely a low threat
+% 10 uwotm8 :: Fired from job designing IoT door stops
+% 13 kaosBunny5 :: Most recently decanted KAOS BUNNY clone following erradication of the previous four
+% 12 qweRty :: There is some possibility this was just a dropped keyboard
+% 13 megaSAM :: mediSAM's new moniker after completing training
+% 14 ytRewq :: Lab team is investigating if this entity is working with qweRty
+% 15 cul8r :: Last seen tearing write protect tabs off 8" floppies
+%
+%-------------------------------------------
+%
+% VIDS 14-17 do not have any corresponding entries in the Ontology Matrix
+%
+% Col Name
+% 1 VIN-001
+% 2 VIN-002
+% 3 VIN-003
+% 4 VIN-004
+% 5 VIN-005
+% 6 VIN-006
+% 7 VIN-007
+% 8 VIN-008
+% 9 VIN-009
+% 10 VIN-010
+% 11 VIN-011
+% 12 VIN-012
+% 13 VIN-013
+% 14 VIN-014
+% 15 VIN-015
+% 16 VIN-016
+% 17 VIN-017
+%
+%-------------------------------------------
+% Matrix triples : Row Col Score
+%-------------------------------------------
+  15 17 20
+1 1 0.91
+2 2 0.84
+3 3 0.991
+4 4 0.61
+5 5 1.0
+6 6 0.14
+6 7 0.31
+7 8 0.77
+8 9 0.55
+8 5 0.30
+9 10 0.4
+9 13 0.2
+9 14 0.5
+10 11 0.81
+13 12 1.0
+12 15 0.52
+13 16 0.67
+13 17 0.31
+14 15 0.91
+15 11 0.21

@@ -1,0 +1,65 @@
+%%MatrixMarket matrix coordinate real general
+% Separator ' :: '
+%
+%% This is a silly matrix used for running tests, and for basic
+%% demonstrations that can be manually checked due to the small sizes
+%% of the dimensions involved. This matrix is intended to be used as a
+%% "Query Matrix" in the SetFisher package.
+%
+%% DEFAULT Name Crime Scene Suspect Lists
+%% DEFAULT Description Three recent crimes and the villains reported to have been there
+%% DEFAULT ScoreDesc Number of witnesses reporting the villain present at the scene
+% Rows are Crimes
+%% DEFAULT RowDim Crime
+% Columns are Villain Names
+%% DEFAULT ColDim Villain
+%
+% - - - - - - - - - - - - - - - - - - - - 
+%
+% ColumnDescription "Summary" Brief description of the crime
+% ColumnDescription "Description" What we know about this particular Villain
+% ColumnDescription "CriminalCount" Unfortunately some criminals share the same villain name. This column reports the number of distinct criminals thought to be using that particular name.
+%
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+%-------------------------------------------
+% Row Name :: Summary
+% 1 Gitpocalypse :: 2017 attack where every three spaces where changed to tabs in GitHub
+% 2 Stargate IX-B :: FTL project abandoned after loss of code base
+% 3 You Can Never Be Sure :: Random number generator hacked to only return '9'
+%
+%-------------------------------------------
+%
+% Column 'my$t3ri0' will not have a path available in the mapping matrix
+%
+% Col Name :: CriminalCount :: Description
+% 1 Table4Two :: 1 :: Preaches the Way of the Tab in a remote monestary
+% 2 No More Space :: 1 :: Radicalized due to a bad experience with spaces in college
+% 3 Mad Tab :: 1 :: Escaped from a Javascript asylum
+% 4 1337 :: 2 :: Either an elite assassain or a third grade prodigy with a love for dolphins. Please approach with caution
+% 5 Dead Space :: 1 :: Space-hating zealot, believed to moonlight as a UIX designer
+% 6 kaosBunny5 :: 1 :: Most recently decanted KAOS BUNNY clone following erradication of the previous four
+% 7 YOLO :: 3 :: The department believes that criminals that can't be bothered to pick a more creative name are likely a low threat
+% 8 uwotm8 :: 1 :: Fired from job designing IoT door stops
+% 9 Hacker Man :: 2 :: Either a UseNET veteran or a disgruntled shaved-ice device driver expert
+% 10 my$t3ri0 :: 1 :: James Smith, Senior VP of Black Hat Combat Code Solutions. Not that mysterious. He lists his Villain Name on his LinkedIn profile.
+% 11 megaSAM :: 2 :: mediSAM's new moniker after completing training
+%
+%-------------------------------------------
+% Matrix triples : Row Col Score
+%-------------------------------------------
+  3 11 14
+1 1 3
+1 2 8
+1 3 2
+1 4 15
+1 10 4
+1 11 3
+2 5 4
+2 2 3
+2 7 3
+2 8 1
+2 10 4
+3 6 21
+3 4 1
+3 9 11
