@@ -1,19 +1,23 @@
-Package: setfisher
+Package: SetFisher
 Title: Perform hypergeometric enrichment tests for ontologies
-Version: 1.2
-Date: 2017-04-14
+Version: 1.3.0
+Date: 2018-09-26
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
 Maintainer: Charles Tilford <cran@agent.fastmail.com>
-Description: Yet another Fisher's Exact tool, with some twists. Designed
-    to address the issue of "multiple voting" in typical biological enrichment
-    analyses. The package handles multiple mappings (for example, probesets
-    mapping to multiple genes) in the discrete counting steps prior to calculating
+Description: Yet another Fisher's Exact tool, with some
+    twists. Designed to address the issue of "multiple voting" in
+    typical biological enrichment analyses. The package handles
+    multiple mappings (for example, probesets mapping to multiple
+    genes) in the discrete counting steps prior to calculating
     hypergeometric probabilities.
 Depends:
     R (>= 3.1)
 Imports:
     dynamictable,
+    CatMisc (>= 0.8),
+    ParamSetI (>= 1.16),
+    AnnotatedMatrix (>= 1.23.0),
     crayon,
     methods,
     digest,
@@ -22,12 +26,9 @@ Imports:
 License: GPL-2
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 5.0.1.9000
-Collate:
-    'SetFisherLoggerI.R'
-    'SetFisherLogger.R'
-    'SetFisherParamI.R'
+RoxygenNote: 6.0.1
+Collate: 
+    'MethodsDocumentation.R'
     'SetFisher.R'
-    'SetFisherUtils.R'
-    'SetFisherMatrix.R'
     'SetFisherAnalysis.R'
+    'supportFunctions.R'

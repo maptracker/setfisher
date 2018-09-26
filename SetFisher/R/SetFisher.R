@@ -5,7 +5,6 @@
 #' Enrichment analysis using hypergeometric distribution and adjusting
 #' counts for multiple voting
 #'
-#' @field log The SetFisherLogger object holding log (activity) entries
 #' @field defQryObj Optional default Query object (SetFisherMatrix)
 #' @field defMapObj Optional default Map object (SetFisherMatrix)
 #' @field defWorld Optional default World (character vector)
@@ -18,6 +17,7 @@
 #' @importFrom CatMisc methodHelp
 #'
 #' @import ParamSetI
+#' @import AnnotatedMatrix
 #'
 #' @export SetFisher
 #' @exportClass SetFisher

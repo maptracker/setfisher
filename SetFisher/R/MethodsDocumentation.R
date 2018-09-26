@@ -406,7 +406,6 @@ NULL
 #'
 #' @seealso \link{SetFisherAnalysis}
 #'
-#' @import SetFisherAnalysis
 #' @importFrom CatMisc is.def methodHelp
 #'
 #' @examples

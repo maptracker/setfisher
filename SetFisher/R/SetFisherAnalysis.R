@@ -8,8 +8,6 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #' results
 #'
 #' @field setfisher Pointer back to the parent SetFisher object
-#' @field log The SetFisherLogger object holding log (activity)
-#'     entries
 #' @field queryObj AnnotatedMatrix representing the query list(s)
 #' @field queryWorld Character verctor describing all objects in the
 #'     query namespace. Will default to all unique rows in the mapping
@@ -32,6 +30,8 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #'     between IDs (either input IDs, or mapped IDs if a Mapping
 #'     matrix is used) and ontology terms. The matrix is filtered to
 #'     align with mapWeights.
+#' @field queryOnto A direct Query-to-Ontology matrix that takes into
+#'     account the existence or absence of a Mapping Matrix.
 #' @field resultRaw 3D array holding raw p-values from phyper()
 #'     calculations, as well as i and n values for each calculation.
 #' @field resultAdj p.adjust() processed values from resultRaw
@@ -65,7 +65,6 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #' @importFrom dynamictable dynamictable
 #' @importFrom methods setRefClass new
 #'
-#' @include SetFisherLoggerI.R
 #' @import AnnotatedMatrix
 #' @import ParamSetI
 #' 
@@ -89,19 +88,20 @@ SetFisherAnalysis <-
     setRefClass("SetFisherAnalysis",
                 fields = list(
                     setfisher     = "SetFisher",
-                    queryObj      = "AnnotatedMatrix",
+                    queryObj      = "ANY", # "AnnotatedMatrix",
                     queryWorld    = "character",
                     activeQueries = "character",
 
                     discardedIDs  = "list",
 
-                    ontoObj       = "AnnotatedMatrix",
+                    ontoObj       = "ANY", # "AnnotatedMatrix",
                     mapObj        = "ANY", # AnnotatedMatrix
                     mapWeights    = "dgTMatrix",
                     modState      = "numeric",
 
                     ## DELETE mapUse        = "ANY", # dgTMatrix
                     ontoUse       = "ANY", # dgTMatrix
+                    queryOnto     = "dgTMatrix", # Direct Qry -> Onto
                     
                     resultRaw     = "array", # [list x ontology x HGD]
                     resultAdj     = "array", # adjusted results
@@ -119,7 +119,6 @@ SetFisherAnalysis <-
                     roundUp        = "integer",
                     ## pseudoRound is just (roundUp - 1) / roundUp
                     pseudoRound    = "numeric",
-                    log            = "SetFisherLogger",
                     ## qualities of the analysis or world as a whole:
                     ontoSize       = "integer", # Num of ontology terms
                     okInput        = "character", # 'legal' input IDs
@@ -128,7 +127,7 @@ SetFisherAnalysis <-
                     ontoCount      = "integer", # Total IDs for each onto
                     worldSize      = "integer", # Total target IDs in world
                     outputDim      = "integer", # Used to 'align' matrices
-                    inOutfunc      = "list",    # Simple row/col -> in/out funcs
+                    inOutFunc      = "list",    # Simple row/col -> in/out funcs
 
                     ## Failed list - used for debugging
                     bogusList      = "character",
@@ -137,7 +136,7 @@ SetFisherAnalysis <-
                     workSpace      = "integer"
                     
                     ),
-                contains = c("SetFisherLoggerI", "SetFisherParamI")
+                contains = c("ParamSetI")
                 )
 
 SetFisherAnalysis$methods(
@@ -165,7 +164,7 @@ SetFisherAnalysis$methods(
 
 
         
-        .self$.setParamDefs("
+        callSuper( params=params, paramDefinitions="
 Name         [character] Optional name for the analysis
 minMapMatch  [numeric] Minimum score required to keep a map matrix assignment
 maxSetPerc   [percent] Maximum % of world that can be assigned to a term
@@ -360,17 +359,6 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         
         outputDim
     },
-
-
-
-
-    ## query       = function (   ) queryObj, # AnnotatedMatrix object
-    ## queryMatrix = function (raw = FALSE) { # Matrix
-    ##    if (!raw && CatMisc::is.def(queryUse)) return( queryUse )
-    ##    queryObj$matrix(raw = raw)
-    ##},
-
-
 
     map       = function (   ) {
         ## AnnotatedMatrix object
@@ -575,7 +563,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         ## if needed - add in any mapping output IDs that are not in
         ## the simplified ontology matrix:
         extraOntoIds <- setdiff(oids, rownames(om))
-        if (length(extraOntoIds > 0) {
+        if (length(extraOntoIds > 0)) {
             nc  <- ncol(om) # Number of columns in matrix
             nr  <- length(extraOntoIds) # Number of new rows
             ## Will be lgCMatrix
@@ -695,651 +683,6 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             x <- 10 ^ -x
         }
         signif(x, 3)
-    },
-
-#### WAS filter():
-    
-    alignMatrices = function ( force = FALSE  ) {
-
-        ## Do we have a mapping matrix?
-        hasMap <- CatMisc::is.def(mapObj)
-        ## Don't do anything if the matrices are unchanged since the
-        ## last alignment.
-        if (hasMap) {
-            ## We have three matrices: Query, Mapping, Ontology
-            if (modState[1] == queryObj$modState &&
-                modState[2] == mapObj$modState &&
-                modState[3] == ontoObj$modState) return(outputDim)
-        } else {
-            ## No mapping matrix, just Query and Ontology
-            if (modState[1] == queryObj$modState &&
-                modState[3] == ontoObj$modState) return(outputDim)
-        }
-
-        ## Ok. Now we need to figure out how to attach the two (or
-        ## three) matrices to each other. We will presume that the
-        ## matrices have all been filtered already (using the various
-        ## AnnotatedMatrix fitler methods)
-
-        if (!hasMap) {
-            ## Just the query matrix and the ontology matrix. We do
-            ## not need to calculate mapping weights in this instance,
-            ## and can simply align the one common dimension between
-            ## the two matrices.
-
-            ## TODO: Need to define parameters to pass to
-            ## sharedDimensions to allow configuration.
-
-            sd <- queryObj$sharedDimensions( onto() )
-            if (is.na(sd[1])) {
-                message("Failed to find common ids between query and ontology",
-                        prefix = "[WARN]", bgcolor = "yellow", color = "blue")
-                outputDim <<- c(0L, 0L, 0L)
-            } else {
-                outputDim[1] <<- if (sd[1] == 1L) { 1L } else { 2L }
-                outputDim[2] <<- 0L
-                outputDim[3] <<- if (sd[2] == 1L) { 2L } else { 1L }
-            }
-            return(outputDim)
-        }
-        
-        ## There is a mapping matrix. In addition to performing two
-        ## alignments (Qry->Map, Map->Onto) we also need to calculate
-        ## weights based on the multiplicity of mappings between the
-        ## query ID namespace and the ontology ID namespace.
-        
-
-
-
-
-
-        
-        if (isFiltered && !force) {
-            return(filterLog)
-        }
-        dateMessage(paste("Applying filters to matrices - ",
-                          colorize(param("name"), "white")))
-
-        stop("HACKING CODE HERE - moving to AnnotatedMatrix")
-        
-        ## Set queryUse to a boolean matrix
-        queryUse <<- queryObj$matrixRaw != 0
-        .shrinkQueryMatrix("absent in user-defined Query World")
-
-        ## Make a boolean matrix (ontoUse) that flags the mappings
-        ## between the query (either as provided, or mapped if a
-        ## mapping matrix is used) and the ontology. TRUE cells
-        ## indicate that the corresponding ontology term is assigned
-        ## to the cooresponding query ID.
-        minOntoMatch <- param("minOntoMatch")
-        if (is.something(minOntoMatch)) {
-            ## Filter ontology mappings by a scoring threshold
-            ontoUse     <<- ontoObj$matrixRaw >= minOntoMatch
-            ## How many ontology assignments did we remove?
-            ontoDropped <- nnzero(ontoObj$matrixRaw) - nnzero(ontoUse)
-            csR <- colSums(ontoObj$matrixRaw)
-            csU <- colSums(ontoUse)
-            rsR <- rowSums(ontoObj$matrixRaw)
-            rsU <- rowSums(ontoUse)
-            if (ontoDropped > 0) {
-                ## Filter is causing some ontology *assignments* to be
-                ## lost. This may or may not result in ontology terms
-                ## or IDs being lost. This row is for the "edges" removed:
-                filterDetails(id = "Ontology Matrix", type = "Assignment",
-                              filter = sprintf("Ontology assignment score < %s",
-                                  minOntoMatch),
-                              note = sprintf("%d assignments", ontoDropped))
-
-                ## These are IDs that previously had at least one
-                ## assignment to an ontology but now do not. For
-                ## reporting purposes, these are the only counts that
-                ## will be reported in summaries
-                discardedR <- setdiff(names(rsU[rsU == 0]),
-                                      names(rsR[rsR == 0]) )
-                if (length(discardedR) != 0)
-                    filterDetails(id = discardedR, type = "ID",
-                                  filter = sprintf("Ontology assignment score < %s",
-                                      minOntoMatch), metric = "minOntoMatch" )
-                ## These are ontology terms that previously had an
-                ## assignment that previously had at least one
-                ## assignment to an ID but now do not.
-                discardedC <- setdiff(names(csU[csU == 0]),
-                                      names(csR[csR == 0]) )
-                if (length(discardedC) != 0)
-                    filterDetails(id = discardedC, type = "Term",
-                                  filter = sprintf("Ontology assignment score < %s",
-                                      minOntoMatch), metric = "minOntoMatch"  )
-            }
-        } else {
-            ## Keep all non-zero assignments
-            ontoUse <<- ontoObj$matrixRaw != 0
-        }
-        .shrinkOntologyMatrix(paste("where",.ontologyFilterText()))
-
-        ## Do we have a mapping matrix?
-        if (CatMisc::is.def(mapObj)) {
-            ## Yes, the namespaces of our query and analysis space differ
-            
-            ## The mapping matrix plays an important role here in also
-            ## defining the size of the (remapped) world
-
-
-
-
-            
-            minMapMatch <- param("minMapMatch")
-            if (CatMisc::is.def(minMapMatch)) {
-                ## Request to filter the mappings to a minimum score
-                mapUse     <<- mapObj$matrixRaw >= minMapMatch
-                mapDropped <- nnzero(mapObj$matrixRaw) - nnzero(mapUse)
-                csR <- colSums(mapObj$matrixRaw)
-                csU <- colSums(mapUse)
-                rsR <- rowSums(mapObj$matrixRaw)
-                rsU <- rowSums(mapUse)
-                if (mapDropped > 0) {
-                    ## The filter caused some *mappings* to be
-                    ## lost. This may or may not have caused IDs to
-                    ## end up being totally excluded. The row below is
-                    ## for the "edges" that are lost
-                    filterDetails(id = "Mapping Matrix", type = "Mapping",
-                                  filter = sprintf("ID mapping score < %s",
-                                      minMapMatch),
-                                  note = sprintf("%d mappings", mapDropped) )
-                    ## These are input IDs that previously had a
-                    ## mapping but now do not:
-                    discardedR <- setdiff(names(rsU[rsU == 0]),
-                                          names(rsR[rsR == 0]) )
-                    if (length(discardedR) != 0)
-                        filterDetails(id = discardedR, type = "Query ID",
-                                      filter = sprintf("ID mapping score < %s",
-                                          minMapMatch), metric = "minMapMatch")
-                    ## These are output IDs that previously had a
-                    ## mapping but now do not. For reporting purposes,
-                    ## these are the only counts that will be reported
-                    ## in summaries
-                    discardedC <- setdiff(names(csU[csU == 0]),
-                                          names(csR[csR == 0]) )
-                    if (length(discardedC) != 0)
-                        filterDetails(id = discardedC, type = "ID",
-                                      filter = sprintf("ID mapping score < %s",
-                                          minMapMatch), metric = "minMapMatch")
-
-                }
-
-            } else {
-                ## No filter, all inputs will contribut to analysis,
-                ## provided that they have at least one output
-                ## specified in the mapping matrix (value set to
-                ## non-zero). We still need to set mapUse to be a
-                ## logical sparse matrix
-                mapUse <<- mapObj$matrixRaw != 0
-            }
-            .shrinkMappingMatrix(paste("where score <", minMapMatch))
-            
-            mids <- .standardizeId(rownames(mapUse))
-            if (CatMisc::is.def(queryWorld)) {
-                ## User-defined queryWorld - The mapping matrix may
-                ## not be completely contained in it
-                commonID  <- intersect(mids, queryWorld)
-                numDisc   <- length(mids) - length(commonID)
-                if (numDisc > 0) {
-                    ## Some of the mapping matrix is outside our Query world
-                    keepInd   <- match(commonID, mids)
-                    discarded <- mids[-keepInd]
-                    filterDetails(id = discarded, type = "Query ID", metric = "AlienQuery",
-                                  filter = "Mapping Query ID not represented in QueryWorld")
-                    actionMessage(sprintf("Removed %d Query IDs from the Mapping Matrix that are not represented in user-supplied world",
-                                      numDisc), prefix = "    ")
-                    mapUse <<- mapUse[keepInd, , drop = FALSE]
-                    .shrinkMappingMatrix("due to non-overlap with query world")
-                }
-            } else {
-                ## If we have not explicitly defined our Query ID
-                ## world, then do so using row names on the mapping
-                ## matrix
-                queryWorld <<- mids
-                actionMessage(sprintf("Query World defined as %d Query IDs present in Mapping Matrix",
-                                      length(queryWorld)), prefix = "    ")
-                .shrinkQueryMatrix("absent in Mapping-defined Query World")
-            }
-        } else if (CatMisc::is.def(queryWorld)) {
-            ## No mapping matrix, but a user-defined query world. Make
-            ## sure the ontology matrix is contained within the query
-            ## world
-            oids      <- .standardizeId(rownames(ontoUse))
-            commonID  <- intersect(oids, queryWorld)
-            numDisc   <- length(oids) - length(commonID)
-            if (numDisc > 0) {
-                ## Some of the ontology matrix is outside our Query world
-                keepInd   <- match(commonID, oids)
-                discarded <- oids[-keepInd]
-                filterDetails(id = discarded, type = "ID", metric = "AlienQuery",
-                              filter = "Ontology ID not represented in QueryWorld")
-                actionMessage(sprintf("Removed %d IDs from the Ontology Matrix that are not represented in user-supplied world",
-                                      numDisc), prefix = "    ")
-                ontoUse <<- ontoUse[keepInd, , drop = FALSE]
-                .shrinkOntologyMatrix("due to non-overlap with query world")
-            }
-        } else {
-            ## No mapping matrix, and no query world either. Define
-            ## the query world as all the IDs observed in the
-            ## ontology.
-            queryWorld <<- .standardizeId(rownames(ontoObj$matrixRaw))
-            actionMessage(sprintf("Query World defined as %d IDs present in Ontology Matrix",
-                                  length(queryWorld)), prefix = "    ")
-            .shrinkQueryMatrix("absent in Ontology-defined Query World")
-        }
-        
-
-        ## Many of the rows and columns in the matrices could be
-        ## reasonably described as "not useful". For example, everyone
-        ## should (?) agree that an ontology term with zero assigned
-        ## IDs is not useful, same with an ontology that has ALL IDs
-        ## assigned to it. Similarly, ontologies with very few or very
-        ## many assignments are also not very useful because:
-
-        ## 1. Sparsely-populated ontologies generally fail to reach
-        ## statistically significant levels of enrichment. This
-        ## threshold is controlled by minSetSize
-
-        ## 2. Heavily-populated ontologies are typically so general as
-        ## to not be scientifically informative, like "cell" or
-        ## "enzyme". Controlled by maxSetPerc
-
-        ## Excluding ontology terms will provide a (generally small)
-        ## statistical "bonus" when multiple testing correction is
-        ## applied (fewer tests to account for).
-
-        ## By the same token, there are query IDs that are not useful
-        ## for enrichment analysis. These are ones that have low (or
-        ## no) level of annotation. IDs that have fewer than
-        ## minOntoSize terms assigned to them are removed.
-
-        ## Removing poorly-annotated IDs can have a MAJOR impact on
-        ## statistics. For example, un-annotated probe sets in
-        ## transcriptional profiling are generally infrequently
-        ## expressed, and can even represent spurious (fictional)
-        ## genes. These probesets end up clustering at the tail end of
-        ## ranked lists, and have the effect of "concentrating" all
-        ## other probesets toward the top of the list. The result is
-        ## to increase the apparent enrichment of the "real"
-        ## probesets. Removing the under-annotated probesets almost
-        ## always has the effect of reducing the statistical
-        ## significance of ALL ontology terms.
-
-        ## All these filters are applied repeatedly until no further
-        ## reduction is seen in either the ontology matrix or the
-        ## mapping matrix. A cycle is used because removing ontology
-        ## terms can cause a previously passing gene to now fail, and
-        ## vise versa.
-
-        cycleTrimming <- 1
-        while (cycleTrimming) {
-            cycleTrimming <- 0
-            cycleTrimming <- cycleTrimming + .pruneOntologyMatrix()
-            cycleTrimming <- cycleTrimming + .pruneMappingMatrix()
-        }
-
-        ## The rows represent the final number of annotated IDs (genes)
-        orn       <- rownames(ontoUse)
-        oids      <- .standardizeId(orn)
-        if (CatMisc::is.def(mapObj)) {
-            ## Trimmed weight matrix rows represent "ok" query
-            ## terms. Will intersect user queries with this to remove
-            ## rejected IDs from input.
-
-            ## Paranoid that I am messing up somewhere and misaligning
-            ## matrices. Ontology rows should match with map columns,
-            ## double check here:
-            mcn       <- colnames(mapUse)
-            mids      <- .standardizeId(mcn)
-            if (!identical(oids, mids)) {
-                ## GRRR
-                err("Mapping and ontology matrices are not aligned. Fixing...",
-                    prefix = "[Code Error]")
-                commonID <- intersect(oids, mids)
-                if (length(commonID) != length(oids)) {
-                    ## The ID content is not the same!
-                    err("ID count differs between mapping and ontology! Alarmed, fixing...",
-                        prefix = "[Code Error]")
-                    orInds <- match(commonID, oids)
-                    ontoUse <<- ontoUse[orInds, , drop = FALSE]
-                }
-                mcInds <- match(commonID, mids)
-                mapUse <<- mapUse[ , mcInds, drop = FALSE]
-                mids   <- commonID
-            }
-            mrn       <- rownames(mapUse)
-            okInput   <<- stats::setNames( .standardizeId(mrn), mrn )
-            ## Numeric vector with the fractional mapped count for each gene
-            ## that survived trimming
-            idCount <<- stats::setNames( pmin( colSums(mapWeights), 1 ), mids)
-        } else {
-            ## Without a map matrix then the surviving ontology
-            ## defines the acceptable IDs
-            okInput <<- stats::setNames( oids, orn )
-            ## Set idCounts as "1" (pass-through)
-            idCount <<- stats::setNames(rep(1, length(okInput)), okInput)
-        }
-        ## After fractional summing, what is the total number of genes (n+m)?
-        worldSize <<- generousRound( sum( idCount ) )
-        ## Note all the surviving ontology terms:
-        ontoNames <<- colnames(ontoUse)
-        ## How many genes are assigned to each ontology term (n)?
-        ontoCount <<- generousRound(crossprod(
-            as(ontoUse,"dgTMatrix"), idCount )[ , 1] )
-        #ontoCount <<- generousRound(crossprod(
-        #    as(ontoUse,"dgTMatrix"), idCount )[,1] )
-        ## Trimmed ontology matrix reflect final number of ontologies
-        ontoSize  <<- length(ontoCount)
-
-        dateMessage("Finished", prefix = "  ")
-        isFiltered <<- TRUE
-        ## Not really sure what's best to return here. The log, I guess?
-        filterLog
-    },
-
-    .shrinkOntologyMatrix = function (why='for some un-named reason') {
-        ## Shrink the ontology to remove empty rows and columns
-        tossRow <- rowSums(ontoUse) == 0
-        tossCol <- colSums(ontoUse) == 0
-        if (sum(tossRow) + sum(tossCol) == 0) return(NA)
-        dimNames <- names(dimnames(ontoObj$matrixRaw))
-        actionMessage(sprintf(
-            "Ontology removes %d %s and %d %s %s",
-            sum(tossRow), dimNames[1], sum(tossCol), dimNames[2],
-            why), prefix = "  ")
-        ontoUse <<- ontoUse[ !tossRow, !tossCol, drop = FALSE ]
-    },
-    .shrinkMappingMatrix = function (why='for some un-named reason') {
-        ## Shrink the mapping matrix to remove unpopulated rows and columns
-        tossRow <- rowSums(mapUse) == 0
-        tossCol <- colSums(mapUse) == 0
-        if (sum(tossRow) + sum(tossCol) > 0) {
-            mapUse <<- mapUse[ !tossRow, !tossCol, drop = FALSE ]
-            dimNames <- names(dimnames(mapObj$matrixRaw))
-            actionMessage(sprintf(
-                "Mapping filter removes %d %s and %d %s %s",
-                sum(tossRow), dimNames[1], sum(tossCol), dimNames[2],
-                why), prefix = "  ")
-        }
-    },
-
-    .shrinkQueryMatrix = function (why='for some un-named reason') {
-        ## Shrink the query matrix to conform to the Query World
-        if (!CatMisc::is.def(queryWorld)) return(NA) # No query world defined
-        ## Filter the input queries to assure they are within the
-        ## user-defined world of query IDs
-        qrn       <- rownames(queryUse)
-        qids      <- .standardizeId(qrn)
-        commonID  <- intersect(qids, queryWorld)
-        numDisc   <- length(qids) - length(commonID)
-        if (numDisc == 0) return(NA) # No changes
-        ## We have to remove some query IDs from the query matrix
-        keepInd   <- match(commonID, qids)
-        discarded <- qids[-keepInd]
-        filterDetails(id = discarded, type = "Query ID", metric = "AlienQuery",
-                      filter = "Query ID not represented in QueryWorld")
-        actionMessage(sprintf("Removed %d Query IDs %s", numDisc, why),
-                      prefix = "    ")
-        if (keepInd == 0) err("All queries have been removed!",
-                              prefix = "[Catastrophic Filter]")
-        queryUse <<- queryUse[keepInd, , drop = FALSE]
-    },
-
-    .pruneOntologyMatrix = function () {
-        ## Filter the ontology matrix in a way that recursively
-        ## removes rows and columns. Removal of rows may cause some
-        ## columns to no longer meet criteria, and vice versa.
-        changes   <- 0
-        if (length(ontoUse) == 0) return(changes) # Evaporated the entire thing!
-        
-        message("Filtering assignment matrix", prefix = "  ", color = "blue")
-
-        if (FALSE) {
-            ## We will do this in .pruneMappingMatrix()
-            if (CatMisc::is.def(mapObj)) {
-                ## Keep only IDs that are present as "output" IDs in the
-                ## mapping matrix
-                nr      <- nrow(ontoUse)
-                orn     <- rownames(ontoUse)
-                mcn     <- colnames(mapUse)
-                okNames <- intersect(.standardizeId(orn), .standardizeId(mcn))
-                numDisc <- nr - length(okNames)
-                if (numDisc) {
-                    ## We need to prune some rows from the ontology
-                    keepInd   <- match(okNames, .standardizeId(orn))
-                    discarded <- orn[-keepInd]
-                    filterDetails(id = discarded, type = "ID",
-                                  metric = "MappingUsed",
-                                  filter = "ID not represented in mapping matrix")
-                    ontoUse <<- ontoUse[keepInd, , drop = FALSE]
-                    actionMessage(sprintf("Removed %d unmapped IDs",numDisc),
-                                  prefix = "    ")
-                    changes <- changes + numDisc
-                }
-            }
-        }
-
-        ## Current size of our working (post-mapping) set 
-        totalSetSize <- nrow(ontoUse)
-        ## Maximum *number* of set members an ontology should have:
-        maxSetPerc   <- param("maxSetPerc")
-        maxSetSize   <- generousRound(totalSetSize * maxSetPerc / 100)
-        ## Note that as the ontology is pruned, totalSetSize will
-        ## decrease, and the maximum allowed number of terms will also
-        ## decrease.
-        
-        minOntoSize  <- param("minOntoSize")
-        minSetSize   <- param("minSetSize")
-        keepGoing <- TRUE
-        while (keepGoing) {
-            ## Fast! ~ 2 seconds for large ontologies
-            priorChanges <- changes
-            if (is.something(minOntoSize)) {
-                ## Keep only rows with an adequate number of ontology terms:
-                rs      <- rowSums(ontoUse)
-                okRow   <- rs >= minOntoSize
-                if (any(!okRow)) {
-                    ## Some IDs no longer have enough ontology terms
-                    orn       <- rownames(ontoUse)
-                    discarded <- orn[ ! okRow ]
-                    numDisc   <- length(discarded)
-                    filterDetails(id = discarded, type = "ID",
-                                  filter = sprintf("ID has < %d ontology terms",
-                                      minOntoSize), metric = "minOntoSize")
-                    ontoUse <<- ontoUse[ okRow, , drop = FALSE]
-                    actionMessage(sprintf("Removed %d IDs with < %d ontology terms",
-                                        numDisc, minOntoSize),
-                                prefix = "    ")
-                    changes <- changes + numDisc
-                }
-            }
-            if (CatMisc::is.def(minSetSize)) {
-                ## Keep only columns (terms) with a minimum number of
-                ## set members
-                cs      <- colSums(ontoUse)
-                okCol   <- cs >= minSetSize
-                if (any(!okCol)) {
-                    ## Some ontologies do not have enough assigned IDs
-                    ## to be kept
-                    ocn       <- colnames(ontoUse)
-                    discarded <- ocn[ ! okCol ]
-                    numDisc   <- length(discarded)
-                    filterDetails(id = discarded, type = "Term",
-                                  filter = sprintf("Ontology has < %d IDs",
-                                      minSetSize), metric = "minSetSize")
-                    ontoUse <<- ontoUse[ , okCol, drop = FALSE ]
-                    actionMessage(sprintf("Removed %d ontologies with < %d IDs",
-                                        numDisc, minSetSize),
-                                prefix = "    ")
-                    changes <- changes + numDisc
-                }
-            }
-            if (is.something(maxSetSize)) {
-                ## Ontology terms with "too many" loci are generally
-                ## not useful and end up needlessly slowing down
-                ## analysis (eg 'enzyme' or 'catalytic activity')
-                cs      <- colSums(ontoUse)
-                okCol   <- cs <= maxSetSize
-                numDisc <- length(cs) - sum(okCol)
-                if (numDisc) {
-                    ## Some ontologies have too many assigned IDs to
-                    ## be kept
-                    ocn       <- colnames(ontoUse)
-                    discarded <- ocn[ ! okCol ]
-                    filterDetails(id = discarded, type = "Term",
-                                  filter = sprintf("Ontology covers more than %d%% of the world", maxSetPerc ), metric = "maxSetPerc")
-                    ontoUse <<- ontoUse[ , okCol, drop = FALSE ]
-                    actionMessage(sprintf("Removed %d ontologies with > %d%% world coverage",
-                                          numDisc, maxSetPerc),
-                                  prefix = "    ")
-                    changes <- changes + numDisc
-                }
-            }
-            ## Keep recursing until there are no more changes
-            keepGoing <- changes > priorChanges
-        }
-        if (length(ontoUse) == 0)
-            message("Entire ontology matrix has been eliminated by filters",
-                    prefix = "    [!!]", bgcolor = "yellow", color = "blue")
-        changes
-    },
-    
-    .pruneMappingMatrix = function () {
-        changes   <- 0
-        if (!CatMisc::is.def(mapObj)) return( changes ) # No map to alter
-        if (length(mapUse) == 0 || length(ontoUse) == 0)
-            return(changes) # One or both matrices are completely gone
-        message("Filtering mapping matrix", prefix = "  ", color = "blue")
-        
-        ## Make sure that the mapping matrix columns are aligned with
-        ## the ontology matrix rows
-        mmCol     <- colnames(mapUse)
-        mmStnd    <- .standardizeId(mmCol)
-        omRow     <- rownames(ontoUse)
-        omStnd    <- .standardizeId(omRow)
-        commonID  <- intersect(omStnd, mmStnd)
-        keepInd   <- match(commonID, mmStnd)
-        discarded <- mmCol[-keepInd]
-        numDisc   <- length(discarded)
-        if (numDisc > 0) {
-            ## We have to remove some destination IDs from the mapping matrix
-            filterDetails(id = discarded, type = "ID", metric = "UnMappedID",
-                          filter = "Map matrix ID not represented in ontology")
-            actionMessage(sprintf("Removed %d IDs found in mapping but not ontology",
-                                  numDisc),
-                          prefix = "    ")
-            changes <- changes + length(discarded)
-        }
-        ## Regardless if any IDs have been removed, assure that the
-        ## mapping columns are aligned with the ontology rows:
-        mapUse <<- mapUse[ , keepInd, drop = FALSE ]
-        
-        ## The mapping matrix should have already been converted to a
-        ## logical array by $filter(). We now check if there are query
-        ## IDs (rows) that no longer have (or never had) *any* target
-        ## IDs (columns)
-        nonZero   <- rowSums( mapUse ) > 0
-        nr        <- nrow(mapUse) # Count of all rows
-        numNZ     <- sum(nonZero)           # Count with at least one target
-        numDisc   <- nr - numNZ
-        if (numDisc) {
-            discarded <- rownames(mapUse)[ !nonZero ]
-            
-            filterDetails(id = discarded, type = "Query ID",
-                          metric = "UnMappedID",
-                          filter = "Query ID lacking mapped target")
-            mapUse <<- mapUse[ nonZero, , drop = FALSE]
-            actionMessage(sprintf("%d Query IDs without target IDs removed",
-                                  numDisc),
-                          prefix = "    ")
-            changes <- changes + numDisc
-        }
-        if (length(mapUse) == 0) {
-            actionMessage("Mapping matrix has been completely filtered out!",
-                          prefix = "  [!!]", bgcolor='magenta')
-            return(0)
-        }
-        
-        ## Now calculate a weight for each query ID based on the
-        ## number of target IDs it has
-        targCounts  <- rowSums( mapUse )
-        targWeights <- 1 / targCounts
-        ## Make a sparse diagonal matrix of the weights
-        targDiag    <- .sparseDiagonal(length(targWeights), targWeights)
-        ## Project these weights into a new numeric matrix
-        mapWeights <<- crossprod(targDiag, mapUse)
-        ## Normalize the row and column names
-        rownames(mapWeights) <<- .standardizeId(rownames(mapUse))
-        colnames(mapWeights) <<- .standardizeId(colnames(mapWeights))
-
-
-#### TO DO - ISSUE TO CONSIDER
-
-        ## Probably should not remove fractional genes - the point was
-        ## to allow a large family to "pool their vote" through the
-        ## ultimate sum of counts in the ontology, allowing a single
-        ## ontological vote to be cast by a family that was hit by
-        ## a single probeset
-        
-#### END ISSUE
-        
-        ## After calculating fractional counts, we will need to
-        ## integer-ize the number of genes, both in the selected set
-        ## and in the world. If we use ceiling(), we run the risk of
-        ## again over-emphasizing large families (like TSPY or the
-        ## protocadherins), which will once more lead to multiple
-        ## voting for ontologies linked to those families.
-
-        ## For this reason, we will use round() in counting. This will
-        ## immediately eliminate some loci which never reach the level
-        ## of at least "half a gene" (or whatever threshold has been
-        ## set with roundLevel() ).
-        okCol     <- as.logical(generousRound(colSums(mapWeights)))
-        numDisc   <- ncol(mapWeights) - sum(okCol)
-        if (numDisc) {
-            ## There are some targets (eg genes) that will *never*
-            ## have enough query IDs (eg probesets) to sum and round up to at
-            ## least one gene. Remove them
-            ocn       <- colnames(mapWeights)
-            discarded <- ocn[ ! okCol ]
-            filterDetails(id = discarded, type = "ID",
-                          metric = "WeakQueryID",
-                          filter ="Target has insufficient total fractional queries")
-            mapUse <<- mapUse[ , okCol, drop = FALSE]
-            actionMessage(sprintf("Removed %d target IDs with insufficient query representation",
-                                  numDisc),
-                          prefix = "    ")
-            changes <- changes + numDisc
-            ## Note that mapWeights is NOT updated here. It is presumed
-            ## that will happen on the following iteration.
-        }
-
-        ## Finally, tidy up the ontology matrix to account for any IDs
-        ## removed from the mapping matrix. In addition to keeping the
-        ## three matrices "aligned", this will be needed to allow
-        ## recursive trimming in subsequent itterations.
-        
-        mmStnd    <- .standardizeId(colnames(mapUse))
-        if (length(mmStnd) < length(omStnd)) {
-            ## We also have ontology IDs that are not represented in
-            ## the mapping - remove them.
-            keepInd   <- match(mmStnd, omStnd)
-            discarded <- omRow[-keepInd]
-            numDisc   <- length(discarded)
-            filterDetails(id = discarded, type = "ID", metric = "UnMappedID",
-                          filter = "Ontology ID not reachable from map matrix")
-            actionMessage(sprintf("Removed %d IDs found in ontology but not mapping",
-                                  numDisc),
-                          prefix = "    ")
-            changes <- changes + length(discarded)
-            ontoUse <<- ontoUse[ keepInd, , drop = FALSE ]
-        }
-        if (length(mapUse) == 0)
-            message("Entire mapping matrix has been eliminated by filters",
-                    prefix = "    [!!]", bgcolor = "yellow", color = "blue")
-        changes
     },
     
     roundLevel = function ( round = NA ) {
