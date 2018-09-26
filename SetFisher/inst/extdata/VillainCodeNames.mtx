@@ -47,26 +47,27 @@
 %
 %-------------------------------------------
 %
-% VIDS 14-17 do not have any corresponding entries in the Ontology Matrix
+% VIDS 14-17 do not have any corresponding connections in the Ontology Matrix
+% VID-14 will be *listed* in the Ontology Matrix, but with no connections
 %
 % Col Name
-% 1 VIN-001
-% 2 VIN-002
-% 3 VIN-003
-% 4 VIN-004
-% 5 VIN-005
-% 6 VIN-006
-% 7 VIN-007
-% 8 VIN-008
-% 9 VIN-009
-% 10 VIN-010
-% 11 VIN-011
-% 12 VIN-012
-% 13 VIN-013
-% 14 VIN-014
-% 15 VIN-015
-% 16 VIN-016
-% 17 VIN-017
+% 1 VID-001
+% 2 VID-002
+% 3 VID-003
+% 4 VID-004
+% 5 VID-005
+% 6 VID-006
+% 7 VID-007
+% 8 VID-008
+% 9 VID-009
+% 10 VID-010
+% 11 VID-011
+% 12 VID-012
+% 13 VID-013
+% 14 VID-014
+% 15 VID-015
+% 16 VID-016
+% 17 VID-017
 %
 %-------------------------------------------
 % Matrix triples : Row Col Score
