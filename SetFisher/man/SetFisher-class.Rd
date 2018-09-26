@@ -2,8 +2,8 @@
 % Please edit documentation in R/SetFisher.R
 \docType{class}
 \name{SetFisher-class}
-\alias{SetFisher}
 \alias{SetFisher-class}
+\alias{SetFisher}
 \title{SetFisher}
 \description{
 Enrichment analysis using hypergeometric distribution and adjusting
@@ -12,8 +12,6 @@ counts for multiple voting
 \section{Fields}{
 
 \describe{
-\item{\code{log}}{The SetFisherLogger object holding log (activity) entries}
-
 \item{\code{defQryObj}}{Optional default Query object (SetFisherMatrix)}
 
 \item{\code{defMapObj}}{Optional default Map object (SetFisherMatrix)}
@@ -25,5 +23,46 @@ counts for multiple voting
 \item{\code{matrixCache}}{Internal storage for SetFisherMatrix objects}
 
 \item{\code{anaCache}}{Internal storage for SetFisherAnalysis objects}
+}}
+
+\section{Methods}{
+
+\describe{
+\item{\code{analysesFromDirectory(dir, query = NULL, idmap = NULL, pattern = NULL,
+  skip = NULL, help = FALSE, ...)}}{Make a SetFisherAnalysis object for each ontology in a directory}
+
+\item{\code{analysis(ontology, query = NULL, idmap = NULL, name = NULL,
+  queryworld = NULL, help = FALSE, ...)}}{Create a SetFisher analysis object or recover one already created}
+
+\item{\code{analysisNames(trim.names = TRUE, help = FALSE, ...)}}{Takes a set of analysis and shortens their names by removing 'common bits'}
+
+\item{\code{annotatedMatrix(x = NA, help = FALSE, ...)}}{Recover an AnnotatedMatrix, from the internal cache if available}
+
+\item{\code{datatable(res = NA, caption = NULL, help = TRUE, ...)}}{Convert a top results data frame to a data.table}
+
+\item{\code{defaultMap(x = NULL, help = FALSE, ...)}}{Set/Get an optional default map matrix}
+
+\item{\code{defaultQuery(x = NULL, help = FALSE, ...)}}{Set/Get an optional default query matrix}
+
+\item{\code{defaultQueryWorld(x = NULL, help = FALSE)}}{Set/Get an optional default query world}
+
+\item{\code{htmltable(res = NA, file = NA, caption = NULL, show.attr = FALSE,
+  cols = c("term", "term Description", "listName", "logPV", "RawLogPV", "i",
+  "N", "i/N", "n", "W", "n/W", "Enrich"), ontology.stats = TRUE,
+  footer = character(), style = character(), force = FALSE,
+  favicon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4QIHDyEOlqB2hwAAAAh0RVh0Q29tbWVudAD2zJa/AAAA0ElEQVQ4y6WTvQ3CMBSEv1gIUVCkYg0zQpQJaBiEDbKRM0HECLAGjWNEgZBMKHgRkeXYIE666v3p7uwCYLO9aaABat7ogOZyWp/JoJDhI1AGtR6ockuUXC4jtVJq5BbUiXoN4EF7MB6c0HjQAIvU9uXzjjSGEndA5aFSYlgUD7XqchJHD/pIQx8kE5WoxOUKaIGrsP0mgRAaMIATGj7mDTM002ELDAHtAfYebGTYjkkg14YZmlSMI1xigcs9pL+gJp9nDt23CURNJND6c4y5oRc3enezXu9KOQAAAABJRU5ErkJggg==",
+  help = FALSE, ...)}}{Convert a top results data frame to a dynamic HTML table}
+
+\item{\code{initialize(params = NA, paramDefinitions = NA, help = FALSE, ...)}}{Create a new ParamSetI object; Invoked with ParamSetI(...)}
+
+\item{\code{processAll(help = FALSE, ...)}}{Filter, process, adjust and report all analyses held by SetFisher}
+
+\item{\code{setFisherText(color = TRUE, help = FALSE)}}{Generate a compact text summary of the object, used by show()}
+
+\item{\code{show(...)}}{A wrapper for showLog}
+
+\item{\code{topResults(help = FALSE, ...)}}{Generate a data frame summarizing the top results from all analyses}
+
+\item{\code{tsvtable(res = NA, file = NA, force = FALSE, help = FALSE, ...)}}{Convert a top results data frame to a TSV file}
 }}
 

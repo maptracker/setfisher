@@ -2,8 +2,8 @@
 % Please edit documentation in R/SetFisherAnalysis.R
 \docType{class}
 \name{SetFisherAnalysis-class}
-\alias{SetFisherAnalysis}
 \alias{SetFisherAnalysis-class}
+\alias{SetFisherAnalysis}
 \title{SetFisher Analysis}
 \description{
 Class object associating the components of an enrichment analysis
@@ -15,47 +15,37 @@ results
 \describe{
 \item{\code{setfisher}}{Pointer back to the parent SetFisher object}
 
-\item{\code{log}}{The SetFisherLogger object holding log (activity)
-entries}
-
-\item{\code{queryObj}}{SetFisherMatrix representing the query list(s)}
+\item{\code{queryObj}}{AnnotatedMatrix representing the query list(s)}
 
 \item{\code{queryWorld}}{Character verctor describing all objects in the
 query namespace. Will default to all unique rows in the mapping
 matrix, or all unique rows in the query matrix if no mapping
 matrix is present.}
 
-\item{\code{ontoObj}}{SetFisherMatrix representing the mapping of IDs
+\item{\code{activeQueries}}{Character vector of normalized IDs
+representing the world. Will either be taken from
+\code{queryWorld}, or dynamically calculated from filtered /
+intersected matrices.}
+
+\item{\code{ontoObj}}{AnnotatedMatrix representing the mapping of IDs
 (from the mapping matrix if present, otherwise from the query
 matrix) to ontology terms}
 
-\item{\code{mapObj}}{Optional SetFisherMatrix mapping IDs in the Query
+\item{\code{mapObj}}{Optional AnnotatedMatrix mapping IDs in the Query
 matrix to those used by the Ontology matrix}
 
 \item{\code{mapWeights}}{Weight matrix used to accomodate multiple voting
-from the Query namespace to the Ontology namespace}
-
-\item{\code{queryUse}}{Boolean matrix associating queries with
-lists. Intended to allow threshold filters to be applied to
-ranked input lists, or to allow queryWorld to restrict Query ID
-set}
-
-\item{\code{mapUse}}{Boolean matrix indicating allowed mappings from the
-Query ID namespace to the Ontology ID namespace. Computed after
-applying minMapMatch to the raw Mapping matrix, and eliminating
-rows (query input) and columns (ontology output) that lack
-entries. Recursive elimination is also currently applied to
-remove target IDs that have 'too small' fractional
-represenation - this behavior may be removed.}
+from the Query namespace to the Ontology namespace. Taken from
+the filtered (non-raw) Mapping Matrix if defined, or as a
+simple identity matrix from the Query Matrix if not.}
 
 \item{\code{ontoUse}}{Boolean matrix indicating allowed associations
 between IDs (either input IDs, or mapped IDs if a Mapping
-matrix is used) and ontology terms. The matrix is filtered
-using minOntoMatch (filters original raw matrix based on matrix
-score), minOntoSize (minimum number of assigned terms required
-to keep an ID), minSetSize (minimum number of IDs required to
-keep a term) and maxSetSize (maximum number of IDs allowed for
-a term to be kept)}
+matrix is used) and ontology terms. The matrix is filtered to
+align with mapWeights.}
+
+\item{\code{queryOnto}}{A direct Query-to-Ontology matrix that takes into
+account the existence or absence of a Mapping Matrix.}
 
 \item{\code{resultRaw}}{3D array holding raw p-values from phyper()
 calculations, as well as i and n values for each calculation.}
@@ -79,9 +69,6 @@ ultimately be considered a full count.}
 \item{\code{pseudoRound}}{This is a pseudo-count based off of roundUp. It
 is added to values before they are round()ed.}
 
-\item{\code{filterLog}}{data.frame storing filtering events that transpire
-during the pruning of matrices prior to analysis.}
-
 \item{\code{ontoNames}}{Vector of all valid ontology terms following
 filtering}
 
@@ -103,5 +90,17 @@ following pruning}
 fail completely when run through processList()}
 
 \item{\code{workSpace}}{Internal temporary structure used by topResult()}
+}}
+
+\section{Methods}{
+
+\describe{
+\item{\code{initialize(params = NA, paramDefinitions = NA, help = FALSE, ...)}}{Create a new ParamSetI object; Invoked with ParamSetI(...)}
+
+\item{\code{queryToOntology()}}{A weight matrix directly from query IDs to ontology terms}
+
+\item{\code{show(...)}}{A wrapper for showLog}
+
+\item{\code{weightMatrix()}}{Mutliple-voting weight matrix for mapping matrices, otherwise identity matrix}
 }}
 
