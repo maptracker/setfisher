@@ -1,0 +1,70 @@
+%%MatrixMarket matrix coordinate real general
+% Separator ' :: '
+%
+%% This is a silly matrix used for running tests, and for basic
+%% demonstrations that can be manually checked due to the small sizes
+%% of the dimensions involved. This matrix is intended to be used as
+%% an "Ontology Matrix" in the SetFisher package, requiring
+%% VillainCodeNames.mtx as a Mapping Matrix to connect to the
+%% CrimeScenes.mtx Query Matrix
+%
+%% DEFAULT Name Criminal Organizations
+%% DEFAULT Description Four crime gangs and their members, represented by Villain ID accessions
+%% DEFAULT ScoreDesc Number of years the criminal has been a member
+% Rows are Criminal Organizations
+%% DEFAULT RowDim Organization
+% Columns are Villain ID Accessions
+%% DEFAULT ColDim VID
+%
+% - - - - - - - - - - - - - - - - - - - - 
+%
+% ColumnDescription "Summary" Brief description of the group
+%
+% Comment blocks for [Row Name] and [Col Name] follow, followed finally by
+% the triples that store the actual mappings.
+%-------------------------------------------
+% Row Name :: Summary
+% 1 Tabby Cats :: Scoundrels using tabs instead of spaces
+% 2 Permadeath Hackers :: Anarchists that never push commits
+% 3 Woosh :: Pass by value, they never get the reference
+% 4 nRchy :: Counter-revolutionary coders practicing irreproducible research
+%
+%-------------------------------------------
+%
+% VID-14 is included as an unconnected entry
+%
+% Col Name
+% 1 VID-001
+% 2 VID-002
+% 3 VID-003
+% 4 VID-004
+% 5 VID-005
+% 6 VID-006
+% 7 VID-007
+% 8 VID-008
+% 9 VID-009
+% 10 VID-010
+% 11 VID-011
+% 12 VID-012
+% 13 VID-013
+% 14 VID-014
+%
+%-------------------------------------------
+% Matrix triples : Row Col Score
+%-------------------------------------------
+  4 14 15
+1 1 7.5
+1 2 0.4
+1 3 11.5
+1 4 5
+1 5 9.3
+1 6 8.1
+2 3 4.2
+2 6 1.2
+2 7 7
+2 10 6.3
+2 11 3
+3 8 4
+3 9 4.1
+4 12 3
+4 13 8.1
