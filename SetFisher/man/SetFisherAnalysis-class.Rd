@@ -55,9 +55,6 @@ calculations, as well as i and n values for each calculation.}
 \item{\code{lastTop}}{data.frame of the most recent values from
 topResults()}
 
-\item{\code{isFiltered}}{Boolean flag tracking if filtering has already
-been performed on the matrices}
-
 \item{\code{logThresh}}{log10 value of the user's p-value significance
 threshold}
 
