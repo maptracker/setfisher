@@ -30,10 +30,6 @@
 #' inspection. Because of this the enrichment p-values are going to be
 #' insignificant by normal criteria.
 #'
-#' @param usemap Default \code{TRUE} which will return a SetFisher
-#'     object that hs (requires) the optional Mapping Matrix in order
-#'     to connect the Query Matrix to the Ontology Matrix
-#'
 #' @examples
 #'
 #' esf <- setFisherExampleObject()
@@ -42,21 +38,23 @@
 #' 
 #' @export
 
-setFisherExampleObject <- function(usemap=TRUE) {
+setFisherExampleObject <- function() {
     sf <- SetFisher()
     crimes <- AnnotatedMatrix::annotatedMatrixExampleFile(
         'CrimeScenes.mtx', pkg='SetFisher')
     sf$defaultQuery( crimes )
-    if (usemap) {
-        name2vin <- AnnotatedMatrix::annotatedMatrixExampleFile(
-            'VillainCodeNames.mtx', pkg='SetFisher')
-        orgs <- AnnotatedMatrix::annotatedMatrixExampleFile(
-            'CriminalOrganizations.mtx', pkg='SetFisher')
-        sf$analysis(orgs, idmap=name2vin)
-    } else {
-        endorse <- AnnotatedMatrix::annotatedMatrixExampleFile(
-            'VillainEndorsements.mtx', pkg='SetFisher')
-        sf$analysis(endorse)
-    }
+
+    ## Make an anylsis that requires a Mapping Matrix
+    name2vin <- AnnotatedMatrix::annotatedMatrixExampleFile(
+        'VillainCodeNames.mtx', pkg='SetFisher')
+    orgs <- AnnotatedMatrix::annotatedMatrixExampleFile(
+        'CriminalOrganizations.mtx', pkg='SetFisher')
+    sf$analysis(orgs, idmap=name2vin, name="Analysis with Mapping")
+
+    ## Make another analysis that does not require mapping:
+    endorse <- AnnotatedMatrix::annotatedMatrixExampleFile(
+        'VillainEndorsements.mtx', pkg='SetFisher')
+    sf$analysis(endorse, name="Simple analysis")
+
     sf
 }
