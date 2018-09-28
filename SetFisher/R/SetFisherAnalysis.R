@@ -37,8 +37,6 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #' @field resultAdj p.adjust() processed values from resultRaw
 #' @field lastTop data.frame of the most recent values from
 #'     topResults()
-#' @field isFiltered Boolean flag tracking if filtering has already
-#'     been performed on the matrices
 #' @field logThresh log10 value of the user's p-value significance
 #'     threshold
 #' @field roundUp Integer representing the denominator of fractional
@@ -99,7 +97,6 @@ SetFisherAnalysis <-
                     mapWeights    = "dgTMatrix",
                     modState      = "numeric",
 
-                    ## DELETE mapUse        = "ANY", # dgTMatrix
                     ontoUse       = "ANY", # dgTMatrix
                     queryOnto     = "dgTMatrix", # Direct Qry -> Onto
                     
@@ -107,8 +104,6 @@ SetFisherAnalysis <-
                     resultAdj     = "array", # adjusted results
                     lastTop       = "data.frame", # last topResults()
                     
-                    isFiltered    = "logical",
-
                     logThresh     = "numeric", # -log10 value of threshold
                     
                     ## Fractions >= 1/roundUp will be rounded up. The
@@ -143,50 +138,41 @@ SetFisherAnalysis$methods(
     
     initialize = function(setfisher = NULL,
         ontology = NULL, query = NULL, idmap = NULL, queryworld = NA,
-        minMapMatch    = NA,
-        maxSetPerc     = NA,
-        minSetSize     = NA,
-        minOntoSize    = NA,
-        minOntoMatch   = NA,
-        round          = 2L,
-        param = NA, ... ) {
+        round = 2L, params = NA, ... ) {
         "RefClass initialization method to make new SetFisherAnalysis Object"
         
         usingMethods("param")
         if (!CatMisc::is.def(setfisher)) stop("SetFisherAnalysis entries should be created from a SetFisher object")
+        setfisher <<- setfisher
         modState  <<- c(-1, -1, -1) # Modified State: Qry, Map, Onto
-        log <<- setfisher$log # Set here so messaging works
+        log <<- setfisher$log # Set here so messaging works. MAY NOT BE NEEDED
+        
         if (!CatMisc::is.def(query)) log$err(
             "SetFisherAnalysis must define 'query' when created", fatal=TRUE)
+        queryObj <<- query
+        
         if (!CatMisc::is.def(ontology)) log$err(
             "SetFisherAnalysis must define 'ontology' when created", fatal=TRUE)
-
-
-
+        ontoObj <<- ontology
         
-        callSuper( params=params, paramDefinitions="
-Name         [character] Optional name for the analysis
-minMapMatch  [numeric] Minimum score required to keep a map matrix assignment
-maxSetPerc   [percent] Maximum % of world that can be assigned to a term
-minSetSize   [integer] Minimum count of set members allowed in a term
-minOntoSize  [integer] Minimum number of terms a set member should have
-minOntoMatch [numeric] Minimum score requried to keep an ontology matrix assignment
-minQueryScore [numeric] Minimum score requried to keep an ID in a query list
-maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
-")
-        if (CatMisc::is.def(queryworld)) {
+        queryWorld <<- if (CatMisc::is.def(queryworld)) {
             if (length(queryworld) == 0) {
                 err("Query world was set to an empty vector - ignoring")
-                queryworld <- NA
+                as.character(NA)
             } else {
-                queryworld <- .standardizeId(queryworld)
+                .standardizeId(queryworld)
             }
+        } else {
+            as.character(NA)
         }
+        
         roundLevel( round )
         ## Set some parameters
-        if (CatMisc::is.def(idmap)) {
+        mapObj <<- if (CatMisc::is.def(idmap)) {
             ## An optional mapping matrix has been provided
-            mapObj      <<- idmap
+            idmap
+        } else {
+            NA
         }
         ## Initialize structure to hold IDs that fall out due to
         ## failure to map, restricted worlds, or lack of information:
@@ -194,17 +180,13 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         discardedIDs <<- list(queryID=nec,
                               ontologyID=nec,
                               ontologyTerm=nec )
-        .alignMatrices()
-        ## Ontology-level filters
-        param("maxSetPerc", c(maxSetPerc, ontology$param("maxSetPerc")))
-        param("minSetSize", as.integer(c(
-            minSetSize, ontology$param("minSetSize"))))
-        param("minOntoSize", as.integer(c(
-            minOntoSize, ontology$param("minOntoSize"))))
-        param("minOntoMatch", c(minOntoMatch, ontology$param("minOntoMatch")))
         threshold(0.05)
-        callSuper(..., setfisher = setfisher, queryWorld = queryworld,
-                  queryObj = query, ontoObj = ontology, isFiltered = FALSE )
+        callSuper(..., params=params, paramDefinitions="
+Name         [character] Optional name for the analysis
+" )
+        ##print(str(query))
+        ##print(str(queryObj))
+        .alignMatrices()
     },
     
     .alignMatrices = function (raw=FALSE) {
@@ -360,17 +342,6 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         outputDim
     },
 
-    map       = function (   ) {
-        ## AnnotatedMatrix object
-        if (is.empty.field(mapObj)) { NA } else { mapObj }
-    },
-
-    onto       = function (   ) ontoObj,  # AnnotatedMatrix object
-    ontoMatrix = function (raw = FALSE) { # Matrix
-        if (!raw && CatMisc::is.def(ontoUse)) return( ontoUse )
-        ontoObj$matrix(raw = raw)
-    },
-
     weightMatrix = function () {
         "Mutliple-voting weight matrix for mapping matrices, otherwise identity matrix"
         ## This is really just the mapWeights sparse matrix with the
@@ -483,7 +454,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             ## Remove any output IDs (Ontology IDs) that have no
             ## counterparts in the input (colsums are zero).
             populatedColumns <- Matrix::colSums(mm) > 0
-            if (sum(populatedColumns) != 0) {
+            if (!all(populatedColumns)) {
                 ## At least one removal
                 discard <- colnames(mm)[ !populatedColumns ]
                 .noteDiscarded('ontologyID', discard,
@@ -505,8 +476,8 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
             weightDiag <- Matrix::.sparseDiagonal(length(rowWeights),
                                                   rowWeights)
             ## Replace dimension names so they carry through crossprod:
-            dimnames(weightDiag) <- list(queryID=rownames(mm),
-                                         queryID=rownames(mm))
+            sidWD <- .standardizeId(rownames(mm))
+            dimnames(weightDiag) <- list(queryID=sidWD,queryID=sidWD)
 
             mm <- Matrix::crossprod(weightDiag, mm)
             
@@ -524,6 +495,8 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
                 ## Stitch the empty rows onto the end of of our matrix
                 mm <- Matrix::rbind2(mm, add)
             }
+            ## Standardize column names
+            colnames(mm) <- .standardizeId(colnames(mm))
             ## Normalize the matrix to dgTMatrix, if it's not already.
             mapWeights <<- as(mm, "dgTMatrix")
         }
@@ -592,7 +565,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         ## Let's make a full product of the Mapping Matrix and the
         ## Ontology Matrix. This will allow us to directly convert
         ## query IDs to counts within an ontology term (i)
-        queryOnto <<- Matrix::crossprod(mapWeights, ontoUse)
+        queryOnto <<- Matrix::crossprod(Matrix::t(mapWeights), ontoUse)
 
         ## We can use that matrix to now calculate the total number of
         ## IDs assigned to each ontology term (in the Ontology ID
@@ -619,8 +592,8 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         queryOnto  <<- as(queryOnto, "dgTMatrix")
  
         ## Make some simple structures:
-        ontoNames <<- colNames( ontoCount ) # All surviving ontology terms
-        ontoSize  <<- length(ontoNames)     # Number of surviving terms
+        ontoNames <<- names( ontoCount ) # All surviving ontology terms
+        ontoSize  <<- length(ontoNames)  # Number of surviving terms
         
         ## idCount - The fractional count of the output/ontology ID
         ## space, a numeric value between zero and one. These values
@@ -685,11 +658,14 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         signif(x, 3)
     },
     
-    roundLevel = function ( round = NA ) {
-        if (!is.na(round)) {
-            roundUp     <<- round
-            pseudoRound <<- ifelse(is.integer(round) && round > 0,
-                                   (round-1)/round, 0)
+    roundLevel = function ( level = NA ) {
+        if (!is.na(level)) {
+            ## Don't be picky if an integer numeric value is passed:
+            if (is.numeric(level) && floor(level) == level)
+                level <- as.integer(level)
+            roundUp     <<- level
+            pseudoRound <<- ifelse(is.integer(level) && level > 0,
+                                   (level-1)/level, 0.5)
         }
         roundUp
     },
@@ -697,7 +673,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
     ## A pseudocount is added to the value to allow values of >=
     ## 1/roundCount to get rounded up.
     generousRound = function ( x ) {
-        rv <- round(x + pseudoRound)
+        rv <- floor(x + pseudoRound)
         ## Set mode in a way that preserves attributes:
         storage.mode(rv) <- "integer"
         rv
@@ -770,21 +746,28 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         msg <- sprintf("%s    %s\n", msg, .resultText(color=color))
         
         msg <- paste(c(msg, doCol("<#> Query Matrix\n", "blue"),
-                           queryObj$.showText(
+                           queryObj$matrixText(
                                pad = objPad,
                                compact = compactChild, color=color,
                                fallbackVar = paste(objName,'queryObj',sep='$'))))
         if (CatMisc::is.def(mapObj)) {
             msg <- paste(c(msg, doCol("<#> ID Mapping Matrix\n", "blue"),
-                           mapObj$.showText(pad = objPad, useObj = mapUse,
-                                            compact = compactChild, color=color,
-                                            fallbackVar = paste(objName,'mapUse',sep='$'))))
+                           mapObj$matrixText(pad=objPad, useObj=mapObj$matObj(),
+                                            compact=compactChild, color=color,
+                                            fallbackVar=paste(objName,'mapObj',sep='$'))))
         }
         msg <- paste(c(msg, doCol("<#> Ontology Matrix\n", "blue"),
-                       ontoObj$.showText(pad = objPad, useObj = ontoUse,
+                       ontoObj$matrixText(pad = objPad, useObj=ontoObj$matObj(),
                                          compact = compactChild, color=color,
                                          fallbackVar = paste(objName,'ontoObj',sep='$'))))
         filters  <- character()
+
+        if (FALSE) {
+
+### BROKEN. Need to come up with new summary text to report the
+### individual Matrix-level filters that are present on the Query,
+### Mapping and Ontology filters.
+            
         ## Count unique values: https://stackoverflow.com/a/4215196
         doneFilt <- if ("metric" %in% colnames(filterLog)) {
             table(filterLog[ , metric ], filterLog[ , type ])
@@ -813,6 +796,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
               .filterHumanText2("IDs with insufficient fractional mapping",
                                 "WeakQueryID", doneFilt,color=color)
               )
+        }
         
         if (length(filters) != 0) msg <- paste(c(msg, doCol("Filters applied to matrices:\n", "red"), sprintf("  %s\n", filters)))
         worldStats <- character()
@@ -929,6 +913,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
     },
 
     .querySummaryText = function ( pad = "", color=TRUE ) {
+        .updateDerivedStructures() # Make sure we have up-to-date information
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         name <- doCol(queryObj$param("name", default = "Query"), "yellow")
         dimNames <- names(dimnames(queryObj$matrixRaw))
@@ -937,6 +922,7 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
     },
 
     .ontologySummaryText = function ( pad = "", color=TRUE ) {
+        .updateDerivedStructures() # Make sure we have up-to-date information
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         name <- doCol(ontoObj$param("name", default = "Ontology"), "yellow")
         dimNames <- names(dimnames(ontoObj$matrixRaw))
@@ -948,17 +934,12 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
                            nrow(ontoObj$matrixRaw), ncol(ontoObj$matrixRaw)
                            )
             txt <- sprintf("%s%s  %s\n", txt, pad, .resultText(color=color))
-        } else if (isFiltered) {
+        } else {
             ## The ontology has been filtered away!
             txt <- sprintf("%s%s  %s\n", txt, pad, doCol(sprintf(
                 "Filters have eliminated entire %d x %d ontology!",
                 nrow(ontoObj$matrixRaw), ncol(ontoObj$matrixRaw)),
                            color = "red", bgcolor = "yellow"))
-        } else {
-            ## Has not yet been filtered
-            txt <- sprintf("%s%s  %s x %s (unfiltered)\n", txt, pad,
-                           doCol(paste(nrow(ontoObj$matrixRaw), dimNames[1]), "red"),
-                           doCol(paste(ncol(ontoObj$matrixRaw), dimNames[2]), "red"))
         }
         txt
     },
@@ -1149,7 +1130,6 @@ maxQueryScore [numeric] Maximum score allowed to keep an ID in a query list
         decreasing = FALSE, force = FALSE, ...) {
         usingMethods("processList")
         isDefault <- FALSE
-        if (!isFiltered) filter()
         if (is.null(lol)) {
             ## No list provided, use the object's stored query
             if (is.null(lnames)) {
