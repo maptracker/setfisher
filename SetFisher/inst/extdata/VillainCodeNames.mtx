@@ -15,6 +15,15 @@
 % Columns are Villain IDs
 %% DEFAULT ColDim VID
 %
+%% DEFAULT LoadComment Toy lookup matrix to use as the 'Mapping' in a SetFisherAnalysis object. Allows the CrimeScenes Query Matrix to be analyzed with the CriminalOrganizations Ontology Matrix.
+%
+% Default Automatic Filters
+% These parameters define filters that will be automatically applied when the
+% matrix is loaded, unless you set autofilter=FALSE. You can also undo them by
+% calling $reset() after loading
+%
+%% DEFAULT MinScore 0.15 ## Exclude any name assignments with a less than 15% certainty
+%
 % - - - - - - - - - - - - - - - - - - - - 
 %
 % ColumnDescription "Description" What we know about this particular Villain
@@ -39,7 +48,7 @@
 % 8 Hacker Man :: Either a UseNET veteran or a disgruntled shaved-ice device driver expert
 % 9 YOLO :: The department believes that criminals that can't be bothered to pick a more creative name are likely a low threat
 % 10 uwotm8 :: Fired from job designing IoT door stops
-% 13 kaosBunny5 :: Most recently decanted KAOS BUNNY clone following erradication of the previous four
+% 11 kaosBunny5 :: Most recently decanted KAOS BUNNY clone following erradication of the previous four
 % 12 qweRty :: There is some possibility this was just a dropped keyboard
 % 13 megaSAM :: mediSAM's new moniker after completing training
 % 14 ytRewq :: Lab team is investigating if this entity is working with qweRty

@@ -16,6 +16,15 @@
 % Columns are Villain ID Accessions
 %% DEFAULT ColDim VID
 %
+%% DEFAULT LoadComment Toy lookup matrix to use as the 'Ontology' in a SetFisherAnalysis object. Requires the VillainCodeNames Mapping Matrix in order to connect to the CrimeScenes Query Matrix.
+%
+% Default Automatic Filters
+% These parameters define filters that will be automatically applied when the
+% matrix is loaded, unless you set autofilter=FALSE. You can also undo them by
+% calling $reset() after loading
+%
+%% DEFAULT MinScore 1 ## Ignore any villains that have been members for less than a year.
+%
 % - - - - - - - - - - - - - - - - - - - - 
 %
 % ColumnDescription "Summary" Brief description of the group

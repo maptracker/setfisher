@@ -14,6 +14,15 @@
 % Columns are Villain Names
 %% DEFAULT ColDim Villain
 %
+%% DEFAULT LoadComment Toy matrix with a few simple lists to use as the 'Query' in a SetFisherAnalysis object.
+%
+% Default Automatic Filters
+% These parameters define filters that will be automatically applied when the
+% matrix is loaded, unless you set autofilter=FALSE. You can also undo them by
+% calling $reset() after loading
+%
+%% DEFAULT MinScore 2 ## Consider only cases where at least two witnesses identify a villain at a crime scene
+%
 % - - - - - - - - - - - - - - - - - - - - 
 %
 % ColumnDescription "Summary" Brief description of the crime

@@ -10,11 +10,20 @@
 %
 %% DEFAULT Name Villain Endorsements
 %% DEFAULT Description Nefarious products that have been endorsed by prominent Villains
-%% DEFAULT ScoreDesc Total compensations, in PirateCoin, that the Villain received for their endorsement
+%% DEFAULT ScoreDesc Total compensation, in PirateCoin cryptocurrency, that the Villain received for their endorsement
 % Rows are Products
 %% DEFAULT RowDim Product
 % Columns are Villain Names
 %% DEFAULT ColDim Villain
+%
+%% DEFAULT LoadComment Toy lookup matrix to use as the 'Ontology' in a SetFisherAnalysis object. Can be directly connected to the CrimeScenes Query Matrix without a Mapping Matrix.
+%
+% Default Automatic Filters
+% These parameters define filters that will be automatically applied when the
+% matrix is loaded, unless you set autofilter=FALSE. You can also undo them by
+% calling $reset() after loading
+%
+%% DEFAULT MinScore 10 ## Ignore any endorsements made for less than ten PirateCoins.
 %
 % - - - - - - - - - - - - - - - - - - - - 
 %
@@ -48,7 +57,7 @@
 %-------------------------------------------
 % Matrix triples : Row Col Score
 %-------------------------------------------
-  3 7 8
+  3 7 9
 1 1 5000
 1 3 2500
 1 6 49.63
@@ -57,3 +66,4 @@
 2 5 1850
 2 6 17.32
 3 7 999.99
+3 6 5.04
