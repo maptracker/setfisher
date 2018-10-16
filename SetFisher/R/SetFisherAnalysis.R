@@ -536,7 +536,7 @@ Name         [character] Optional name for the analysis
         ## if needed - add in any mapping output IDs that are not in
         ## the simplified ontology matrix:
         extraOntoIds <- setdiff(oids, rownames(om))
-        if (length(extraOntoIds > 0)) {
+        if (length(extraOntoIds) > 0) {
             nc  <- ncol(om) # Number of columns in matrix
             nr  <- length(extraOntoIds) # Number of new rows
             ## Will be lgCMatrix
@@ -561,11 +561,14 @@ Name         [character] Optional name for the analysis
         ## n = The total number of IDs held by that ontology term
         ## W = The total number of IDs in the world (aka 'm + n')
 
+        ## CROSSPROD REMINDER:
+        ## The shared dimension is the rows in both matrices!
         
         ## Let's make a full product of the Mapping Matrix and the
         ## Ontology Matrix. This will allow us to directly convert
         ## query IDs to counts within an ontology term (i)
-        queryOnto <<- Matrix::crossprod(Matrix::t(mapWeights), ontoUse)
+        queryOnto <<- as(Matrix::crossprod(Matrix::t(mapWeights), ontoUse),
+                         "dgTMatrix")
 
         ## We can use that matrix to now calculate the total number of
         ## IDs assigned to each ontology term (in the Ontology ID
@@ -588,8 +591,6 @@ Name         [character] Optional name for the analysis
             .noteDiscarded('ontologyTerm', lostIDs,
                            "Ontology terms lacking any IDs assigned to them")
         }
-        ## Standardize queryOnto
-        queryOnto  <<- as(queryOnto, "dgTMatrix")
  
         ## Make some simple structures:
         ontoNames <<- names( ontoCount ) # All surviving ontology terms
@@ -674,8 +675,14 @@ Name         [character] Optional name for the analysis
     ## 1/roundCount to get rounded up.
     generousRound = function ( x ) {
         rv <- floor(x + pseudoRound)
-        ## Set mode in a way that preserves attributes:
-        storage.mode(rv) <- "integer"
+        if (storage.mode(rv) == 'S4') {
+            ## For example, a Matrix object. Do nothing. The values
+            ## will apparently be double (dgCMatrix), it's not clear
+            ## that integer() Matrix objects exist
+        } else {
+            ## Set mode in a way that preserves attributes:
+            storage.mode(rv) <- "integer"
+        }
         rv
     },
 
@@ -1052,6 +1059,9 @@ Name         [character] Optional name for the analysis
             attr(rv, 'error') <- "All query IDs were rejected"
             return( rv )
         }
+
+        ## Make sure input is counted in the ontology namespace:
+        weights <- Matrix::crossprod(l, )
         
         ## Convert the input to a weighted set of genes, and tally up
         ## the number of IDs (potentially fractional if a mapping
@@ -1130,6 +1140,7 @@ Name         [character] Optional name for the analysis
         decreasing = FALSE, force = FALSE, ...) {
         usingMethods("processList")
         isDefault <- FALSE
+        idDim     <- integer() # The dimension that has the IDs
         if (is.null(lol)) {
             ## No list provided, use the object's stored query
             if (is.null(lnames)) {
@@ -1138,10 +1149,83 @@ Name         [character] Optional name for the analysis
                 if (CatMisc::is.def(resultRaw) && !force) return( resultRaw )
                 isDefault <- TRUE
             }
-            lol <- queryObj$matrix( ... )
+            lol   <- queryObj$matObj( ... )
+            idDim <- outputDim[1]
         }
         ## If an SFMatrix object is provided, get the underlying matrix
-        if (inherits(lol, "AnnotatedMatrix")) lol <- lol$matrix( ... )
+        if (inherits(lol, "AnnotatedMatrix")) lol <- lol$matObj( ... )
+
+#### TODO - Deal with other formats. Turn them into matrices
+####   Will need to properly detect the output dimension
+
+        ## We have a matrix
+        ## Standardize the matrix as a logical one:
+        lol <- lol != 0
+
+        ## Make sure the IDs are in rows
+        if (idDim != 1) lol <- Matrix::t(lol)
+
+        ## Standardize the rownames
+        rownames(lol) <- .standardizeId(rownames(lol))
+
+        ## What are the recognized query IDs in the analysis?
+        qids <- rownames(mapWeights)
+
+        ## Does the query have any IDs that aren't in the weight matrix?
+        unknownNames <- setdiff(rownames(lol), qids)
+        if (length(unknownNames) != 0) {
+            ## There are some query IDs that aren't in the weight
+            ## matrix. Remove them, make a note.
+            discard <- which(is.element(rownames(lol), unknownNames))
+            lol <- lol[ -discard, ,  drop=FALSE ]
+            ## Make note of discarded IDs lost from the user's query
+            .noteDiscarded('queryID', unknownNames,
+                           "ID in query request not recognized in weight matrix")
+        }
+        
+        ## Now pad out the query with IDs that are in the weight
+        ## matrix but not the query
+        additionalNames <- setdiff(qids, rownames(lol))
+        if (length(additionalNames) > 0) {
+            nc  <- ncol(lol) # Number of columns in matrix
+            nr  <- length(additionalNames) # Number of new rows
+            ## Will be lgCMatrix
+            add <- Matrix::sparseMatrix(i=integer(), j=integer(),
+                                        x=logical(),
+                                        dims=c(nr, nc),
+                                        dimnames=list(queryID=additionalNames,
+                                                      ontoID=colnames(lol)))
+            ## Stitch the empty rows onto the end of of our matrix
+            lol <- Matrix::rbind2(lol, add)
+        }
+
+        ## We can now use crossproduct to compute two values:
+
+        ##########
+        ## 1: The sum of query IDs in each list, weighted appropriately:
+
+        ##    We want to make sure that sums do not exceed 1:
+        qs <- pmin(Matrix::crossprod(lol, mapWeights), 1)
+        ##    Now we can get the list size for each list. This
+        ##    corresponds to 'N':
+        listSize <- generousRound( Matrix::rowSums(qs) )
+
+        ##########
+        ## 2: The weighted counts for each ontology term:
+        ##    This corresponds to 'i':
+        os <- generousRound(Matrix::crossprod(lol, queryOnto))
+        
+
+
+        
+#### WORK HERE - Should now be relatively easy to cycle though each
+#### list and each ontology term. Do this as nested loops, or as a
+#### N.i.n.W matrix?
+
+
+#### NUKE THE STUFF BELOW. After porting where needed.
+        
+        
         if (inherits(lol, c("matrix", "Matrix"))) {
             ## Turn the matrix into a list of character vectors
             ## Build thresholding logic
