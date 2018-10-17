@@ -675,14 +675,12 @@ Name         [character] Optional name for the analysis
     ## 1/roundCount to get rounded up.
     generousRound = function ( x ) {
         rv <- floor(x + pseudoRound)
-        if (storage.mode(rv) == 'S4') {
-            ## For example, a Matrix object. Do nothing. The values
-            ## will apparently be double (dgCMatrix), it's not clear
-            ## that integer() Matrix objects exist
-        } else {
-            ## Set mode in a way that preserves attributes:
-            storage.mode(rv) <- "integer"
-        }
+        if (inherits(rv, "Matrix")) {
+            ## Let's collapse Matrix objects down to simple base matrix objects
+            rv <- as.matrix(rv)
+        } 
+        ## Set mode in a way that preserves attributes:
+        storage.mode(rv) <- "integer"
         rv
     },
 
@@ -1153,9 +1151,22 @@ Name         [character] Optional name for the analysis
             idDim <- outputDim[1]
         }
         ## If an SFMatrix object is provided, get the underlying matrix
-        if (inherits(lol, "AnnotatedMatrix")) lol <- lol$matObj( ... )
+        if (inherits(lol, "AnnotatedMatrix")) {
+            lol <- lol$matObj( ... )
+        } else if (inherits(lol, "Matrix")) {
+            ## This is what we want, no action needed
+        } else if (is.list(lol)) {
+#### TODO - Allow list of vectors as input
+            stop("Analysis of list objects not yet implemented")
+        } else if (is.vector(lol)) {
+#### TODO - Allow analysis of simple or named vectors
+            stop("Analysis of simple vectors not yet implemented")
+        } else {
+            err("processListsOfLists provided with unexpected `lol` input",
+                class(lol), fatal = TRUE)
+        }
 
-#### TODO - Deal with other formats. Turn them into matrices
+#### TODO - Deal with other formats above. Turn them into Matrices
 ####   Will need to properly detect the output dimension
 
         ## We have a matrix
@@ -1209,132 +1220,73 @@ Name         [character] Optional name for the analysis
         ##    Now we can get the list size for each list. This
         ##    corresponds to 'N':
         listSize <- generousRound( Matrix::rowSums(qs) )
+        ## listSize is an integer vector with length equal to the number of
+        ## query lists provided.
 
         ##########
         ## 2: The weighted counts for each ontology term:
         ##    This corresponds to 'i':
-        os <- generousRound(Matrix::crossprod(lol, queryOnto))
-        
+        listOntoCounts <- generousRound(Matrix::crossprod(lol, queryOnto))
+        ## listOntoCounts is an integer matrix (not Matrix) with query
+        ## lists as rows, ontology terms as columns, and values
+        ## representing the integer, weighted query counts of ontology
+        ## members in each particular query list.
 
+        ## We now have all four components for a Fisher Exact /
+        ## Hypergeometric Distribution anlaysis. In addition to N and
+        ## i above, we have:
+        ##   W = Worldsize = field $worldSize (single integer)
+        ##   n = IDs in ontology = field $ontoCount (integer vector)
 
-        
-#### WORK HERE - Should now be relatively easy to cycle though each
-#### list and each ontology term. Do this as nested loops, or as a
-#### N.i.n.W matrix?
+        lNames  <- names(listSize)
+        lSz     <- length(lNames)
+        oNames  <- names(ontoCount)
+        oSz     <- length(oNames)
+        results <- array(data = NA, dim = c(lSz, oSz, 2),
+                         dimnames = list(listName = lNames,
+                                         term     = oNames,
+                                         metric   = c("logPV","i")))
 
+        ## Slice listOntoCounts into the "i" dimension of results:
+        results[ , , "i"] <- listOntoCounts
 
-#### NUKE THE STUFF BELOW. After porting where needed.
-        
-        
-        if (inherits(lol, c("matrix", "Matrix"))) {
-            ## Turn the matrix into a list of character vectors
-            ## Build thresholding logic
-            min <- param("minQueryScore")
-            max <- param("maxQueryScore")
-            scoreFilt <- if (CatMisc::is.def(min)) {
-                if (CatMisc::is.def(max)) {
-                    ## Both min and max filters
-                    function(x) x >= min & x <= max 
-                    
-                } else {
-                    ## Min-only filter
-                    function(x) x >= min
-                }
-            } else if (CatMisc::is.def(max)) {
-                ## Max-only filter
-                function(x) x <= max
-            } else {
-                ## No filters
-                function(x) x != 0
-
-            }
-            ## apply was kind of a pain here, since it is difficult to
-            ## control if you get a matrix or list back. So use a loop
-            ## to normalize. Sorting is irrelevant for standard "bag of
-            ## marbles" hypergeometric analysis. However, it is needed
-            ## for ranked list analysis (need to implement).
-            numL <- ncol(lol)
-            extracted <- list()
-            for (i in seq_len(numL)) {
-                ## 4. Normalize IDs
-                ##    3. Extract row names
-                ##       2. Sort by value (direction by 'decreasing' param)
-                ##          1. Filter values in matrix
-                col <- lol[ lol[,i] != 0, i, drop = TRUE ]
-                extracted[[ i ]] <- .normalizeList(
-                    names(
-                        sort(decreasing = decreasing,
-                             x = col[ scoreFilt(col) ],
-                             )))
-            }
-            lol <- stats::setNames(extracted, colnames(lol))
-        } else if (inherits(lol, "list")) {
-            ## This is already what we want
-        } else if (is.vector(lol)) {
-            ## Simple vector
-            lol <- list( myList = lol )
-        } else {
-            err("processListsOfLists provided with unexpected input",
-                class(lol), fatal = TRUE)
-        }
-        
-        rejList <- NULL
-        if (is.null(lnames)) {
-            ## All lists should be analyzed
-            lnames  <- names(lol)
-        } else {
-            ## Specific request being made
-            passed  <- lnames
-            lnames  <- intersect(lnames, names(lol))
-            ## See if any non-existant requests were made
-            if (length(lnames) != length(passed)) {
-                ## Where to store rejected list names?
-                rejList <- setdiff(passed, lnames)
-                lol <- lol[ lnames ]
-            }
-        }
-        numLists <- length(lnames)
         dmsg <- sprintf("Fisher calculation for %d lists x %d terms",
-                        numLists, ontoSize)
+                        lSz, oSz)
         name <- param("name")
-        if (is.something(name)) dmsg <- paste(dmsg, colorize(name, "white"))
+        if (CatMisc::is.something(name))
+            dmsg <- paste(dmsg, colorize(name, "white"))
         dateMessage(dmsg)
-        ## Establish empty structures to hold results
 
-        results <- array(data = NA, dim = c(numLists, ontoSize, 3),
-                         dimnames = list(listName = names(lol),
-                             term = ontoNames, metric = c("logPV","i","n")))
-        Nvals <- integer(numLists)
-        Wvals <- integer(numLists)
-        rej   <- list()
-        ## Process each list.
-        errors <- list()
-        for (i in seq_len(numLists)) {
-            slice <- processList( lol[[ i ]], no.logging = TRUE,
-                                 format = 'matrix')
-            ## Add the output to the results array
-            results[i, , ] <- slice
-            ## Build the relevant attributes
-            Nvals[i] <- attr(slice, "N")
-            Wvals[i] <- attr(slice, "W")
-            rej[[i]] <- attr(slice, 'rejectedIDs')
-            etxt <- attr(slice, 'error')
-            if (!is.null(etxt)) {
-                if (is.null(errors[[ etxt ]])) errors[[ etxt ]] <- 0
-                errors[[ etxt ]] <- errors[[ etxt ]] + 1
-            }
+        ## Sooo... there's probably some elegant way to populate the
+        ## whole array at once. If so, I'm not convinced I could do so
+        ## properly, or that it would handle edge cases correctly, or
+        ## that it would be even vaguely readable. So I am going to
+        ## populate it query list by query list:
+        for (ql in lNames) {
+            ## 
+            results[ ql, , "logPV" ] <-
+                fisherExact(results[ ql, , "i" ], # i, integer vector
+                            listSize[ql], # N, a single integer
+                            ontoCount)    # n, an integer vector
+            ## W will be taken globally from the object
+            ## Return value will be numeric vector:
+            ##   - log10(p-value)
+            ##   ... with a negative sign assigned to underenrichment
+                            
         }
-        for (etxt in colnames(errors)) {
-            err(sprintf("[%4d] %s", errors[[ etxt ]], etxt),
-                prefix="[ListError]")
-        }
-        attr(results, "N") <- Nvals
-        attr(results, "W") <- Wvals
-        attr(results, 'rejectedIDs') <- rej
-        attr(results, 'rejectedLists') <- rejList
+        
+        # logPV <- fisherExact( myOntoCount, listLen, ontoCount, WS )
+
+        attr(results, "n") <- ontoCount # integer vector, named by onto term
+        attr(results, "N") <- listSize  # integer vector, named by query list
+        attr(results, "W") <- worldSize # 'scalar' integer
+        attr(results, 'rejectedIDs') <- unknownNames
+        ## attr(results, 'rejectedLists') <- rejList
         dateMessage("Finished", prefix = "  ")
         if (isDefault) resultRaw <<- results
         results
+        
+
     },
 
     adjustResults = function ( res = NA, method = 'BY', force = FALSE ) {
