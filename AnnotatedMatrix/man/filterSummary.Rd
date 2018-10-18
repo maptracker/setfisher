@@ -4,7 +4,7 @@
 \alias{filterSummary}
 \title{Filter Summary}
 \arguments{
-\item{reason}{Default TRUE, which will cluster the filter summary
+\item{byreason}{Default TRUE, which will cluster the filter summary
 by reason and type. If FALSE, then only type will be used to
 cluster the summary.}
 

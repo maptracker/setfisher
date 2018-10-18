@@ -108,7 +108,7 @@ names after processing with make.unique()}
 \item{\code{filterByScore(min = NA, max = NA, filterEmpty = FALSE, reason = NA,
   help = FALSE)}}{Filter matrix cells by simple numeric tests}
 
-\item{\code{filterSummary(reason = TRUE, help = FALSE)}}{Human-readable overview of filters and counts of rows/cols removed}
+\item{\code{filterSummary(byreason = TRUE, help = FALSE)}}{Human-readable overview of filters and counts of rows/cols removed}
 
 \item{\code{help(color = NULL, help = FALSE)}}{Display high-level help about all object methods}
 

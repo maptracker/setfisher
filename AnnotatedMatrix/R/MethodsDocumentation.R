@@ -1916,7 +1916,7 @@ NULL
 #' summary of the filters applied and the number of rows or columns
 #' that have been 'removed' by each filter.
 #'
-#' @param reason Default TRUE, which will cluster the filter summary
+#' @param byreason Default TRUE, which will cluster the filter summary
 #'     by reason and type. If FALSE, then only type will be used to
 #'     cluster the summary.
 #' @param help Default FALSE. If TRUE, show this help and perform no

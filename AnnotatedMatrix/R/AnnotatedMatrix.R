@@ -2175,12 +2175,12 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         setFilters
     },
 
-    filterSummary = function (reason=TRUE, help=FALSE) {
+    filterSummary = function (byreason=TRUE, help=FALSE) {
         "Human-readable overview of filters and counts of rows/cols removed"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
 
-        rv <- if (reason) {
+        rv <- if (byreason) {
             dplyr::count(filterLog, metric, type, reason)
         } else {
             dplyr::count(filterLog, metric, type)
