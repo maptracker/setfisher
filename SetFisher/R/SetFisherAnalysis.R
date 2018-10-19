@@ -190,7 +190,7 @@ Name         [character] Optional name for the analysis
     queryWorld = function (newvalue=NULL) {
         if (!is.null(newvalue)) {
             ## Request
-            if (length(queryworld) == 0) {
+            if (length(newvalue) == 0) {
                 err("Attempt to set query world to an empty vector - ignoring. Use NA to specify you wish the world to be defined automatically.")
             } else if (any(is.na(newvalue))) {
                 if (length(newvalue) == 1) {
@@ -802,6 +802,13 @@ Name         [character] Optional name for the analysis
                                          fallbackVar = paste(objName,'ontoObj',sep='$'))))
         filters  <- character()
 
+        matrices <- list(Query=queryObj)
+        if (CatMisc::is.def(mapObj)) matrices$Map <- mapObj
+        matrices$Ontology <- ontoObj
+        for (mn in names(matrices)) {
+            
+        }
+
         if (FALSE) {
 
 ### BROKEN. Need to come up with new summary text to report the
@@ -862,6 +869,7 @@ Name         [character] Optional name for the analysis
                        doCol(objName, "white"))))
         msg
     },
+
     .ontologyFilterText = function ( color=TRUE ) {
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
         ## human-readable text describing the nature of the ontology
@@ -893,6 +901,7 @@ Name         [character] Optional name for the analysis
             sprintf("score < %s", doCol(mom, "red"))
         }
     },
+
     .filterHumanText = function (fmt = "", var = "", done = NA, key = NA,
                                  color=TRUE) {
         doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
@@ -1035,6 +1044,10 @@ Name         [character] Optional name for the analysis
                 phyper(i, n, W - n, N,
                        lower.tail = TRUE, log.p = TRUE) / logEtolog10 ))
 
+        ## The ifelse call above ends up assigning list names (from N)
+        ## to the pvalues. Debugging can be easier if instead the
+        ## ontology names (from i) are used:
+        names(rv) <- names(i)
         signif( rv, digits = 3 )
     },
 
@@ -1069,7 +1082,7 @@ Name         [character] Optional name for the analysis
             ## No list provided, use the object's stored query
             if (CatMisc::is.def(resultRaw) && !force) return( resultRaw )
             isDefault <- TRUE
-            lol   <- queryObj$matObj( ... )
+            lol   <- queryObj$matObj( )
             idDim <- outputDim[1]
         }
         ## If an SFMatrix object is provided, get the underlying matrix
@@ -1102,7 +1115,8 @@ Name         [character] Optional name for the analysis
         rownames(lol) <- .standardizeId(rownames(lol))
 
         ## What are the recognized query IDs in the analysis?
-        qids <- rownames(mapWeights)
+        wm   <- weightMatrix()
+        qids <- rownames( wm )
 
         ## Does the query have any IDs that aren't in the weight matrix?
         unknownNames <- setdiff(rownames(lol), qids)
@@ -1144,7 +1158,7 @@ Name         [character] Optional name for the analysis
         ## 1: The sum of query IDs in each list, weighted appropriately:
 
         ##    We want to make sure that sums do not exceed 1:
-        qs <- pmin(Matrix::crossprod(lol, mapWeights), 1)
+        qs <- pmin(Matrix::crossprod(lol, wm), 1)
         ##    Now we can get the list size for each list. This
         ##    corresponds to 'N':
         listSize <- generousRound( Matrix::rowSums(qs) )
@@ -1154,7 +1168,8 @@ Name         [character] Optional name for the analysis
         ##########
         ## 2: The weighted counts for each ontology term:
         ##    This corresponds to 'i':
-        listOntoCounts <- generousRound(Matrix::crossprod(lol, queryOnto))
+        q2o            <- queryToOntology()
+        listOntoCounts <- generousRound(Matrix::crossprod(lol, q2o))
         ## listOntoCounts is an integer matrix (not Matrix) with query
         ## lists as rows, ontology terms as columns, and values
         ## representing the integer, weighted query counts of ontology
