@@ -9,13 +9,13 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #'
 #' @field setfisher Pointer back to the parent SetFisher object
 #' @field queryObj AnnotatedMatrix representing the query list(s)
-#' @field queryWorld Character verctor describing all objects in the
-#'     query namespace. Will default to all unique rows in the mapping
-#'     matrix, or all unique rows in the query matrix if no mapping
-#'     matrix is present.
+#' @field queryWorldVal Character verctor describing all objects in
+#'     the query namespace. Will default to all unique rows in the
+#'     mapping matrix, or all unique rows in the query matrix if no
+#'     mapping matrix is present.
 #' @field activeQueries Character vector of normalized IDs
 #'     representing the world. Will either be taken from
-#'     \code{queryWorld}, or dynamically calculated from filtered /
+#'     \code{queryWorldVal}, or dynamically calculated from filtered /
 #'     intersected matrices.
 #' @field ontoObj AnnotatedMatrix representing the mapping of IDs
 #'     (from the mapping matrix if present, otherwise from the query
@@ -34,6 +34,8 @@ logEtolog10 <- log(10) # Natural to base-10 conversion factor
 #'     account the existence or absence of a Mapping Matrix.
 #' @field resultRaw 3D array holding raw p-values from phyper()
 #'     calculations, as well as i and n values for each calculation.
+#' @field idFunc A function used to standardize ID names. Defaults to
+#'     \code{tolower}
 #' @field resultAdj p.adjust() processed values from resultRaw
 #' @field lastTop data.frame of the most recent values from
 #'     topResults()
@@ -87,7 +89,7 @@ SetFisherAnalysis <-
                 fields = list(
                     setfisher     = "SetFisher",
                     queryObj      = "ANY", # "AnnotatedMatrix",
-                    queryWorld    = "character",
+                    queryWorldVal = "character",
                     activeQueries = "character",
 
                     discardedIDs  = "list",
@@ -105,6 +107,7 @@ SetFisherAnalysis <-
                     lastTop       = "data.frame", # last topResults()
                     
                     logThresh     = "numeric", # -log10 value of threshold
+                    idFunc        = "function",
                     
                     ## Fractions >= 1/roundUp will be rounded up. The
                     ## default of 2 means that an input query (eg an
@@ -154,17 +157,12 @@ SetFisherAnalysis$methods(
         if (!CatMisc::is.def(ontology)) log$err(
             "SetFisherAnalysis must define 'ontology' when created", fatal=TRUE)
         ontoObj <<- ontology
-        
-        queryWorld <<- if (CatMisc::is.def(queryworld)) {
-            if (length(queryworld) == 0) {
-                err("Query world was set to an empty vector - ignoring")
-                as.character(NA)
-            } else {
-                .standardizeId(queryworld)
-            }
-        } else {
-            as.character(NA)
-        }
+
+        idFunc  <<- tolower # Default ID normalization function
+
+        ## Set up the queryWorldVal field:
+        queryWorldVal <<- as.character(NA)
+        queryWorld(queryworld) # Set the query world
         
         roundLevel( round )
         ## Set some parameters
@@ -187,6 +185,28 @@ Name         [character] Optional name for the analysis
         ##print(str(query))
         ##print(str(queryObj))
         .alignMatrices()
+    },
+
+    queryWorld = function (newvalue=NULL) {
+        if (!is.null(newvalue)) {
+            ## Request
+            if (length(queryworld) == 0) {
+                err("Attempt to set query world to an empty vector - ignoring. Use NA to specify you wish the world to be defined automatically.")
+            } else if (any(is.na(newvalue))) {
+                if (length(newvalue) == 1) {
+                    ## A single NA value indicates that the system
+                    ## should set the world automatically
+                    queryWorldVal <<- as.character(NA)
+                    modState <<- c(-1, -1, -1) # force derived val recalc
+                } else {
+                    err("Attempt to set queryWorld with multiple values including at least one NA. Either specify all values, or use a single NA to allow the world to be set automatically")
+                }
+            } else {
+                queryWorldVal <<- .standardizeId(newvalue)
+                modState <<- c(-1, -1, -1) # force derived val recalc
+            }
+        } 
+        queryWorldVal
     },
     
     .alignMatrices = function (raw=FALSE) {
@@ -317,7 +337,6 @@ Name         [character] Optional name for the analysis
             }
         }
 
-
         if (!is.na(outputDim[3])) {
             ## We can make some callbacks for the ontology matrix
             if (outputDim[3] == 1L) {
@@ -393,11 +412,11 @@ Name         [character] Optional name for the analysis
 ### IDs for the Ontology. Both dimensions will be interpreted as
 ### precisely defining the "worlds" of their relative namespaces.
 
-        qwDef <- CatMisc::is.def(queryWorld)
+        qwDef <- CatMisc::is.def(queryWorldVal)
         if (qwDef) {
             ## If the query world has been defined by the user, we
             ## will ALWAYS accept that as setting the world of IDs.
-            activeQueries <<- .standardizeId(queryWorld)
+            activeQueries <<- queryWorld()
             ## This could result in some "dead end" inputs from the
             ## query (map input rows that connect to zero output
             ## columns). That's ok.
@@ -626,13 +645,14 @@ Name         [character] Optional name for the analysis
     },
 
     processAll = function ( force = FALSE, ... ) {
-        filter( force = force )
-        processListOfLists( force = force )
+        "Run p.hyper on all default lists, adjust the results, return top hits"
+        processLists( force = force )
         adjustResults( force = force )
         topResults( ... )
     },
 
-    threshold = function( x = NA ) {
+    threshold = function( x=NA ) {
+        "Get / set the default significance threshold"
         if (!is.na(x)) {
             ## New value being provided
             nv <- .normalizeThreshold( x )
@@ -640,7 +660,9 @@ Name         [character] Optional name for the analysis
         }
         logThresh
     },
+
     .normalizeThreshold = function (x) {
+        "Allow a threshold to be defined as either a p-value or a -log10 pval"
         ## Normalize to -log10
         if (x < 1) {
             ## Presume it is being passed as a p-value
@@ -650,7 +672,9 @@ Name         [character] Optional name for the analysis
             x
         }
     },
+
     .denormalizeThreshold = function (x) {
+        "Report a threshold as a p-value, converting if it's provided as -log 10 value"
         ## Will primarily be used for displaying p-values
         if (x >= 1) {
             ## Presume it is a -log10 value
@@ -660,6 +684,7 @@ Name         [character] Optional name for the analysis
     },
     
     roundLevel = function ( level = NA ) {
+        "Get / set the 'roundUp' value. This is an integer denominator - that is, a value of 3 would mean any fraction 1/3 or more will be rounded up"
         if (!is.na(level)) {
             ## Don't be picky if an integer numeric value is passed:
             if (is.numeric(level) && floor(level) == level)
@@ -674,6 +699,7 @@ Name         [character] Optional name for the analysis
     ## A pseudocount is added to the value to allow values of >=
     ## 1/roundCount to get rounded up.
     generousRound = function ( x ) {
+        "Allow values less than 0.5 still be rounded up, based on level set by $roundLevel()"
         rv <- floor(x + pseudoRound)
         if (inherits(rv, "Matrix")) {
             ## Let's collapse Matrix objects down to simple base matrix objects
@@ -684,13 +710,22 @@ Name         [character] Optional name for the analysis
         rv
     },
 
-    ## Some matrix operations are perfomed with row or column
-    ## names. The names may come from different sources and use
-    ## different standardization protocols. At the moment I am
-    ## concerned about case (1001_at vs 1001_AT or 1001_At), so for
-    ## the moment this just normalizes names to lower case
+    idStandardizationFunction = function (newval=NULL) {
+        "Get / Set the function that standardizes IDs"
+        if (is.function(newval)) idFunc <<- newval
+        idFunc
+    },
+    
+    .standardizeId = function (x) {
+        "Internal method that normalizes IDs"
+        ## Some matrix operations are perfomed with row or column
+        ## names. The names may come from different sources and use
+        ## different standardization protocols. At the moment I am
+        ## concerned about case (1001_at vs 1001_AT or 1001_At), so
+        ## for the moment this just normalizes names to lower case
 
-    .standardizeId = function (x) tolower(x),
+        idFunc(x)
+    },
     
     show = function (...) { cat( .showText(...) ) },
 
@@ -1027,147 +1062,34 @@ Name         [character] Optional name for the analysis
         l
     },
 
-    processList = function (l, W = NA, format = 'vector',
-        no.logging = FALSE) {
-        ## Process a single list of IDs against all ontology terms,
-        ## returning a vector of logPV (one entry per term)
-
-        validInput <- attr(l, "validInput")
-        if (is.null(validInput)) validInput <-
-            attr(.normalizeList(l), "validInput")
-        
-        ## The world size can be over-ridden here
-        WS   <- if (is.something(W)) { W } else { worldSize }
-
-        ## vlen is the number of valid IDs provided. If no mapping
-        ## matrix is provided, then this is also the same as
-        ## "listLen", the size of the selected set. If a mapping
-        ## matrix is being used to map to another namespace, then
-        ## listLen might be smaller than vlen (if multiple query IDs
-        ## map to the same final target ID).
-        vlen <- length(validInput)
-        if (vlen == 0) {
-            ## If there are no valid IDs, return a vector of all zeros
-            ## (nothing significant):
-            rv <- stats::setNames(rep(0, length(ontoNames)), ontoNames)
-            ## Attributes will be needed later:
-            attr(rv,"N") <- 0 # List length (count of selected target IDs)
-            attr(rv,"W") <- WS      # Size of world (total target IDs)
-            attr(rv, 'rejectedIDs') <- attr(l, "rejected")
-            attr(rv, 'error') <- "All query IDs were rejected"
-            return( rv )
-        }
-
-        ## Make sure input is counted in the ontology namespace:
-        weights <- Matrix::crossprod(l, )
-        
-        ## Convert the input to a weighted set of genes, and tally up
-        ## the number of IDs (potentially fractional if a mapping
-        ## matrix is used) assigned to each ontology term
-        if (CatMisc::is.def(mapObj)) {
-            ## We need to map Query IDs to fractional counts of IDs
-            ## used in the ontology.
-            wm   <- weightMatrix() # Full weight matrix
-            ## Find indices of original weight matrix that match to our
-            ## input; Weight matrix names should already be standardized
-            vInd <- match(validInput, rownames(wm))
-            vim  <- wm[vInd, , drop = FALSE]
-            if (length(vim) == 0 || !CatMisc::is.def(nrow(vim))) {
-                bogusList <<- l
-                rv <- stats::setNames(rep(0, length(ontoNames)), ontoNames)
-                ## Attributes will be needed later:
-                attr(rv,"N") <- 0 # List length (count of selected target IDs)
-                attr(rv,"W") <- WS      # Size of world (total target IDs)
-                attr(rv, 'rejectedIDs') <- attr(l, "rejected")
-                attr(rv, 'error') <- "Failed to pivot list through weight matrix"
-                return( rv )
-            }
-            ## Find the (potentially fractional) counts of the input
-            ## IDs, expressed as a vector
-            validInputCounts <- pmin( colSums( vim ), 1 )
-            ## Count up the genes and integerize. This is N, the list length
-            listLen    <- generousRound(sum(validInputCounts))
-            ## Now project the weighted genes onto the ontologies (i):
-            myOntoCount <- generousRound(crossprod(
-                ontoMatrix( ), validInputCounts )[,1] )
-        } else {
-            ## No mapping matrix - N is simply the number of queries
-            listLen    <- vlen
-            ## Ontology counts can be looked up by summing the columns
-            ## for matching rows:
-            oInd <- match(validInput, .standardizeId(rownames(ontoMatrix())))
-            myOntoCount <- colSums( ontoMatrix( )[ oInd, , drop=FALSE])
-        }
-        ## Calulate the log'ed p-values:
-        logPV <- fisherExact( myOntoCount, listLen, ontoCount, WS )
-        
-        if (!no.logging) {
-            if (CatMisc::is.def(mapObj)) {
-                msg <- sprintf("List of %d IDs (mapped from %d)",
-                               listLen, vlen)
-            } else {
-                msg <- sprintf("List of %d IDs", vlen)
-            }
-            msg <- sprintf("%s analyzed against %d ontology terms",msg,
-                           ontoSize)
-            actionMessage(msg)
-        }
-        if (grepl('^l', format)) {
-            ## List format
-            logPV <- list(logPV = logPV, i = myOntoCount, n = ontoCount,
-                          N = listLen, W = WS)
-        } else if (grepl('^m', format)) {
-            ## Matrix format
-            logPV <- matrix(
-                c(logPV, myOntoCount, ontoCount), ncol = 3, byrow = FALSE,
-                dimnames= list(term = ontoNames, metric = c("logPV", "i", "n")))
-            ## List length and world size are global values
-        } else {
-            ## Keep as simple vector
-            ## Add names:
-            names(logPV) <- ontoNames
-        }
-        ## Add a few attributes
-        attr(logPV,"N") <- listLen # List length (count of selected target IDs)
-        attr(logPV,"W") <- WS      # Size of world (total target IDs)
-        attr(logPV, 'rejectedIDs') <- attr(l, "rejected")
-        logPV
-    },
-
-    processListOfLists = function (lol = NULL, lnames = NULL, results = NULL,
-        decreasing = FALSE, force = FALSE, ...) {
-        usingMethods("processList")
+    processLists = function (lol=NULL, lnames=NULL, force=FALSE) {
         isDefault <- FALSE
         idDim     <- integer() # The dimension that has the IDs
         if (is.null(lol)) {
             ## No list provided, use the object's stored query
-            if (is.null(lnames)) {
-                ## If other settings are default, return stored raw
-                ## result if it is available
-                if (CatMisc::is.def(resultRaw) && !force) return( resultRaw )
-                isDefault <- TRUE
-            }
+            if (CatMisc::is.def(resultRaw) && !force) return( resultRaw )
+            isDefault <- TRUE
             lol   <- queryObj$matObj( ... )
             idDim <- outputDim[1]
         }
         ## If an SFMatrix object is provided, get the underlying matrix
         if (inherits(lol, "AnnotatedMatrix")) {
-            lol <- lol$matObj( ... )
+            lol <- lol$matObj( )
         } else if (inherits(lol, "Matrix")) {
             ## This is what we want, no action needed
         } else if (is.list(lol)) {
 #### TODO - Allow list of vectors as input
             stop("Analysis of list objects not yet implemented")
         } else if (is.vector(lol)) {
-#### TODO - Allow analysis of simple or named vectors
+#### TODO - Allow analysis of named vectors
             stop("Analysis of simple vectors not yet implemented")
         } else {
-            err("processListsOfLists provided with unexpected `lol` input",
+            err("processLists provided with unexpected `lol` input",
                 class(lol), fatal = TRUE)
         }
 
 #### TODO - Deal with other formats above. Turn them into Matrices
-####   Will need to properly detect the output dimension
+####   Will need to properly detect / set the output dimension
 
         ## We have a matrix
         ## Standardize the matrix as a logical one:
@@ -1195,7 +1117,9 @@ Name         [character] Optional name for the analysis
         }
         
         ## Now pad out the query with IDs that are in the weight
-        ## matrix but not the query
+        ## matrix but not the query. This is done to assure that the
+        ## dimensions are properly "square" for the comming cross
+        ## products
         additionalNames <- setdiff(qids, rownames(lol))
         if (length(additionalNames) > 0) {
             nc  <- ncol(lol) # Number of columns in matrix
@@ -1209,6 +1133,10 @@ Name         [character] Optional name for the analysis
             ## Stitch the empty rows onto the end of of our matrix
             lol <- Matrix::rbind2(lol, add)
         }
+
+        ## Finally, make sure that our list IDs are properly ordered
+        ## to align with the mapWeights and queryOnto matrices:
+        lol <- lol[ qids, ]
 
         ## We can now use crossproduct to compute two values:
 
@@ -1283,6 +1211,19 @@ Name         [character] Optional name for the analysis
         attr(results, 'rejectedIDs') <- unknownNames
         ## attr(results, 'rejectedLists') <- rejList
         dateMessage("Finished", prefix = "  ")
+
+        attr(results, "help") <-
+            list("This Array"="The 'main' object is a 3D array: Dimension [1] corresponds to the list(s) of IDs you submitted. [2] represents the ontology terms you are testing for enrichment. [3] holds two values; 'logPV', -log10(p.hyper) for each list+ontology test, and 'i', the number of list members that are also in the ontology",
+                 "About counts"="All counts are integers, but may have 'transitioned' via fractional weightings if you have provided a mapping matrix",
+                 "About logPV"="NEGATIVE VALUES ARE FLAGS, which indicate that the list was UNDER-enriched for the ontology term.",
+                 "n"="Named count vector. Names are ontology terms, counts are number of IDs present in that ontology",
+                 "N"="Named count vector. Names are list names, counts are number of IDs present in list",
+                 "W"="Single count value. Represents total number of IDs in the 'world', the full analytic space (eg, a full genome, or the subset of the genome accessible by your assay methodology)",
+                 "rejectedIDs"="Character vector of query IDs that were not present in the world. The world can be manually defined with $queryWorld(), or will be taken from your mapping matrix, or will be taken from your ontology"
+                 )
+
+#### TODO - Add a Help attribute that explains the structure
+        
         if (isDefault) resultRaw <<- results
         results
         
@@ -1299,7 +1240,7 @@ Name         [character] Optional name for the analysis
             ## from processListOfLists(), or return the default
             ## adjusted results if previously defined
             if (CatMisc::is.def(resultAdj) && !force ) return (resultAdj)
-            res <- processListOfLists( force = force )
+            res <- processLists( force = force )
         }
         ## Make a copy of the input:
         rv <- res
@@ -1651,7 +1592,7 @@ Name         [character] Optional name for the analysis
             sprintf("%s : show summary of object\n", colorize(objName,"white")),
             sprintf(fmtM, "filter", " force=F ", "Apply filters to matrices"),
             sprintf(fmtF, "filterLog", "data.frame of all filtered objects"),
-            sprintf(fmtM, "processListOfLists", " ", "Process a list of lists to generate 'raw' HGD values"),
+            sprintf(fmtM, "processLists", " ", "Process a list of query lists to generate 'raw' HGD values"),
             sprintf(fmtM, "adjustResults", " method='BY' ", "Apply multiple testing adjustment to raw results"),
             sprintf(fmtM, "topResults", " n=100 ", "Report the most significant filtered results"),
             sprintf(fmtM, "processAll", " force=F ", "Run all of the above at once"),
