@@ -254,7 +254,7 @@ parse_MatrixMarket_file <- function( file ) {
 #'     vector names represent the thing being annotated (a row or
 #'     column name), and the values hold the actual
 #'     assignment. Metadata is "mixed" in that there are not separate
-#'     tables for columns and rows.
+#'     tables for columns and rows. Alternatively, the metadata list can be provided with a \code{meta} attribute on the \code{data} object.
 #' @param listNames Default NULL, in which case the listNames
 #'     (rNames) will be taken as names(data). The option to provide
 #'     the names independently is included in case some names are not
@@ -313,29 +313,52 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
     if (is.null(listNames)) listNames <- names(data)
     rnDat  <- uniqueNames(listNames, "Row Names")
     icnt   <- length(rnDat$names)
-    ## All unique column names:
-    memNames <- unique(unlist(data))
+     ## Are the list members themselves named?
+    lmNames  <- unlist(lapply(data, names))
+    isNamed  <- !is.null(lmNames)
+    ## Get all unique column names:
+    memNames <- if (isNamed) {
+        ## Each member represents a vector of values. The column names
+        ## are stored as names for each vector.
+        unique(lmNames)
+    } else {
+        ## The members are just lists of column names
+        unique(unlist(data))
+    }
     cnDat    <- uniqueNames(memNames, "Col Names")
     jcnt     <- length(cnDat$names)
     ## How many members are in each list?
     counts   <- unlist(lapply(data, length))
     ## Total number of assingments:
     xcnt     <- sum(counts)
-    ## Pre-allocate the i/j index vectors:
+    ## Pre-allocate the i/j index vectors, and the x values
     ivals    <- integer(xcnt)
     jvals    <- integer(xcnt)
+    xvals    <- numeric(xcnt)
     done     <- 0
     for (l in seq_len(icnt)) {
         ## Get the set of members from List #l :
         mems <- data[[ l ]]
         mlen <- length(mems)
         inds <- seq(done+1, done+mlen) # Indices for i/j vectors
-        ivals[ inds ] <- rep(l, mlen)  # Set i coordinate
+        ivals[ inds ] <- rep(l, mlen)  # Set i coordinate (constant)
+        ## Set the numeriv values
+        xvals[ inds ] <- if (isNamed) {
+            ## We need to extract both the names and values
+            mems <- names(mems)
+            unname( data[[ l ]] ) # user-supplied values from this entry
+        } else {
+            ## We already have the names, and the values are constant
+            ## (whatever was set by the `val` parameter)
+            rep(val, mlen) # Just `val` repeated
+        }
         jvals[ inds ] <- match(mems, memNames) # Set j coordinate
         done <- done + mlen
     }
     
     metadata <- NULL
+    ## If no meta parameter is provided, see if there's an attribute on the list
+    if (is.null(meta)) meta <- attr(data, 'meta')
     if (!is.null(meta) && length(meta) > 0) {
         ## Get all the unique IDs for which there is metadata
         ids   <- unique(unlist(lapply(meta, names)))
@@ -355,9 +378,9 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
     dims[[ dn[2] ]] <- cnDat$names
 
     mat <-  methods::as(Matrix::sparseMatrix(
-        i=ivals[1:xcnt],
-        j=jvals[1:xcnt],
-        x=rep(val, xcnt),
+        i=ivals,
+        j=jvals,
+        x=xvals,
         index1=TRUE,
         dimnames=dims), "dgTMatrix")
 

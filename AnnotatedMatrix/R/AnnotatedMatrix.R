@@ -25,7 +25,8 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' AnnotatedMatrix( help=TRUE ) # Show this help
 #'
 #' ## In general:
-#' myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
+#' myAnnMat <- AnnotatedMatrix( file=NA, obj=NA, params=NA, autofilter=TRUE,
+#'                              ...)
 #' ## Specific toy example matrix:
 #' myAnnMat <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 #'
@@ -45,6 +46,8 @@ sfSep <- ' || ' # Token for separating text while recording filters
 #' analysis (Fisher's exact test) in a reproducible research
 #' framework. The package is also very well suited for identifier
 #' mapping (for example, gene symbols to gene accessions).
+#'
+#' @param file
 #'
 #' @field file Path to file the matrix was loaded from
 #' @field fromRDS Logical, true if the loaded file was an RDS object
@@ -136,7 +139,7 @@ AnnotatedMatrix <-
 
 AnnotatedMatrix$methods(
     
-    initialize = function(file=NA, params=NA, autofilter=TRUE,
+    initialize = function(file=NA, obj=NA, params=NA, autofilter=TRUE,
                           help=FALSE, ... ) {
         "Create a new AnnotatedMatrix object; Invoke with AnnotatedMatrix(...)"
         if (help) {
@@ -176,19 +179,26 @@ TossCol     [character] Specific column IDs to mask, recognized by $autoFilter()
 TossMeta    [character] Metadata value filter recognized by $autoFilter()
 AutoFilterComment [character] Optional message displayed when automatic filters are applied to the matrix.
 ", ...)
-        if (!CatMisc::is.def(file))
-            err("AnnotatedMatrix must define 'file' when created", fatal = TRUE)
         fromRDS  <<- FALSE
         modState <<- 0
-        if (inherits(file, "dgTMatrix")) {
-            ## The file path is actually a sparse matrix. We are
-            ## building an object from scratch.
-            matrixRaw <<- file
+        if CatMisc::is.def(obj)) {
             file      <<- as.character(NA)
-            .buildMatrix( ... )
+            .readObject( obj )
         } else {
-            file    <<- file
-            .readMatrix( ... )
+            ## Attempt to read from file, the 'typical' 
+            if (!CatMisc::is.def(file))
+                err("AnnotatedMatrix must define 'file' when created",
+                    fatal = TRUE)
+            if (inherits(file, "dgTMatrix")) {
+                ## The file path is actually a sparse matrix. We are
+                ## building an object from scratch.
+                matrixRaw <<- file
+                file      <<- as.character(NA)
+                .buildMatrix( ... )
+            } else {
+                file    <<- file
+                .readMatrix( ... )
+            }
         }
         reset()
         if (autofilter) autoFilter()
@@ -2428,6 +2438,21 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         actionMessage(sprintf("%d x %d matrix, %s non-zero", rnum, cnum, pnz),
                       prefix = "  ")
         rv
+    },
+
+    .readObject = function (obj, help=FALSE, ... ) {
+        "Internal method to build a matrix from R objects"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        sm <- storaage.mode(obj)
+        if (sm = 'list') {
+            
+        } else {
+            err(c("Attempt to create an AnnotatedMatrix file with ", sm,
+                  " object - No logic defined to load such objects"),
+                fatal = TRUE)
+        }
+        
     },
 
     metadata_keys = function ( help=FALSE ) {
