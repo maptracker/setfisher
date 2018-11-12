@@ -720,7 +720,7 @@ sub get_schema {
     while(<FILE>) {
         s/[\n\r]+$//;
         my ($tab, $cols, $types) = split(/\t/);
-        if (my $dup = $schema{$tab}) {
+        if (my $dup = $schema->{$tab}) {
             my $chk = join(',', @{$dup});
             &err("Multiple schema for $tab:", $cols, $dup)
                 unless ($dup eq $cols);
@@ -782,14 +782,14 @@ sub make_schema_file {
     while (<IN>) {
         s/[\n\r]+$//;
         if (/CREATE TABLE `(.+?)`/) {
-            $tabDat = &_write_schema_table( OUT, $tabDat, $1 );
+            $tabDat = &_write_schema_table( *OUT, $tabDat, $1 );
         } elsif (/^\s+`(.+?)` ([^ ,]+)/) {
             push @{$tabDat->{col}}, $1;
             push @{$tabDat->{typ}}, $2;
         }
     }
     close IN;
-    &_write_schema_table( OUT, $tabDat );
+    &_write_schema_table( *OUT, $tabDat );
     close OUT;
     rename($tmp, $file);
     &msg("Schema file written to $file");

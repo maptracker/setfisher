@@ -158,6 +158,9 @@ Building pivot matrices from $auth:
 
 sub accession_maps {
     # Grab the following namespaces:
+    &msg("
+Generating Accession - Accession maps
+");
     my ($rows, $xcol) =
         &_get_rows([ HGNC        => 'hgnc_id', # Easier to grab this value twice
                      OMIM        => 'omim_id',
