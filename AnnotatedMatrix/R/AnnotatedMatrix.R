@@ -2446,7 +2446,9 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
                                               names(.refClassDef@contains)) )
         sm <- storaage.mode(obj)
         if (sm = 'list') {
-            
+            dateMessage(paste("Reading simple list from file", colName))
+            rv <- parse_Text_file( file=file, ... )
+
         } else {
             err(c("Attempt to create an AnnotatedMatrix file with ", sm,
                   " object - No logic defined to load such objects"),
