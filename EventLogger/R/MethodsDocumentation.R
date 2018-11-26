@@ -530,3 +530,105 @@ NULL
 #' @seealso \link{colMap}, \link{colorize}
 NULL
 
+#' Field Descriptions
+#'
+#' A list of brief descriptions for each object field
+#'
+#' @name fieldDescriptions
+#' @method fieldDescriptions EventLogger
+#'
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$fieldDescriptions( help=TRUE )
+#' 
+#' myObject$fieldDescriptions( )
+#' }
+#'
+#' This method returns a simple list of descriptive text for each
+#' object field. It is designed to help the user understand the role
+#' of each field.
+#'
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A list of character strings
+#'
+#' @seealso \link{help}, \link{annotateFields}
+#'
+#' @examples
+#'
+#' myEL <- EventLogger()
+#' myEL$fieldDescriptions()
+#' 
+NULL
+
+#' Annotate Object Fields
+#'
+#' Annotate an object so the fields include descriptive attributes
+#'
+#' @name annotateFields
+#' @method annotateFields EventLogger
+#' 
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$annotateFields( help=TRUE )
+#' 
+#' myObject$annotateFields( )
+#' }
+#'
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A list of character strings
+#'
+#' @seealso \link{help}, \link{annotateFields}
+#'
+#' @examples
+#'
+#' myEL <- EventLogger()
+#' str(myEL$vb)
+#' myEL$annotateFields()
+#' str(myEL$vb)
+#' 
+NULL
+
+
+
+#' Build Help Text
+#'
+#' EventLogger object method to generate a compact summary of object methods
+#'
+#' @name dotShowHelp
+#' @method .showHelp EventLogger
+#'
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$.showHelp( help=TRUE )
+#' 
+#' myObject$.showHelp(sections=list(), genericName='myObject', color=NULL)
+#' }
+#'
+#' Construct a block of (optionally) colorized help text describing
+#' all the methods associated with this RefClass object.
+#'
+#' @param sections Default an empty list. Can define a set of
+#' functionally-related method sections, with list names being the
+#' sections, and the values each a character vector of associated
+#' functions.
+#' @param genericName Default \code{'myObject'}. The variable name to
+#' use if the calling variable can not be deduced.
+#' @param color Default \code{NULL}, which will default to the value
+#' held by \code{$colorize()}. If true then output will be ANSI colored.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return NULL, invisibly
+#'
+NULL
+

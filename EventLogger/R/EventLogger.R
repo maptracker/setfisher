@@ -52,7 +52,8 @@ EventLogger <-
                     log      = "data.table",
                     vb       = "logical",
                     colMap   = "list",
-                    EvLogObj = "ANY"
+                    EvLogObj = "ANY",
+                    varName  = "character"
                     ),
                 )
 
@@ -132,25 +133,34 @@ Create a new object using EventLogger():
         }
     },
 
-    dateMessage = function ( msg="No message provided!", ... ) {
+    dateMessage = function ( msg="No message provided!", help=FALSE, ... ) {
         "Calls message() with datestamp=TRUE"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         message(msg=msg, datestamp=TRUE, ...)
     },
 
     actionMessage = function (msg="No message provided!!", prefix='[+]',
-        color="red", ...) {
+        color="red", help=FALSE, ...) {
         "Calls message with a '[+]' prefix and red coloring"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         message(msg=msg, prefix=prefix, color=color, ...)
     },
 
     debugMessage = function (msg="No message provided!!", prefix='[DEBUG]',
-        color="white", bgcolor="blue", ...) {
+        color="white", bgcolor="blue", help=FALSE, ...) {
         "Calls message with a '[DEBUG]' prefix and white/blue coloring"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         message(msg=msg, prefix=prefix, color=color, bgcolor=bgcolor, ...)
     },
 
-    err = function (msg="No message provided!!", prefix='[ERROR]', ...) {
+    err = function (msg="No message provided!!", prefix='[ERROR]', help=FALSE,
+    ...) {
         "Calls message with an '[ERROR]' prefix and red/yellow coloring"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
         message(msg=msg, prefix=prefix, collapse="\n",
                 color="red", bgcolor="yellow", ...)
     },
@@ -350,6 +360,175 @@ Create a new object using EventLogger():
             }
         }
         use$colMap <- cf
+    },
+
+    fieldDescriptions = function(help=FALSE) {
+        "A static list of brief descriptions for each field in this object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        list("useCol"   = "Flag indicating if messages should be colorized",
+             "log"      = "data.table storing event messages and times",
+             "vb"       = "Flag indicating if messages should be shown",
+             "colMap"   = "List mapping color names to crayon methods",
+             "EvLogObj" = "Optional, another EventLogger object (for cross-object sharing)",
+             "varName"  = "Extracted variable name associated with this object")
+
+    },
+
+    annotateFields = function(help=FALSE) {
+        "Update object fields to include attributes with brief descriptions"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        ## If the descriptions are not defined then nothing to be done:
+        if (!is.function(.self[["fieldDescriptions"]])) return(FALSE)
+        myClassName <- class(.self)
+        fields <- fieldDescriptions()
+        hfmt <- paste0(" help('%s', '", myClassName,
+                       "') # More information on field ")
+        for (fld in names(fields)) {
+            if (is.null(.self[[fld]])) next # Can't attribute NULL
+            ## The [[ accessor seems to work for fields?
+            attr(.self[[fld]], "Description") <- fields[[fld]]
+            attr(.self[[fld]], "Help") <- sprintf(hfmt,fld)
+        }
+        TRUE
+    },
+
+    help = function (color=NULL, help=FALSE) {
+        "Display high-level help about all object methods"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        sections <- list(
+            "Logging" = c("showLog", "message", "dateMessage", "actionMessage",
+            "debugMessage", "err", "logText"),
+            "Formatting" = c("colorize", "useColor", "colorMap", "tidyTime",
+                             "verbose"),
+            "Utility Methods" = c("colNameToFunc", "fieldDescriptions")
+            )
+        .showHelp(sections, 'myEvtLogger', color=color)
+    },
+
+    .showHelp = function (sections=list(), genericName='myObject', color=NULL,
+    help=FALSE) {
+        "Construct text for the help() method"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        if (is.null(color)) color <- useColor() # Use EventLogger setting
+        doCol   <- if (color) { .self$colorize } else { function(x, ...) x }
+        objName <- .self$.selfVarName(genericName)
+        whtName <- doCol(objName, "white")
+        comCol  <- "yellow"
+
+        ## Figure out all available methods:
+        myClassName <- class(.self)
+        myClass     <- methods::getRefClass(myClassName)
+        allMeth     <- myClass$methods()
+        ## Subtract out the generic ones:
+        allMeth <- setdiff(allMeth, c("callSuper", "copy", "export", "field", "getClass", "getRefClass", "import", "initFields", ".objectPackage", ".objectParent", "show", "trace", "untrace", "usingMethods"))
+        ## Subtract out some superclasses
+        allMeth <- allMeth[ !grepl('#', allMeth) ]
+
+        ## Junk drawer section for methods not defined in `sections`:
+        sections[["Other Methods"]] <- setdiff(allMeth, unname(unlist(sections)))
+
+        ## Basic header:
+        txt <- sprintf("
+%s
+?%s %s
+%s                 %s
+%s$showLog()       %s
+str(%s, max.lev=3) %s
+",
+doCol(sprintf("###
+### %s Help - call the below commands for more details
+###", myClassName),"magenta"),
+myClassName,
+doCol("# Built-in documentation on the class", comCol),
+whtName, doCol("# Summary report of the object", comCol),
+whtName, doCol("# Show logged events with timing", comCol),
+whtName, doCol("# Inspect the object structure", comCol))
+
+        noHelp <- c()
+        ## Add snippets for each method, broken down by section
+        for (sec in names(sections)) {
+            if (sec == "SKIP") next
+            txt <- c(txt, doCol(paste("\n############\n###", sec, "\n"),comCol))
+            meths <- sections[[ sec ]]
+            for (meth in meths) {
+                ## Going to see if we can extract the ROxygen
+                ## description string from the method
+                code <- utils::capture.output(myClass$methods(meth))
+                ## Should not happen, but be safe:
+                if (is.null(code)) next
+                isHelped <- FALSE
+                com <- NA
+                for (line in code) {
+                    ## See if 'help=FALSE' is set - indicates I have
+                    ## tied it into my internalized help framework:
+                    if (grepl('help\\s*=\\s*FALSE', line))  isHelped <- TRUE
+                    cm <- CatMisc::parenRegExp('^\\s+"(.+)"\\s*$', line)
+                    if (!is.na(cm[1])) {
+                        ## Found a single line quoted string, presume
+                        ## it is description and stop scanning code:
+                        com <- cm[1]
+                        break
+                    }
+                }
+                if (!isHelped) {
+                    noHelp <- c(noHelp, meth)
+                    next
+                }
+                txt <- c(txt, sprintf("%s$%s( help=TRUE )", whtName, meth))
+                if (!is.na(com)) txt <-
+                     c(txt, doCol(paste("\n    #", com), comCol))
+                txt <- c(txt, "\n")
+            }
+        }
+        noHelp <- setdiff(noHelp, 'help')
+        if (length(noHelp) > 0) txt <- c(txt,
+              doCol("\n### Methods lacking help\n", comCol),
+              sprintf("# %s\n", strwrap(paste(noHelp, collapse=' '))))
+
+        txt <- c(txt, doCol("\n### Object fields\n", comCol))
+        ## Some fields are expected to be small structures, don't need str():
+        simpleFields <- unlist(strsplit("file fromRDS filterLog setFilters lvlVal colDefs", " ")) # Just a lazy way to manage the list
+        strFmt <- "str(%s$%s) %s\n"
+        simFmt <- "%s$%s %s\n"
+        if (is.function(.self[["fieldDescriptions"]])) {
+            fields <- fieldDescriptions( )
+            for (field in names(fields)) {
+                fmt <- ifelse(is.element(field, simpleFields), simFmt, strFmt)
+                txt <- c(txt, sprintf(fmt, whtName, field,
+                                      doCol(paste("#",fields[[field]]), comCol)))
+            }
+            annotateFields()
+        } else {
+            txt <- c(txt, doCol("# No field descriptions provided", "yellow"))
+        }
+        base::message(paste(txt, collapse='', sep=''))
+        invisible(NULL)
+    },
+
+    .selfVarName = function( def="myObj", fallbackVar="", help=FALSE ) {
+        "Determine the variable name of this object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                     names(.refClassDef@contains)) )
+        if (!CatMisc::is.something(varName)) {
+            ## No attempt to find the object yet. Do so just this once
+            for (vn in ls(1)) {
+                if (identical(get(vn), .self)) varName <<- vn
+            }
+            if (!CatMisc::is.something(varName)) {
+                ## Still not found
+                varName <<- def
+            }
+        }
+        if (CatMisc::is.something(fallbackVar) && varName == def) {
+            fallbackVar
+        } else {
+            varName
+        }
     }
+
 )
 
