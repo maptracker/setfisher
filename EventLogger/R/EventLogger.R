@@ -10,16 +10,16 @@
 #' in field $log.
 #'
 #' @field log The data.table holding log messages
-#' @field useCol Logical flag to indicate if color should be used in
-#'     messaging
 #' @field vb Logical flag indicating if verbose messaging should be
 #'     active
-#' @field colMap An internally generated list that maps color names to
-#'     crayon functions
+#' @field EvLogObj An optional external EventLogger object. Used to
+#' centralize log information across multiple inheriting objects in
+#' one place.
 #'
 #' @importFrom methods new setRefClass
 #' @importFrom CatMisc is.def methodHelp
 #' @importFrom data.table data.table rbindlist
+#' @importClassesFrom CatMisc RefClassHelper
 #' @import crayon
 #'
 #' @examples
@@ -48,30 +48,17 @@
 EventLogger <-
     setRefClass("EventLogger",
                 fields = list(
-                    useCol   = "logical",
-                    log      = "data.table",
-                    vb       = "logical",
-                    colMap   = "list",
-                    EvLogObj = "ANY"
-                    ),
+                log      = "data.table",
+                vb       = "logical",
+                EvLogObj = "ANY"),
+                contains = c("RefClassHelper") 
                 )
+
 
 EventLogger$methods(
     
-    initialize = function(useColor=NULL, verbose=NULL, log=NULL, ...) {
-        "\\preformatted{
-Create a new object using EventLogger():
-        log - Optional EventLogger object. This is used if EventLogger is an
-              inherited ('contains') class in another RefClass object, and you
-              wish that object to share the event log from a previously created
-              object.
-   useColor - Defaults to TRUE, toggles if crayon::-based coloring is applied
-              to printed messages. If 'log' is provided, changes will affect
-              that shared object
-    verbose - Defaults to TRUE, toggles if log events are also printed to the
-              terminal. If 'log' is provided, changes will affect that shared
-              object
-}"
+    initialize = function(verbose=TRUE, log=NULL, ...) {
+        "Create a new object using EventLogger()"
         EvLogObj <<- log
         if (is.null(EvLogObj)) {
             ## Make a log table from scratch - this will be utilized
@@ -83,14 +70,35 @@ Create a new object using EventLogger():
             log <<- data.table::data.table(Date=Sys.time(),
               Message="STUB TABLE - see $EvLogObj for shared table", key="Date")
         }
-        ## Manage useColor and verbose flags through methods. Default
-        ## is TRUE for both, but can be user set.
-        useCol   <<- TRUE
-        vb       <<- TRUE
-        .self$useColor(useColor)
+        ## Manage verbose flag through methods
         .self$verbose(verbose)
-        ## Set the string-to-colorizerMethod lookup list:
-        colNameToFunc( )
+        callSuper(...)
+    },
+
+    help = function (color=NULL, help=FALSE) {
+        "Display high-level help about all object methods"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
+        sections <- list(
+            "Logging / Messaging" = c("message", "dateMessage",
+            "actionMessage", "debugMessage", "err",
+            "verbose", "logText", "showLog"),
+            "Utility Methods" = c("tidyTime")
+            )
+        showHelp(sections, 'RefClassHelper', color=color)
+    },
+
+    fieldDescriptions = function(help=FALSE) {
+        "A static list of brief descriptions for each field in this object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
+        list(
+            "log"      = "data.table containing actual logged data",
+            "vb"       = "Verbosity flag, set with $verbose()", 
+            "EvLogObj" = "Optional 'external' EventLogger object, for log centralization")
+    },
+
+    show = function (...) {
+        "A wrapper for showLog"
+        showLog( ... )
     },
 
     message = function(msg="No message provided!", prefix=NULL,
@@ -98,8 +106,7 @@ Create a new object using EventLogger():
                        fatal=FALSE, collapse=" ", help=FALSE) {
         
         "Display a formatted message, and store it in the log table"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (!is.null(prefix)) prefix <- c(prefix, " ") # Optional prefix
         ti <- Sys.time()
         ds <- if (datestamp) {
@@ -132,80 +139,37 @@ Create a new object using EventLogger():
         }
     },
 
-    dateMessage = function ( msg="No message provided!", ... ) {
+    dateMessage = function ( msg="No message provided!", help=FALSE, ... ) {
         "Calls message() with datestamp=TRUE"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         message(msg=msg, datestamp=TRUE, ...)
     },
 
-    actionMessage = function (msg="No message provided!!", prefix='[+]',
-        color="red", ...) {
+    actionMessage = function (msg="No message provided!", prefix='[+]',
+        color="red", help=FALSE, ...) {
         "Calls message with a '[+]' prefix and red coloring"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         message(msg=msg, prefix=prefix, color=color, ...)
     },
 
-    debugMessage = function (msg="No message provided!!", prefix='[DEBUG]',
-        color="white", bgcolor="blue", ...) {
+    debugMessage = function (msg="No message provided!", prefix='[DEBUG]',
+        color="white", bgcolor="blue", help=FALSE, ...) {
         "Calls message with a '[DEBUG]' prefix and white/blue coloring"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         message(msg=msg, prefix=prefix, color=color, bgcolor=bgcolor, ...)
     },
 
-    err = function (msg="No message provided!!", prefix='[ERROR]', ...) {
+    err = function (msg="No message provided!", prefix='[ERROR]',
+    color="red", bgcolor="yellow", help=FALSE, ...) {
         "Calls message with an '[ERROR]' prefix and red/yellow coloring"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         message(msg=msg, prefix=prefix, collapse="\n",
-                color="red", bgcolor="yellow", ...)
-    },
-
-    colorMap = function(color, bg=FALSE, help=FALSE) {
-        "Convert a color name into a crayon colorizing function"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        if (!useColor() || ! CatMisc::is.def(color)) return(NA)
-        if (is.function(color[1])) return( color[1] )
-        key   <- "FG"
-        color <- tolower(color[1])
-        if (bg || grepl('^bg', color)) {
-            ## Use the background methods
-            key   <- "BG"
-            ## Lookup keys are standardized to discard the leading bg:
-            color <-  gsub('^bg','', color)
-        }
-        colNameToFunc()[[ key ]][[ color ]]
-    },
-
-    colorize = function(msg="", color=NULL, bgcolor=NULL, help=FALSE) {
-        "Use crayon to add ANSI color codes to text"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        if (!is.character(msg)) msg <- as.character(msg)
-        fgFn <- colorMap(color, FALSE)
-        if (is.function(fgFn)) msg <- fgFn(msg)
-        bgFn <- colorMap(bgcolor, TRUE)
-        if (is.function(bgFn)) msg <- bgFn(msg)
-        msg
-    },
-    
-    useColor = function(newval=NULL, help=FALSE) {
-        "Get or set the flag determining if messages are colorized"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        if (!is.null(EvLogObj)) {
-            ## Use a shared object
-            return( EvLogObj$useColor(newval=newval) )
-        } else if (!is.null(newval)) {
-            nv <- as.logical(newval)[1]
-            if (is.na(nv)) {
-                err("useColor() should be provided with a boolean argument")
-            } else {
-                useCol <<- nv
-            }
-        }
-        invisible(useCol)
+                color=color, bgcolor=bgcolor, ...)
     },
 
     verbose = function(newval=NULL, help=FALSE) {
         "Get or set the flag determining if messages are displayed"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (!is.null(EvLogObj)) {
             ## Use a shared object
             return( EvLogObj$verbose(newval=newval) )
@@ -222,8 +186,7 @@ Create a new object using EventLogger():
 
     tidyTime = function (x=NULL, pad=0, help=FALSE) {
         "Reports a time interval with unit management and colorization"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         unit  <- "s"
         color <- "yellow";
         if (is.null(x) || is.na(x)) {
@@ -248,21 +211,14 @@ Create a new object using EventLogger():
 
     showLog = function (help=FALSE, ...) {
         "Pretty-prints the log, including total elapsed time"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         cat( .self$logText(...) )
-    },
-
-    show = function (...) {
-        "A wrapper for showLog"
-        showLog( ... )
     },
 
     logText = function (width=0.7 * getOption("width"),
                         relative=TRUE, pad=11, n=0, help=FALSE) {
         "Formats the log as a human readable two-column table"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         usingMethods("tidyTime") # Needed for use in apply
         head <- colorize("Activity log:", "blue")
         ## Use a shared log object, if available
@@ -302,54 +258,6 @@ Create a new object using EventLogger():
                        1,function(x) { (sprintf("%s | %s", x[1],x[2])) })
         lines <- c(lines, sprintf("  Total: %s", tidyTime(tot)))
         paste(c(head, lines, ""), collapse="\n")
-    },
-
-    colNameToFunc = function( help=FALSE ) {
-        "Internal utility, generates list-of-lists that maps color names to crayon functions"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        use <- if(is.null(EvLogObj)) { .self } else { EvLogObj }
-        if (!is.null(use$colMap) && !is.null(use$colMap$FG)) return (use$colMap)
-        ## Was difficult to juggle referencing colors by function name
-        ## when you can't be sure the user has installed
-        ## crayon. Instead, make a named lookup of crayon functions,
-        ## which will then be used by $colorize() to get() the correct
-        ## function, provided it exists().
-        myNames <- c("black", "red", "green", "yellow", "blue",
-                     "magenta", "cyan", "white", "silver",
-                     "gray", "purple", "lightblue")
-        fgNames <- myNames
-        names(fgNames) <- myNames
-        ## I have included some aliases, remap to the R/ANSI names:
-        fgNames[ "gray" ]      <- "silver"
-        fgNames[ "purple" ]    <- "magenta"
-        fgNames[ "lightblue" ] <- "cyan"
-        ## Background color is the same, but with capitalized first
-        ## letter and a "bg" prefix, eg "bgYellow":
-        bgNames <- vapply(fgNames, function (x) {
-            paste("bg", toupper(substr(x,1,1)),
-                  substr(x,2,nchar(x)), sep="") }, "")
-        bgNames[ "silver" ] <- "bgWhite"
-        bgNames[ "gray" ]   <- "bgWhite"
-        ## Initially I tried to manage this as a simple string->string
-        ## lookup, and then converted each string to a function
-        ## on-the-fly with get(). However, get() will need package
-        ## crayon to be in the search space, and when EventLogger is
-        ## used via inheritance that seems to not be the case. So I am
-        ## going to instead use this as a string->function lookup, and
-        ## evaluate each function here.
-        cm <- list(FG=fgNames, BG=bgNames)
-        cf <- list()
-        for (typ in names(cm)) {
-            cf[[typ]] <- list()
-            for (nm in names(cm[[typ]])) {
-                cc <- cm[[typ]][ nm ]
-                ## eval() in R: https://stackoverflow.com/a/1743796
-                cf[[typ]][[tolower(nm)]] <-
-                    eval(parse(text=paste("crayon::", cc, sep="")))
-            }
-        }
-        use$colMap <- cf
     }
 )
 

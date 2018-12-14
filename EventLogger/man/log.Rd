@@ -25,5 +25,5 @@ el$message("A second entry")
 el$log
 }
 \seealso{
-\link{message}
+\link{message}, \link{showLog}
 }

@@ -21,48 +21,33 @@ in field $log.
 \describe{
 \item{\code{log}}{The data.table holding log messages}
 
-\item{\code{useCol}}{Logical flag to indicate if color should be used in
-messaging}
-
 \item{\code{vb}}{Logical flag indicating if verbose messaging should be
 active}
 
-\item{\code{colMap}}{An internally generated list that maps color names to
-crayon functions}
+\item{\code{EvLogObj}}{An optional external EventLogger object. Used to
+centralize log information across multiple inheriting objects in
+one place.}
 }}
 
 \section{Methods}{
 
 \describe{
-\item{\code{actionMessage(msg = "No message provided!!", prefix = "[+]",
-  color = "red", ...)}}{Calls message with a '[+]' prefix and red coloring}
+\item{\code{actionMessage(msg = "No message provided!", prefix = "[+]", color = "red",
+  help = FALSE, ...)}}{Calls message with a '[+]' prefix and red coloring}
 
-\item{\code{colNameToFunc(help = FALSE)}}{Internal utility, generates list-of-lists that maps color names to crayon functions}
+\item{\code{dateMessage(msg = "No message provided!", help = FALSE, ...)}}{Calls message() with datestamp=TRUE}
 
-\item{\code{colorize(msg = "", color = NULL, bgcolor = NULL, help = FALSE)}}{Use crayon to add ANSI color codes to text}
+\item{\code{debugMessage(msg = "No message provided!", prefix = "[DEBUG]",
+  color = "white", bgcolor = "blue", help = FALSE, ...)}}{Calls message with a '[DEBUG]' prefix and white/blue coloring}
 
-\item{\code{colorMap(color, bg = FALSE, help = FALSE)}}{Convert a color name into a crayon colorizing function}
+\item{\code{err(msg = "No message provided!", prefix = "[ERROR]", color = "red",
+  bgcolor = "yellow", help = FALSE, ...)}}{Calls message with an '[ERROR]' prefix and red/yellow coloring}
 
-\item{\code{dateMessage(msg = "No message provided!", ...)}}{Calls message() with datestamp=TRUE}
+\item{\code{fieldDescriptions(help = FALSE)}}{A static list of brief descriptions for each field in this object}
 
-\item{\code{debugMessage(msg = "No message provided!!", prefix = "[DEBUG]",
-  color = "white", bgcolor = "blue", ...)}}{Calls message with a '[DEBUG]' prefix and white/blue coloring}
+\item{\code{help(color = NULL, help = FALSE)}}{Display high-level help about all object methods}
 
-\item{\code{err(msg = "No message provided!!", prefix = "[ERROR]", ...)}}{Calls message with an '[ERROR]' prefix and red/yellow coloring}
-
-\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{
-Create a new object using EventLogger():
-        log - Optional EventLogger object. This is used if EventLogger is an
-              inherited ('contains') class in another RefClass object, and you
-              wish that object to share the event log from a previously created
-              object.
-   useColor - Defaults to TRUE, toggles if crayon::-based coloring is applied
-              to printed messages. If 'log' is provided, changes will affect
-              that shared object
-    verbose - Defaults to TRUE, toggles if log events are also printed to the
-              terminal. If 'log' is provided, changes will affect that shared
-              object
-}}
+\item{\code{initialize(useColor = TRUE, ...)}}{Create a new RefClassHelper Reference Class object}
 
 \item{\code{logText(width = 0.7 * getOption("width"), relative = TRUE, pad = 11,
   n = 0, help = FALSE)}}{Formats the log as a human readable two-column table}
@@ -71,11 +56,11 @@ Create a new object using EventLogger():
   bgcolor = NULL, datestamp = FALSE, fatal = FALSE, collapse = " ",
   help = FALSE)}}{Display a formatted message, and store it in the log table}
 
+\item{\code{show(help = FALSE)}}{Pretty-print the object}
+
 \item{\code{showLog(help = FALSE, ...)}}{Pretty-prints the log, including total elapsed time}
 
 \item{\code{tidyTime(x = NULL, pad = 0, help = FALSE)}}{Reports a time interval with unit management and colorization}
-
-\item{\code{useColor(newval = NULL, help = FALSE)}}{Get or set the flag determining if messages are colorized}
 
 \item{\code{verbose(newval = NULL, help = FALSE)}}{Get or set the flag determining if messages are displayed}
 }}

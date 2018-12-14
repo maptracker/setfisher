@@ -17,34 +17,6 @@
 ##   'true' object fasion. Instead, usage is manually smuggled into the
 ##   @details section in a \preformatted{} block.
 
-#' EventLogger Use Color Flag
-#'
-#' Internal EventLogger field indicating if output should be colorized
-#'
-#' @name useCol
-#'
-#' @details
-#'
-#' A logical flag, if TRUE it indicates that messaeges should be
-#' colorized with the \link[crayon]{crayon} package.
-#'
-#' \preformatted{
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#' ## Instead, use the \link{useColor} method to check and alter the value
-#' }
-#'
-#' @return A single logical value
-#'
-#' @seealso \link{useColor}, \link{message}
-#'
-#' @examples
-#' 
-#' el <- EventLogger( )
-#' el$err("Something is wrong!")
-#' el$useColor(FALSE)
-#' el$err("It' still wrong!")
-NULL
-
 #' EventLogger Log
 #'
 #' Internal EventLogger field holding the data.table of events
@@ -100,28 +72,6 @@ NULL
 #' el
 NULL
 
-#' EventLogger Color Map
-#'
-#' Internal EventLogger field to manage colorizing parameters
-#'
-#' @name colMap
-#'
-#' @details
-#'
-#' This is a structured list holding color names and
-#' \link[crayon]{crayon} functions. It helps manage selection of
-#' relevant colorizing functions from a set of prameters.
-#' 
-#' \preformatted{
-#' ## NORMALLY YOU WILL NOT WANT TO ACCESS THIS FIELD DIRECTLY
-#' ## ALTERING IT MAY RESULT IN CODE INSTABILITY
-#' }
-#' 
-#' @return A list of lists
-#'
-#' @seealso \link{colorMap}, \link{colNameToFunc}, \link{colorize}
-NULL
-
 #' EventLogger Object
 #'
 #' Internal EventLogger field pointing to another object that holds a
@@ -154,7 +104,6 @@ NULL
 #' EventLogger object method to present and record a message
 #'
 #' @name message
-#' @aliases dateMessage actionMessage debugMessage err
 #' @method message EventLogger
 #'
 #' @details
@@ -167,10 +116,6 @@ NULL
 #'                  color=NULL, bgcolor=NULL, datestamp=FALSE,
 #'                  fatal=FALSE, collapse=" ")
 #'
-#' myObject$dateMessage( msg )
-#' myObject$actionMessage( msg )
-#' myObject$debugMessage(msg)
-#' myObject$err(msg)
 #' }
 #'
 #' This method is used to both display a message to the terminal and
@@ -179,10 +124,10 @@ NULL
 #' Several wrapper functions exist with pre-configured display options:
 #'
 #' \itemize{
-#'   \item dateMessage Will display a datestamp
-#'   \item actionMessage Prefix with '[+]', red color
-#'   \item debugMessage Prefix with '[DEBUG]', white FG, blue BG
-#'   \item err Prefix with 'ERROR', red FG, yellow BG
+#'   \item \link{dateMessage} Will display a datestamp
+#'   \item \link{actionMessage} Prefix with '[+]', red color
+#'   \item \link{debugMessage} Prefix with '[DEBUG]', white FG, blue BG
+#'   \item \link{err} Prefix with 'ERROR', red FG, yellow BG
 #' }
 #'
 #' Bear in mind that for all functions the appearance is merely
@@ -206,6 +151,10 @@ NULL
 #' @return The \link{log} table, invisibly
 #'
 #' @seealso \link{log}
+#' \link{dateMessage}   (just sets datestamp=TRUE)
+#' \link{actionMessage} (just sets prefix='[+]' and color='red')
+#' \link{debugMessage}  (sets prefix='[DEBUG]', color="white", bgcolor="blue")
+#' \link{err}           (sets prefix='[ERROR]', color="red", bgcolor="yellow")
 #'
 #' @examples
 #'
@@ -216,120 +165,169 @@ NULL
 #' el
 NULL
 
-#' Map Color
+#' EventLogger Date Message
 #'
-#' EventLogger object method to turn a string into a crayon color function
+#' EventLogger object method to present and record a message with a date
 #'
-#' @name colorMap
-#' @method colorMap EventLogger
-#'
-#' @details
-#'
-#' \preformatted{
-#' ## Method Usage:
-#' myObject$colorMap( help=TRUE )
-#' 
-#' myObject$colorMap( color, bg=FALSE )
-#' }
-#'
-#' Takes a color name as input, returns a \link[crayon]{crayon}
-#' function. This is primarily a utility function.
-#' 
-#' @param color Required, a string describing a color, eg
-#'     "magenta". Can also be a function reference
-#' @param bg Default FALSE. If TRUE, will pick the background color
-#'     corresponding to the name.
-#' @param help Default FALSE. If TRUE, show this help and perform no
-#'     other actions.
-#'
-#' @return A function from the \link[crayon]{crayon}
-#'
-#' @seealso \link{colorize}, \link[crayon]{crayon},
-#'     \link{colNameToFunc}
-#'
-#' @examples
-#'
-#' el <- EventLogger()
-#' f <- el$colorMap("red")
-#' base::message(f("Quick Brown Fox"))
-#' f <- el$colorMap("cyan", TRUE)
-#' base::message(f("Lazy Dog"))
-NULL
-
-#' Colorize
-#'
-#' EventLogger object method to colorize a string
-#'
-#' @name colorize
-#' @method colorize EventLogger
+#' @name dateMessage
+#' @method dateMessage EventLogger
 #'
 #' @details
 #'
 #' \preformatted{
 #' ## Method Usage:
-#' myObject$colorize( help=TRUE )
+#' myObject$dateMessage( help=TRUE )
 #' 
-#' myObject$colorize( msg="", color=NULL, bgcolor=NULL )
+#' myObject$dateMessage(msg="No message provided!", ...)
+#'
 #' }
 #'
-#' Takes a character vector and applies foregrand and/or background
-#' color to it.
-#' 
-#' @param msg Default "". A character vector of text to colorize
-#' @param color Default NULL. Optional text (eg "yellow")
-#'     corresponding to the foreground color of the text
-#' @param bgcolor Default NULL. Optional text (eg "silver")
-#'     corresponding to the background color of the text
+#' This is just a wrapper for \link{message} where \code{datestamp=TRUE}
+#'
+#' @param msg The text to display and show
+#' @param \dots Passed to \link{message}
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
-#' @return A character vector with ANSI color codes injected by
-#'     \link[crayon]{crayon}
+#' @return The \link{log} table, invisibly
 #'
-#' @seealso \link[crayon]{crayon}, \link{colNameToFunc},
-#'     \url{https://en.wikipedia.org/wiki/ANSI_escape_code#Colors}
+#' @seealso \link{log}, \link{message}
 #'
 #' @examples
 #'
 #' el <- EventLogger()
-#' x <- el$colorize(c("This", "That"), "green")
-#' x
-#' message(paste(x, collapse=" ... and ... "))
+#' el$dateMessage("Something auspicious just happened")
+#' 
+#' # Show the log, nicely formatted:
+#' el
 NULL
 
-#' Use Color
+#' EventLogger Action Message
 #'
-#' EventLogger object method to get/set colorization flag
+#' EventLogger object method to present and record an emphatic message
 #'
-#' @name useColor
-#' @method useColor EventLogger
+#' @name actionMessage
+#' @method actionMessage EventLogger
 #'
 #' @details
 #'
-#' \preformatted{#' ## Method Usage:
-#' myObject$useColor( help=TRUE )
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$actionMessage( help=TRUE )
 #' 
-#' myObject$useColor( newval=NULL )
+#' myObject$actionMessage(msg="No message provided!", prefix='[+]', color="red")
+#'
 #' }
 #'
-#' Gets or sets the flag determining if messages should be colorized
-#' 
-#' @param newval Default NULL. If provided and can be made logical,
-#'     will set the flag. Inability to cast as logical will emit a
-#'     non-fatal error.
+#' This is just a wrapper for \link{message} where \code{prefix='[+]'}
+#' and \code{color="red"}
+#'
+#' @param msg The text to display and show
+#' @param prefix Default '[+]', the text to show before the message
+#' @param color Default 'red', the color of the displayed text
+#' @param \dots Passed to \link{message}
 #' @param help Default FALSE. If TRUE, show this help and perform no
 #'     other actions.
 #'
-#' @return A single logical value, invisibly
+#' @return The \link{log} table, invisibly
 #'
-#' @seealso \link{message}, \link{colorize}, \link{useCol}
+#' @seealso \link{log}, \link{message}
 #'
 #' @examples
 #'
 #' el <- EventLogger()
-#' el$actionMessage("This is exciting!")
-#' el$useColor(FALSE)
-#' el$actionMessage("Still exciting, but it does not show as much")
+#' el$actionMessage("Outer airlock door not responding")
+#' 
+#' # Show the log, nicely formatted:
+#' el
+NULL
+
+#' EventLogger Debug Message
+#'
+#' EventLogger object method to present and record a message for debugging
+#'
+#' @name debugMessage
+#' @method debugMessage EventLogger
+#'
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$debugMessage( help=TRUE )
+#' 
+#' myObject$debugMessage(msg="No message provided!", prefix='[DEBUG]',
+#'                       color="white", bgcolor="blue")
+#'
+#' }
+#'
+#' This is just a wrapper for \link{message} where
+#' \code{prefix='[DEBUG]'}, \code{color="white"} and
+#' \code{bgcolor="blue"}
+#'
+#' @param msg The text to display and show
+#' @param prefix Default '[DEBUG]', the text to show before the message
+#' @param color Default 'white', the color of the displayed text
+#' @param bgcolor Default 'blue', the background color of the
+#' displayed text
+#' @param \dots Passed to \link{message}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return The \link{log} table, invisibly
+#'
+#' @seealso \link{log}, \link{message}
+#'
+#' @examples
+#'
+#' el <- EventLogger()
+#' for (cv in 1:9) {
+#'    el$debugMessage(c("Chevron", cv, "locked ..."))
+#' }
+#' 
+#' # Show the log, nicely formatted:
+#' el
+NULL
+
+#' EventLogger Error Message
+#'
+#' EventLogger object method to present and record an error message
+#'
+#' @name err
+#' @method err EventLogger
+#'
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$err( help=TRUE )
+#' 
+#' myObject$err(msg="No message provided!", prefix='[ERROR]',
+#'              color="red", bgcolor="yellow",...)
+#'
+#' }
+#'
+#' This is just a wrapper for \link{message} where
+#' \code{prefix='[ERROR]'}, \code{color="red"} and
+#' \code{bgcolor="yellow"}
+#'
+#' @param msg The text to display and show
+#' @param prefix Default '[ERROR]', the text to show before the message
+#' @param color Default 'red', the color of the displayed text
+#' @param bgcolor Default 'yellow', the background color of the
+#' @param \dots Passed to \link{message}
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return The \link{log} table, invisibly
+#'
+#' @seealso \link{log}, \link{message}
+#'
+#' @examples
+#'
+#' el <- EventLogger()
+#' el$err("Weight is not defined")
+#' # Show the log, nicely formatted:
+#' el
 NULL
 
 #' EventLogger Verbosity
@@ -494,39 +492,3 @@ NULL
 #' el$message("A sample message")
 #' el$logText()
 NULL
-
-#' Color Name to Crayon Function
-#'
-#' EventLogger object method to generate a map of color names to
-#' crayon functions
-#'
-#' @name colNameToFunc
-#' @method colNameToFunc EventLogger
-#'
-#' @details
-#'
-#' \preformatted{
-#' ## Method Usage:
-#' myObject$colNameToFunc( help=TRUE )
-#' 
-#' myObject$colNameToFunc( )
-#' }
-#'
-#' This list generated by this method is simply a lookup list-of-lists
-#' used to turn names ("cyan", "black") into \link[crayon]{crayon}
-#' colorizing functions. It is utilized by \link{colorize} to convert
-#' the user's color parameters into the appropriate colorizing
-#' functions.
-#'
-#' The function is run only when \link{colMap} has not already been
-#' set up. Afterwards the resulting list is stored in \link{colMap}
-#' for cached retrieval.
-#' 
-#' @param help Default FALSE. If TRUE, show this help and perform no
-#'     other actions.
-#'
-#' @return A list of lists
-#'
-#' @seealso \link{colMap}, \link{colorize}
-NULL
-
