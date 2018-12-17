@@ -492,3 +492,38 @@ NULL
 #' el$message("A sample message")
 #' el$logText()
 NULL
+
+#' Field Descriptions
+#'
+#' A list of brief descriptions for each object field
+#'
+#' @name fieldDescriptions
+#' @method fieldDescriptions EventLogger
+#'
+#' @details
+#'
+#' \preformatted{
+#' ## Method Usage:
+#' myObject$fieldDescriptions( help=TRUE )
+#' 
+#' myObject$fieldDescriptions( )
+#' }
+#'
+#' This method returns a simple list of descriptive text for each
+#' object field. It is designed to help the user understand the role
+#' of each field.
+#'
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A list of character strings
+#'
+#' @seealso \link{help}
+#'
+#' @examples
+#'
+#' myEL <- EventLogger()
+#' myEL$fieldDescriptions()
+#' 
+NULL
+

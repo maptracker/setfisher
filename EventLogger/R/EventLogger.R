@@ -259,5 +259,6 @@ EventLogger$methods(
         lines <- c(lines, sprintf("  Total: %s", tidyTime(tot)))
         paste(c(head, lines, ""), collapse="\n")
     }
+
 )
 
