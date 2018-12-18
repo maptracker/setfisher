@@ -1,7 +1,7 @@
 Package: ParamSetI
 Title: Manage parameter tag/value pairs as an inheritable ReferenceClass object
-Version: 1.16
-Date: 2017-10-16
+Version: 1.17.0
+Date: 2018-12-18
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
 Maintainer: Charles Tilford <cran@agent.fastmail.com>
@@ -12,8 +12,8 @@ Depends:
     R (>= 3.1)
 Imports:
     methods,
-    EventLogger (>= 1.14),
-    CatMisc (>= 0.8)
+    EventLogger (>= 1.15.0),
+    CatMisc (>= 1.0.0)
 License: GPL-2
 Encoding: UTF-8
 LazyData: true

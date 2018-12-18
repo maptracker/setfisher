@@ -84,7 +84,7 @@ EventLogger$methods(
             "verbose", "logText", "showLog"),
             "Utility Methods" = c("tidyTime")
             )
-        showHelp(sections, 'RefClassHelper', color=color)
+        showHelp(sections, 'evObj', color=color)
     },
 
     fieldDescriptions = function(help=FALSE) {

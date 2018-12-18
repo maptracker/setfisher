@@ -30,7 +30,7 @@
 #'
 #' @return A character vector with a single value
 #'
-#' @seealso \link{fromRDS}, \link{.readMatrix}
+#' @seealso \link{fromRDS}, \link{.readMatrix}, \link{.readObject}
 #'
 #' @examples
 #' 
@@ -2242,7 +2242,7 @@ NULL
 #'
 #' @return At the moment, just \code{TRUE}.
 #'
-#' @seealso \link{.readMatrix}
+#' @seealso \link{.readMatrix}, \link{.readObject}
 NULL
 
 #' Read Matrix Data

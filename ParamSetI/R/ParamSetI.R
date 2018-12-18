@@ -19,9 +19,6 @@
 #' @field paramSet List holding key-value pairs used by an object
 #' @field paramDef List holding parameter definitions and class
 #'     restrictions
-#' @field varName Single string holding extracted variable names. Used
-#'     for reporting R code that utilizes actual variable names being
-#'     used.
 #' 
 #' @importFrom CatMisc is.def is.something parenRegExp methodHelp
 #' @importFrom methods new setRefClass
@@ -39,9 +36,9 @@
 ParamSetI <-
     setRefClass("ParamSetI",
                 fields = list(
-                    paramSet = "list",
-                    paramDef = "data.frame",
-                    varName  = "character" ),
+                paramSet = "list",
+                paramDef = "data.frame"
+                    ),
                 contains = c("EventLogger") )
 
 ParamSetI$methods(
@@ -60,6 +57,31 @@ ParamSetI$methods(
         defineParameters( paramDefinitions )
         ## Set any parameters that have been passed
         setParamList( params=params, ... )
+    },
+
+    help = function (color=NULL, help=FALSE) {
+        "Display high-level help about all object methods"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
+        sections <- list(
+            "Parameter Management" = c("param", "allParams", "hasParam",
+            "paramDefinition", "paramClass", "paramName", "setParamList",
+            "defineParameters", "showParameters"),
+            "Utility Methods" = c(".addParamKey")
+            )
+        showHelp(sections, 'psObj', color=color)
+    },
+
+    fieldDescriptions = function(help=FALSE) {
+        "A static list of brief descriptions for each field in this object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
+        list(
+            "paramSet" = "List of key-value pairs used by an object",
+            "paramDef" = "List of parameter definitions and class restrictions")
+    },
+
+    show = function (...) {
+        "A wrapper for showParameters"
+        showParameters( ... )
     },
 
     param = function (key=NA, val=NA, append=FALSE, default=NA,
@@ -107,8 +129,8 @@ ParamSetI$methods(
                             ## have been grepped out of text files and
                             ## will begin life as characters.
                             suppressWarnings( coerced <-
-                                 try({func <- get(sprintf("as.%s", tolower(chk)))
-                                     func(val) }, silent=TRUE) )
+                                try({func <- get(sprintf("as.%s", tolower(chk)))
+                                    func(val) }, silent=TRUE) )
                         }
                         if (any(is.na(coerced))) {
                             err(paste("Can not set parameter",key,"to",
@@ -264,7 +286,7 @@ ParamSetI$methods(
         "Pretty-print parameter names, values and definitions"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                      names(.refClassDef@contains)) )
-        objName <- .selfVarName()
+        objName <- .self$.selfVarName()
         defFmt  <- paste(c("\n", rep(" ", nchar(objName)[1]), 
                            colorize("# %s", "yellow")), collapse="")
         fmt <- sprintf("%s$param('%s', %s)%%s", colorize(objName, "white"),
@@ -296,27 +318,6 @@ ParamSetI$methods(
         txt <- paste(lines, collapse="")
         cat(txt)
         invisible(txt)
-    },
-
-    .selfVarName = function( def="myObj", fallbackVar="", help=FALSE ) {
-        "Determine the variable name of this object"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
-        if (!CatMisc::is.something(varName)) {
-            ## No attempt to find the object yet. Do so just this once
-            for (vn in ls(1)) {
-                if (identical(get(vn), .self)) varName <<- vn
-            }
-            if (!CatMisc::is.something(varName)) {
-                ## Still not found
-                varName <<- def
-            }
-        }
-        if (CatMisc::is.something(fallbackVar) && varName == def) {
-            fallbackVar
-        } else {
-            varName
-        }
     }
 )
 
