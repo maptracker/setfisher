@@ -75,16 +75,15 @@ EventLogger$methods(
         callSuper(...)
     },
 
-    help = function (color=NULL, help=FALSE) {
-        "Display high-level help about all object methods"
+    helpSections = function ( help=FALSE ) {
+        "Static list organizing object methods into conceptual sections"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
-        sections <- list(
-            "Logging / Messaging" = c("message", "dateMessage",
-            "actionMessage", "debugMessage", "err",
-            "verbose", "logText", "showLog"),
+        list(
+            "Logging / Messaging" =
+                c("message", "dateMessage", "actionMessage", "debugMessage",
+                  "err", "verbose", "logText", "showLog"),
             "Utility Methods" = c("tidyTime")
             )
-        showHelp(sections, 'evObj', color=color)
     },
 
     fieldDescriptions = function(help=FALSE) {
