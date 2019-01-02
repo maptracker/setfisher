@@ -9,11 +9,11 @@ Description: This is a utility package designed to hold and report events. It bu
 Depends:
     R (>= 3.1)
 Imports:
-    dynamictable,
+    CatMisc (>= 1.1.0),
     crayon,
-    methods,
-    CatMisc (>= 1.0.1),
-    data.table
+    data.table,
+    dynamictable,
+    methods
 License: GPL-2
 Encoding: UTF-8
 LazyData: true

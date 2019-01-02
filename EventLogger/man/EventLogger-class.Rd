@@ -45,7 +45,7 @@ one place.}
 
 \item{\code{fieldDescriptions(help = FALSE)}}{A static list of brief descriptions for each field in this object}
 
-\item{\code{help(color = NULL, help = FALSE)}}{Display high-level help about all object methods}
+\item{\code{helpSections(help = FALSE)}}{Static list organizing object methods into conceptual sections}
 
 \item{\code{initialize(useColor = TRUE, ...)}}{Create a new RefClassHelper Reference Class object}
 
