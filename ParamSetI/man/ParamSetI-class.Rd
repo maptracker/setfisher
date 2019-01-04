@@ -26,10 +26,6 @@ myPS$ANYMETHOD( help=TRUE ) # Each method has detailed help available
 
 \item{\code{paramDef}}{List holding parameter definitions and class
 restrictions}
-
-\item{\code{varName}}{Single string holding extracted variable names. Used
-for reporting R code that utilizes actual variable names being
-used.}
 }}
 
 \section{Methods}{
@@ -39,21 +35,13 @@ used.}
 
 \item{\code{defineParameters(x, help = FALSE)}}{Bulk set parameter definitions with a block of text}
 
+\item{\code{fieldDescriptions(help = FALSE)}}{A static list of brief descriptions for each field in this object}
+
 \item{\code{hasParam(key = NULL, help = FALSE)}}{Test if one or more parameter keys exist in the object}
 
-\item{\code{initialize(useColor = NULL, verbose = NULL, log = NULL, ...)}}{\preformatted{
-Create a new object using EventLogger():
-        log - Optional EventLogger object. This is used if EventLogger is an
-              inherited ('contains') class in another RefClass object, and you
-              wish that object to share the event log from a previously created
-              object.
-   useColor - Defaults to TRUE, toggles if crayon::-based coloring is applied
-              to printed messages. If 'log' is provided, changes will affect
-              that shared object
-    verbose - Defaults to TRUE, toggles if log events are also printed to the
-              terminal. If 'log' is provided, changes will affect that shared
-              object
-}}
+\item{\code{helpSections(help = FALSE)}}{Static list organizing object methods into conceptual sections}
+
+\item{\code{initialize(verbose = TRUE, log = NULL, ...)}}{Create a new object using EventLogger()}
 
 \item{\code{param(key = NA, val = NA, append = FALSE, default = NA,
   clobber = TRUE, check.class = NULL, is.scalar = NULL, coerce = TRUE,
@@ -66,6 +54,8 @@ Create a new object using EventLogger():
 \item{\code{paramName(key, val = NULL, help = FALSE)}}{Set the capitalization to use for a parameter name}
 
 \item{\code{setParamList(params = NULL, help = FALSE, ...)}}{Set multiple parameters using a list}
+
+\item{\code{show(...)}}{A wrapper for showLog}
 
 \item{\code{showParameters(na.rm = TRUE, help = FALSE)}}{Pretty-print parameter names, values and definitions}
 }}
