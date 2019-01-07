@@ -4,7 +4,8 @@
 \alias{parse_Text_file}
 \title{Parse Text File}
 \usage{
-parse_Text_file(files, header = FALSE, rm.suffix = TRUE, pattern = NULL)
+parse_Text_file(files, header = FALSE, rm.suffix = TRUE,
+  pattern = NULL)
 }
 \arguments{
 \item{files}{Required. One or more file/directory paths (can be a

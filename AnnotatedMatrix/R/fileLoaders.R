@@ -366,11 +366,14 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
         mList    <- lapply(meta, function(x) x[ids])
         mList$id <- ids
         metadata <- data.table::as.data.table( mList,  key = "id")
-        data.table::setkeyv(metadata, "id")
     }
     ## Also load any sidecars:
     if (!is.null(file)) metadata <- parseMetadataSidecar( file, metadata )
-    
+    if (is.null(metadata)) {
+        ## No metadata at all. Need an empty table to keep RC field happy
+        metadata <- data.table::data.table( id = character(), key = "id" )
+    }
+    data.table::setkeyv(metadata, "id")
     ## Manage dimension names - need to set on the dgTMatrix object:
     dn   <- .sidecarMatrixDimensions(metadata)
     dims <- list()
@@ -385,8 +388,8 @@ matrixFromLists <- function(data, meta=NULL, listNames=NULL,
         dimnames=dims), "dgTMatrix")
 
 
-    list(matrix = mat, metadata=metadata,
-         colChanges = cnDat$changes, rowChanges = cnDat$changes )
+    list(matrix=mat, metadata=metadata,
+         colChanges=cnDat$changes, rowChanges=cnDat$changes )
 }
 
 #' Files to MatrixMarket
@@ -567,7 +570,7 @@ parseMetadataSidecar <- function (file, metadata=NULL,
                                   na.strings=c("NA",'-'), verbose=TRUE) {
     sidecars  <- sidecarFiles( file )
     if (is.null(metadata)) metadata <-
-          data.table::data.table( id = character(), key = "id" )
+          data.table::data.table( id=character(), key = "id" )
     params <- list()
     for (path in sidecars) {
         if (verbose) message("Reading metadata file - ", crayon::white(path))

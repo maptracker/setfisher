@@ -2282,6 +2282,73 @@ NULL
 #'     generate objects from data structures (rather than files)
 NULL
 
+#' Process Matrix Data
+#'
+#' Internal AnnotatedMatrix method to process structured matrix information
+#'
+#' @name DOTprocessMatrixData
+#' @aliases .processMatrixData
+#' @method .processMatrixData AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' Internal method, should not be called directly. It is called by
+#' both \link{.readMatrix} and \link{.readObject}. 
+#' 
+#' The method will determine the nature of the object:
+#'
+#' At the moment, only \code{list} objects are recognized, which are
+#' parsed with \link{matrixFromLists} and then processed with
+#' \link{.processMatrixData}.
+#'
+#' @param dat Required, a list of information related to the
+#' matrix. The list can have the following components:
+#' \itemize{
+#'   \item matrix a sparse \code{Matrix} object
+#'   \item colDefs Optional metadata column definitions
+#'   \item metadata Optional data.table of metadata
+#'   \item rowChanges Named vector of row names that had to be changed 
+#'   \item colChanges Named vector of col names that had to be changed
+#'   \item levels Optional level names for factorized matrices
+#'   \item params Optional list of default parameters
+#' }
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return The list structure that aws provided by \code{dat}
+#'
+#' @seealso \link{.readMatrix}, \link{.readObject}
+NULL
+
+#' Read R Object
+#'
+#' Internal AnnotatedMatrix method to parse an R object as a matrix
+#'
+#' @name DOTreadObject
+#' @aliases .readObject
+#' @method .readObject AnnotatedMatrix
+#' 
+#' @details
+#' 
+#' Internal method, should not be called directly. It is called
+#' automatically when a new object is created and an R object is
+#' provided instead of a file.
+#' 
+#' The method will determine the nature of the object:
+#'
+#' At the moment, only \code{list} objects are recognized, which are
+#' parsed with \link{matrixFromLists} and then processed with
+#' \link{.processMatrixData}.
+#'
+#' @param obj Required, the R object holding the matrix information.
+#' @param help Default FALSE. If TRUE, show this help and perform no
+#'     other actions.
+#'
+#' @return A list structure with various components needed by the object.
+#'
+#' @seealso \link{matrixFromLists}, \link{.processMatrixData}
+NULL
+
 #' Metadata Keys
 #'
 #' AnnotatedMatrix object method to return all metadata keys

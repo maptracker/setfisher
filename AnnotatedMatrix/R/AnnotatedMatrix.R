@@ -203,11 +203,11 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
         modState <<- 0
         if (CatMisc::is.def(obj)) {
             file      <<- as.character(NA)
-            .readObject( obj )
+            .readObject( obj, ... )
         } else {
-            ## Attempt to read from file, the 'typical' 
+            ## Attempt to read from file, the 'typical' situation
             if (!CatMisc::is.def(file))
-                err("AnnotatedMatrix must define 'file' when created",
+                err("AnnotatedMatrix must define 'file' or 'obj' when created",
                     fatal = TRUE)
             if (inherits(file, "dgTMatrix")) {
                 ## The file path is actually a sparse matrix. We are
@@ -2438,17 +2438,23 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
             file.rename(tmpFile, objFile)
         }
         if (is.null(rv)) err(c("Failed to read file:", file), fatal = TRUE)
+        .processMatrixData(rv)
+    },
 
-        matrixRaw  <<- rv$matrix
-        matrixMD   <<- rv$metadata
-        mdParam    <- attr(rv$metadata, "params")
+    .processMatrixData = function (dat, help=FALSE) {
+        "Internal method that manages a standard data structure"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
+                                              names(.refClassDef@contains)) )
+        matrixRaw  <<- dat$matrix
+        matrixMD   <<- dat$metadata
+        mdParam    <- attr(dat$metadata, "params")
         if (!is.null(mdParam)) setParamList(mdParam, is.scalar=FALSE)
-        if (!is.null(rv$rowChanges)) rowChanges <<- rv$rowChanges
-        if (!is.null(rv$colChanges)) colChanges <<- rv$colChanges
-        if (!is.null(rv$colDefs))    colDefs    <<- rv$colDefs
-        if (CatMisc::is.def(rv$levels)) lvlVal  <<- rv$levels
+        if (!is.null(dat$rowChanges)) rowChanges <<- dat$rowChanges
+        if (!is.null(dat$colChanges)) colChanges <<- dat$colChanges
+        if (!is.null(dat$colDefs))    colDefs    <<- dat$colDefs
+        if (CatMisc::is.def(dat$levels)) lvlVal  <<- dat$levels
         ## Set default parameters, without clobbering any already set
-        if (CatMisc::is.def(rv$params)) setParamList(rv$params, clobber = FALSE)
+        if (CatMisc::is.def(dat$params)) setParamList(dat$params, clobber=FALSE)
 
         ## Numeric conversion to prevent integer overflow on product
         cnum       <- as.numeric(ncol(matrixRaw))
@@ -2457,21 +2463,28 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
         pnz        <- smallNumberFormatter( nnz / (cnum * rnum) )
         actionMessage(sprintf("%d x %d matrix, %s non-zero", rnum, cnum, pnz),
                       prefix = "  ")
-        rv
+        dat
     },
 
-    .readObject = function (obj, help=FALSE, ... ) {
+    .readObject = function (obj, ..., help=FALSE ) {
         "Internal method to build a matrix from R objects"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self),
                                               names(.refClassDef@contains)) )
-        sm <- storaage.mode(obj)
+        rv <- NA # What should we return from this function??
+        if (inherits(obj, "dgTMatrix")) {
+            ## The file path is actually a sparse matrix. We are
+            ## building an object from scratch.
+            matrixRaw <<- obj
+            file      <<- as.character(NA)
+            rv <- .buildMatrix( ... )
+            return(rv)
+        }
+        sm <- storage.mode(obj)
         if (sm == 'list') {
             dateMessage("Parsing list object into matrix")
             ## We will take the list names as one dimension, and the
             ## list contents as the other
-            
-            stop("WORK IN PROGRESS - list() IMPORT NOT YET IMPLEMENTED")
-
+            rv <- .processMatrixData( dat=matrixFromLists( obj ) )
         } else {
             err(c("Attempt to create an AnnotatedMatrix file with ", sm,
                   " object - No logic defined to load such objects"),
