@@ -5,6 +5,26 @@
 \alias{AnnotatedMatrix-class}
 \alias{AnnotatedMatrix}
 \title{Annotated Matrix}
+\arguments{
+\item{file}{Required (unless \code{obj} is specified), the file
+path of the matrix to be loaded}
+
+\item{obj}{Default \code{NA}, alternative to \code{file}, builds a
+matrix from an existing R object}
+
+\item{params}{Default \code{NA}. Optional list of parameters to set
+at load. Parameters can also be set later using either
+\link{param} or \link{setParamList}.}
+
+\item{autofilter}{Default \code{TRUE}, which will cause any default
+filters specified by the matrix file to be applied. Set to
+\code{FALSE} to suppress automated filtering on loading}
+
+\item{help}{Default \code{FALSE}, if true show this help and do not
+create a new object}
+
+\item{\dots, }{passed to \link{.buildMatrix} and \link{.readMatrix}}
+}
 \description{
 Annotated sparse matrix for capturing query lists, identifier
 mappings and ontology lookups
@@ -15,7 +35,8 @@ mappings and ontology lookups
 AnnotatedMatrix( help=TRUE ) # Show this help
 
 ## In general:
-myAnnMat <- AnnotatedMatrix( file=NA, params=NA, autofilter=TRUE, ...)
+myAnnMat <- AnnotatedMatrix( file=NA, obj=NA, params=NA, autofilter=TRUE,
+                             ...)
 ## Specific toy example matrix:
 myAnnMat <- AnnotatedMatrix( annotatedMatrixExampleFile() )
 
@@ -93,6 +114,8 @@ names after processing with make.unique()}
 \item{\code{cNames(new = NULL, raw = FALSE, nonzero = FALSE, reason = NA,
   help = FALSE)}}{Get/set colnames for the matrix}
 
+\item{\code{fieldDescriptions(help = FALSE)}}{A static list of brief descriptions for each field in this object}
+
 \item{\code{filterByCount(MARGIN, min = NULL, max = NULL, relative = TRUE,
   filterEmpty = FALSE, reason = NA, help = FALSE)}}{Filter rows or columns based on number of non-zero connections}
 
@@ -110,7 +133,7 @@ names after processing with make.unique()}
 
 \item{\code{filterSummary(byreason = TRUE, help = FALSE)}}{Human-readable overview of filters and counts of rows/cols removed}
 
-\item{\code{help(color = NULL, help = FALSE)}}{Display high-level help about all object methods}
+\item{\code{helpSections(help = FALSE)}}{Static list organizing object methods into conceptual sections}
 
 \item{\code{initialize(params = NA, paramDefinitions = NA, help = FALSE, ...)}}{Create a new ParamSetI object; Invoked with ParamSetI(...)}
 
@@ -164,7 +187,7 @@ names after processing with make.unique()}
 \item{\code{sharedDimensions(mat2, dim1 = NULL, dim2 = NULL, ignore.case = TRUE,
   raw = FALSE, warn = TRUE, fail.na = TRUE, help = FALSE)}}{Get the most likely common dimension between this matrix and another}
 
-\item{\code{show(...)}}{A wrapper for showLog}
+\item{\code{show(...)}}{A wrapper for showParameters}
 }}
 
 \examples{
@@ -194,5 +217,12 @@ demo("managingMultiplicity", package="AnnotatedMatrix", ask=FALSE)
 
 ## Working with metadata
 demo("workingWithMetadata", package="AnnotatedMatrix", ask=FALSE)
+
+
+demoFile <- annotatedMatrixExampleFile() # Small demo matrix
+am <- AnnotatedMatrix( demoFile )
+am$help() # Broad summary of available functionality
+am$map( help=TRUE ) # Help on a specific object method
+am$showParameters( na.rm=FALSE ) # Show all available parameters
 
 }

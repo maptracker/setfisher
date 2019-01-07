@@ -12,8 +12,8 @@ Depends:
     R (>= 3.1)
 Imports:
     methods,
-    CatMisc (>= 0.8),
-    ParamSetI (>= 1.16),
+    CatMisc (>= 1.1.1),
+    ParamSetI (>= 1.17.0),
     crayon,
     data.table,
     dplyr,

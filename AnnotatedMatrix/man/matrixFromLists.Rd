@@ -18,7 +18,7 @@ the metadata names (eg "Description", "Notes", whatever). The
 vector names represent the thing being annotated (a row or
 column name), and the values hold the actual
 assignment. Metadata is "mixed" in that there are not separate
-tables for columns and rows.}
+tables for columns and rows. Alternatively, the metadata list can be provided with a \code{meta} attribute on the \code{data} object.}
 
 \item{listNames}{Default NULL, in which case the listNames
 (rNames) will be taken as names(data). The option to provide

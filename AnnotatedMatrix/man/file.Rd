@@ -20,5 +20,5 @@ s2e$file
 
 }
 \seealso{
-\link{fromRDS}, \link{.readMatrix}
+\link{fromRDS}, \link{.readMatrix}, \link{.readObject}
 }

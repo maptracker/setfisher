@@ -30,5 +30,5 @@ automatically when a new object is created with
 \code{AnnotatedMatrix(someDataStructure)}.
 }
 \seealso{
-\link{.readMatrix}
+\link{.readMatrix}, \link{.readObject}
 }
