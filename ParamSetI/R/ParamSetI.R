@@ -37,8 +37,7 @@ ParamSetI <-
     setRefClass("ParamSetI",
                 fields = list(
                 paramSet = "list",
-                paramDef = "data.frame"
-                    ),
+                paramDef = "data.frame" ),
                 contains = c("EventLogger") )
 
 ParamSetI$methods(
@@ -59,16 +58,13 @@ ParamSetI$methods(
         setParamList( params=params, ... )
     },
 
-    help = function (color=NULL, help=FALSE) {
-        "Display high-level help about all object methods"
+    helpSections = function ( help=FALSE ) {
+        "Static list organizing object methods into conceptual sections"
         if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
-        sections <- list(
-            "Parameter Management" = c("param", "allParams", "hasParam",
-            "paramDefinition", "paramClass", "paramName", "setParamList",
-            "defineParameters", "showParameters"),
-            "Utility Methods" = c(".addParamKey")
-            )
-        showHelp(sections, 'psObj', color=color)
+        list( "Parameter Management" = c("param", "allParams", "hasParam",
+              "paramDefinition", "paramClass", "paramName", "setParamList",
+              "defineParameters", "showParameters"),
+             "Utility Methods" = c(".addParamKey") )
     },
 
     fieldDescriptions = function(help=FALSE) {

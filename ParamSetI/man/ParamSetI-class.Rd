@@ -39,8 +39,7 @@ restrictions}
 
 \item{\code{hasParam(key = NULL, help = FALSE)}}{Test if one or more parameter keys exist in the object}
 
-\item{\code{help(genericName = "myObject", color = NULL, generic = FALSE,
-  help = FALSE)}}{Construct text for the help() method}
+\item{\code{helpSections(help = FALSE)}}{Static list organizing object methods into conceptual sections}
 
 \item{\code{initialize(verbose = TRUE, log = NULL, ...)}}{Create a new object using EventLogger()}
 
