@@ -163,8 +163,7 @@ AnnotatedMatrix$methods(
                           help=FALSE, ... ) {
         "Create a new AnnotatedMatrix object; Invoke with AnnotatedMatrix(...)"
         if (help) {
-            print( CatMisc::methodHelp(match.call(), class(.self),
-                                       names(.refClassDef@contains)) )
+            print( CatMisc::methodHelp(match.call(), class(.self) ) )
             return(NA)
         }
 
@@ -230,8 +229,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     
     matObj = function( raw=FALSE, transpose=FALSE, help=FALSE) {
         "Return the current filtered state of the dgTMatrix sparse matrix"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         rv <- if (raw || !CatMisc::is.def(matrixUse)) {
                   matrixRaw } else { matrixUse }
         if (transpose) {
@@ -267,8 +265,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     rNames = function(new=NULL, raw=FALSE, nonzero=FALSE, reason=NA,
                       help=FALSE) {
         "Get/set rownames for the matrix"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         obj   <- matObj(raw)
         if (is.null(new)) {
             ## Just asking for the current names
@@ -331,8 +328,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     cNames = function(new=NULL, raw=FALSE, nonzero=FALSE, reason=NA,
                       help=FALSE) {
         "Get/set colnames for the matrix"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         obj   <- matObj(raw)
         if (is.null(new)) {
             ## Just asking for the current names
@@ -1482,8 +1478,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
                    help=FALSE
                    ) {
         "Map (convert) names from one dimension of the matrix to the other"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         ## If we are appending to another data.frame, always take the
         ## input as the designated pivot column:
         if (!is.null(append.to)) input <- append.to[[ append.col ]]
@@ -2120,8 +2115,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 
     .autoLevel = function (vals, sep=',', decreasing=TRUE, help=FALSE) {
         "Generate new factor levels given a set of existing ones"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         ## Setting this as an object method to help access/modify the
         ## lvlVal field
         if (!is.factor()) return(NA)
@@ -2145,8 +2139,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     .filterDetails = function (id=NA, type=NA,  metric=NA, reason=NA,
                                help=FALSE) {
         "Utility method to extend filter log"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (is.null(metric)) return(NA)
         if (any(is.na(id))) {
             ## Should not happen! This method should only be called on
@@ -2181,8 +2174,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
     .addAppliedFilter = function (key, val, com=NULL, pre=NULL, pro=NULL,
                                   help=FALSE) {
         "Internal method, stores filter text in $setFilters"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         txt <- c(toupper(key))
         if (CatMisc::is.something(pre)) txt <- c(txt, pre)
         txt <- c(txt, paste(val, collapse=sfSep))
@@ -2195,8 +2187,7 @@ AutoFilterComment [character] Optional message displayed when automatic filters 
 
     appliedFilters = function (new=NULL, help=FALSE) {
         "Get applied filters as a vector of readable/parsable strings"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (!is.null(new)) {
             err("
 ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
@@ -2207,8 +2198,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     filterSummary = function (byreason=TRUE, help=FALSE) {
         "Human-readable overview of filters and counts of rows/cols removed"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
 
         rv <- if (byreason) {
             dplyr::count(filterLog, metric, type, reason)
@@ -2239,8 +2229,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     levels = function( asFactor=FALSE, help=FALSE ) {
         "Returns factor levels, if appropriate. If not, returns NULL"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (is.factor()) {
             if (asFactor) { factor(lvlVal) } else { lvlVal }
         } else {
@@ -2250,8 +2239,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     as.mtx = function( obj=NULL, file=NULL, help=FALSE, ... ) {
         "Convert the active matrix into Matrix Market text representation"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         message("This feature still needs to be implemented",
                 prefix="[ToDo]", color='red')
 
@@ -2260,8 +2248,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     as.gmt = function( obj=NULL, transpose=FALSE, file=NULL, help=FALSE, ... ) {
         "Convert the active matrix into GMT text representation"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (is.null(obj)) obj <- matObj(transpose=transpose, ...)
         ## Only keep rows (sets) with at least one object:
         hasData  <- populatedRows(obj)
@@ -2306,8 +2293,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     melt = function( obj=NULL, file=NULL, named.dims=TRUE, help=FALSE, ... ) {
         "Represent matrix as data.frame with three rows: Row, Col, Val"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (is.null(obj)) obj <- matObj(...)
         rn <- rownames(obj)
         cn <- colnames(obj)
@@ -2343,8 +2329,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
     },
 
     as.sidecar = function(obj=NULL, file=NULL, sep="\t", help=FALSE, ... ) {
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         message("This feature still needs to be implemented",
                 prefix="[ToDo]", color='red')
 
@@ -2354,8 +2339,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
     .buildMatrix = function (metadata=NULL, levels=NULL, cols=NULL,
                              help=FALSE ) {
         "Internal method to 'manually' build matrix from data structures"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         ## The `matrixRaw` field should have been set in $initialize()
         ## We will presume that rowChanges and colChanges need not be set
         matrixMD <<- if (CatMisc::is.something(metadata)) {
@@ -2372,8 +2356,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     .readMatrix = function ( format = "", help=FALSE, ... ) {
         "Internal method to read matrix data from a variety of formats"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         if (!CatMisc::is.def(file)) err("AnnotatedMatrix objects must define 'file' when created", fatal = TRUE)
         if (!file.exists(file) && !grepl('^/', file)) {
             ## The file does not exist, but appears to be a relative path
@@ -2495,8 +2478,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
 
     metadata_keys = function ( help=FALSE ) {
         "Get all metadata keys as a character vector"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                     names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         ## Exclude the id column
         base::setdiff(names(matrixMD), "id")
     },
@@ -2504,8 +2486,7 @@ ToDo: STILL WORKING ON ROUND-TRIP PARSING FILTER TEXT
     metadata = function ( id=NULL, key=NULL, na.rm=TRUE, drop=TRUE,
                           verbose=TRUE, help=FALSE) {
         "Recover metadata for specific IDs and/or columns"
-        if (help) return( CatMisc::methodHelp(match.call(), class(.self),
-                                              names(.refClassDef@contains)) )
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
         rv <- NULL
         ## All metadata if neither key nor id is specified
         if (is.null(id) && is.null(key)) return( matrixMD )
