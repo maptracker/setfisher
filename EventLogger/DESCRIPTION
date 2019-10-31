@@ -1,11 +1,15 @@
 Package: EventLogger
 Title: Capture events and timings across multiple objects in a shared DataTable
-Version: 1.15.2
-Date: 2018-12-18
+Version: 1.15.3
+Date: 2019-10-31
 Authors@R: person("Charles", "Tilford", email = "cran@agent.fastmail.com", role = c("aut", "cre"))
 Author: Charles Tilford [aut, cre]
 Maintainer: Charles Tilford <cran@agent.fastmail.com>
-Description: This is a utility package designed to hold and report events. It builds a record of manually-defined events and tracks the timings between each for performance analysis.
+Description: This is a utility package designed to hold and report
+    events. It builds a record of manually-defined events and tracks the
+    timings between each for performance analysis.
+URL: https://github.com/maptracker/setfisher/tree/master/EventLogger
+BugReports: https://github.com/maptracker/setfisher/issues
 Depends:
     R (>= 3.1)
 Imports:
