@@ -50,6 +50,26 @@ SetFisher$methods(
 ", ...)
     },
 
+    helpSections = function ( help=FALSE ) {
+        "Static list organizing object methods into conceptual sections"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
+        list(
+            "Logging / Messaging" =
+                c("message", "dateMessage", "actionMessage", "debugMessage",
+                  "err", "verbose", "logText", "showLog"),
+            "Utility Methods" = c("tidyTime")
+            )
+    },
+
+    fieldDescriptions = function(help=FALSE) {
+        "A static list of brief descriptions for each field in this object"
+        if (help) return( CatMisc::methodHelp(match.call(), class(.self) ) )
+        list(
+            "log"      = "data.table containing actual logged data",
+            "vb"       = "Verbosity flag, set with $verbose()", 
+            "EvLogObj" = "Optional 'external' EventLogger object, for log centralization")
+    },
+
     defaultQuery = function (x=NULL, help=FALSE, ... ) {
         "Set/Get an optional default query matrix"
         if (help) {
